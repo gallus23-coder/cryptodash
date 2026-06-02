@@ -3,7 +3,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, 'data', 'crypto.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'crypto.db');
 let _db;
 
 const _stmts = new Map();
@@ -13,8 +13,16 @@ function prepare(sql) {
 }
 
 function initDb() {
+  _stmts.clear();
   _db = new Database(DB_PATH);
   _db.pragma('journal_mode = WAL');
+  // Migrate old schema: if candles table exists but lacks interval column, drop it.
+  // 1h backfill re-runs automatically on next startup.
+  const cols = _db.pragma('table_info(candles)');
+  if (cols.length > 0 && !cols.some(c => c.name === 'interval')) {
+    console.log('[db] migrating candles table to new schema');
+    _db.exec('DROP TABLE IF EXISTS candles');
+  }
   _db.exec(`
     CREATE TABLE IF NOT EXISTS coin_meta (
       id                    TEXT PRIMARY KEY,
@@ -26,16 +34,17 @@ function initDb() {
       market_cap_updated_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS candles (
-      symbol    TEXT    NOT NULL,
-      open_time INTEGER NOT NULL,
-      open      REAL    NOT NULL,
-      high      REAL    NOT NULL,
-      low       REAL    NOT NULL,
-      close     REAL    NOT NULL,
-      volume    REAL    NOT NULL,
-      PRIMARY KEY (symbol, open_time)
+      coin_id  TEXT    NOT NULL,
+      interval TEXT    NOT NULL,
+      time     INTEGER NOT NULL,
+      open     REAL    NOT NULL,
+      high     REAL    NOT NULL,
+      low      REAL    NOT NULL,
+      close    REAL    NOT NULL,
+      volume   REAL    NOT NULL,
+      UNIQUE (coin_id, interval, time)
     );
-    CREATE INDEX IF NOT EXISTS idx_candles_sym_time ON candles(symbol, open_time DESC);
+    CREATE INDEX IF NOT EXISTS idx_candles_cit ON candles(coin_id, interval, time DESC);
   `);
 }
 
@@ -61,25 +70,79 @@ function updateMarketCap(id, market_cap) {
     .run(market_cap, Date.now(), id);
 }
 
+// rows: [{ coin_id, interval, time, open, high, low, close, volume }, ...]
 function insertCandles(rows) {
   const ins = prepare(`
-    INSERT OR REPLACE INTO candles (symbol, open_time, open, high, low, close, volume)
-    VALUES (@symbol, @open_time, @open, @high, @low, @close, @volume)
+    INSERT OR IGNORE INTO candles (coin_id, interval, time, open, high, low, close, volume)
+    VALUES (@coin_id, @interval, @time, @open, @high, @low, @close, @volume)
   `);
   _db.transaction(rs => { for (const r of rs) ins.run(r); })(rows);
 }
 
-function getLastCandleTime(symbol) {
-  const row = prepare('SELECT MAX(open_time) AS t FROM candles WHERE symbol = ?').get(symbol);
+function getLastCandleTime(coin_id, interval) {
+  const row = prepare(
+    'SELECT MAX(time) AS t FROM candles WHERE coin_id = ? AND interval = ?'
+  ).get(coin_id, interval);
   return row ? row.t : null;
 }
 
 // Returns closes oldest-first (required for RSI calculation).
-function getCloses(symbol, limit) {
+function getCloses(coin_id, interval, limit) {
   const rows = prepare(
-    'SELECT close FROM candles WHERE symbol = ? ORDER BY open_time DESC LIMIT ?'
-  ).all(symbol, limit);
+    'SELECT close FROM candles WHERE coin_id = ? AND interval = ? ORDER BY time DESC LIMIT ?'
+  ).all(coin_id, interval, limit);
   return rows.map(r => r.close).reverse();
+}
+
+// Returns full candle rows for time >= since, oldest-first.
+function getCandles(coin_id, interval, since) {
+  return prepare(
+    'SELECT time, open, high, low, close, volume FROM candles ' +
+    'WHERE coin_id = ? AND interval = ? AND time >= ? ORDER BY time ASC'
+  ).all(coin_id, interval, since);
+}
+
+// Aggregate native candles into larger time buckets.
+// srcInterval: source interval to read ('1m' or '1h')
+// bucketMs: target bucket size in ms (e.g. 300000 for 5m)
+// since: start of window as unix ms
+const _AGG_SQL = `
+  SELECT
+    b.bucket       AS time,
+    j_open.open    AS open,
+    MAX(c.high)    AS high,
+    MIN(c.low)     AS low,
+    j_close.close  AS close,
+    SUM(c.volume)  AS volume
+  FROM (
+    SELECT
+      CAST(time / ? AS INTEGER) * ? AS bucket,
+      MIN(time)      AS t_open,
+      MAX(time)      AS t_close
+    FROM candles
+    WHERE coin_id = ? AND interval = ? AND time >= ?
+    GROUP BY bucket
+  ) b
+  JOIN candles c
+    ON c.coin_id = ? AND c.interval = ? AND c.time >= ?
+   AND CAST(c.time / ? AS INTEGER) * ? = b.bucket
+  JOIN candles j_open
+    ON j_open.coin_id = ? AND j_open.interval = ? AND j_open.time = b.t_open
+  JOIN candles j_close
+    ON j_close.coin_id = ? AND j_close.interval = ? AND j_close.time = b.t_close
+  GROUP BY b.bucket
+  ORDER BY b.bucket ASC
+`;
+
+function getAggCandles(coin_id, srcInterval, bucketMs, since) {
+  return prepare(_AGG_SQL).all(
+    bucketMs, bucketMs,
+    coin_id, srcInterval, since,
+    coin_id, srcInterval, since,
+    bucketMs, bucketMs,
+    coin_id, srcInterval,
+    coin_id, srcInterval,
+  );
 }
 
 function calculateRSI(closes, period = 14) {
@@ -105,5 +168,5 @@ function calculateRSI(closes, period = 14) {
 
 module.exports = {
   initDb, upsertMeta, getMeta, getAllMeta, updateMarketCap,
-  insertCandles, getLastCandleTime, getCloses, calculateRSI,
+  insertCandles, getLastCandleTime, getCloses, getCandles, getAggCandles, calculateRSI,
 };
