@@ -7,15 +7,16 @@ Local crypto watchlist dashboard running on a Raspberry Pi.
 - Vanilla JS / HTML frontend (single file: public/index.html)
 - SQLite persistence for candles + coin metadata (`data/crypto.db`) via `better-sqlite3`
 - JSON file persistence for watchlist, alerts, RSI cache, signals cache (`data/`)
-- Binance public API (no key) — live prices, 1h OHLCV candles
+- Binance public API (no key) — live prices, 1h + 1m OHLCV candles
 - CoinGecko free API (no key) — coin metadata only (name, image, market cap)
 - Anthropic API (`ANTHROPIC_API_KEY`) — buy/sell/hold signals via claude-haiku
 - systemd service
 
 ## Project structure
 - server.js — thin orchestrator: Express routes, crons, startup seed logic
-- db.js — SQLite layer: schema init, candle CRUD, coin_meta CRUD, calculateRSI
-- binance.js — Binance API: fetchTicker, backfillCandles (90 days), fetchNewCandles
+- db.js — SQLite layer: schema init + migration, candle CRUD, coin_meta CRUD, calculateRSI, pruneCandles
+- test/ — Node.js built-in test suite (node:test): test/db.test.js, test/binance.test.js
+- binance.js — Binance API: fetchTicker, backfillCandles (90d 1h / 7d 1m), fetchNewCandles
 - coingecko.js — CoinGecko API: fetchMetadata (one-time per coin), refreshMarketCaps (24h)
 - public/index.html — full frontend UI
 - data/crypto.db — SQLite: `candles` table (1h + 1m OHLCV, keyed by coin_id+interval+time), `coin_meta` table
@@ -32,7 +33,7 @@ Watchlist stores CoinGecko IDs (e.g. `bitcoin`, `avalanche-2`). Binance symbols 
 - On startup: seed CoinGecko metadata + backfill 90d of 1h candles + 7d of 1m candles for any new coin (2s delay between coins for 1m backfill)
 - Every 1 min: check price alerts (Binance ticker) + fetch new 1m candles
 - Every 15 min: fetch new 1h candles → recalculate RSI → update signals
-- Every 24h (midnight): refresh market caps from CoinGecko
+- Every 24h (midnight): refresh market caps from CoinGecko + prune 1m candles older than 7d
 - `/api/market`: assembles live response from Binance ticker + SQLite candles (sparkline, 1h change, RSI) + coin_meta (name, image, market_cap)
 - `/api/candles/:coinId?interval=`: returns OHLCV array; native 1m/1h or aggregated 5m/15m/4h/1d; fixed windows (1m→24h, 5m/15m→7d, 4h/1h/1d→90d)
 
