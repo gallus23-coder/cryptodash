@@ -80,6 +80,15 @@ async function updateRSI() {
   console.log('[RSI] updated:', Object.keys(rsiCache).map(k => `${k}=${rsiCache[k].rsi}`).join(', '));
 }
 
+async function fetchPrices(ids) {
+  const url = `https://api.coingecko.com/api/v3/coins/markets` +
+    `?vs_currency=usd&ids=${ids.join(',')}&order=market_cap_desc` +
+    `&sparkline=true&price_change_percentage=1h,24h,7d`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+  return res.json();
+}
+
 async function updateSignals() {
   const wl = readJson(WATCHLIST_FILE, { coins: [] });
   if (!wl.coins.length) return;
@@ -146,17 +155,13 @@ async function updateSignals() {
     await new Promise(r => setTimeout(r, 500));
   }
 
+  // evict coins removed from watchlist
+  for (const id of Object.keys(signalCache)) {
+    if (!wl.coins.includes(id)) delete signalCache[id];
+  }
+
   writeJson(SIGNALS_FILE, signalCache);
   console.log('[signals] updated:', Object.keys(signalCache).map(k => `${k}=${signalCache[k].signal}`).join(', '));
-}
-
-async function fetchPrices(ids) {
-  const url = `https://api.coingecko.com/api/v3/coins/markets` +
-    `?vs_currency=usd&ids=${ids.join(',')}&order=market_cap_desc` +
-    `&sparkline=true&price_change_percentage=1h,24h,7d`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
-  return res.json();
 }
 
 // ── watchlist routes ──────────────────────────────────────────────────────────
