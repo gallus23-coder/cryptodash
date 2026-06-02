@@ -65,6 +65,7 @@ async function seedCoin(id) {
     } catch (e) {
       console.error(`[seed] market cap refresh failed for ${id}:`, e.message);
     }
+    meta = db.getMeta(id); // re-read so meta.market_cap_updated_at is current
   }
 
   if (!meta || !meta.symbol) return;
@@ -387,7 +388,7 @@ cron.schedule('*/15 * * * *', () => {
   updateCandles()
     .then(() => updateRSI())
     .then(() => updateSignals())
-    .catch(e => console.error('[cron 15min]', e.message));
+    .catch(e => console.error('[cron 15min] unexpected error:', e.message));
 });
 
 // every 24 hours at midnight: refresh market caps from CoinGecko
