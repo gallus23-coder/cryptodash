@@ -1,22 +1,27 @@
+// server.js
+'use strict';
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const cron = require('node-cron');
 const notifier = require('node-notifier');
+const db = require('./db');
+const binance = require('./binance');
+const coingecko = require('./coingecko');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 const WATCHLIST_FILE = path.join(DATA_DIR, 'watchlist.json');
-const ALERTS_FILE = path.join(DATA_DIR, 'alerts.json');
+const ALERTS_FILE    = path.join(DATA_DIR, 'alerts.json');
 const TRIGGERED_FILE = path.join(DATA_DIR, 'triggered.json');
-const RSI_FILE = path.join(DATA_DIR, 'rsi.json');
-const SIGNALS_FILE = path.join(DATA_DIR, 'signals.json');
+const RSI_FILE       = path.join(DATA_DIR, 'rsi.json');
+const SIGNALS_FILE   = path.join(DATA_DIR, 'signals.json');
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
@@ -27,96 +32,118 @@ function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
-function calculateRSI(prices, period = 14) {
-  if (prices.length < period + 1) return null;
-  const changes = [];
-  for (let i = 1; i < prices.length; i++) {
-    changes.push(prices[i] - prices[i - 1]);
+// ── seed helpers ──────────────────────────────────────────────────────────────
+
+// Fetch CoinGecko metadata + Binance candle history for one coin.
+// Idempotent: skips steps already completed. Safe to re-run.
+async function seedCoin(id) {
+  let meta = db.getMeta(id);
+  if (!meta) {
+    let cgData;
+    try {
+      cgData = await coingecko.fetchMetadata(id);
+    } catch (e) {
+      console.error(`[seed] metadata failed for ${id}:`, e.message);
+      return;
+    }
+    const symbol = binance.SYMBOL_MAP[id] || (cgData.cgSymbol + 'USDT');
+    db.upsertMeta({
+      id, symbol,
+      name: cgData.name,
+      image: cgData.image,
+      market_cap: cgData.market_cap,
+      meta_fetched_at: Date.now(),
+      market_cap_updated_at: Date.now(),
+    });
+    meta = db.getMeta(id);
+    console.log(`[seed] metadata stored for ${id} (${symbol})`);
+    await new Promise(r => setTimeout(r, 1200)); // CoinGecko free-tier rate limit
+  } else if (Date.now() - meta.market_cap_updated_at > 24 * 60 * 60 * 1000) {
+    try {
+      const caps = await coingecko.refreshMarketCaps([id]);
+      if (caps[id] != null) db.updateMarketCap(id, caps[id]);
+    } catch (e) {
+      console.error(`[seed] market cap refresh failed for ${id}:`, e.message);
+    }
   }
-  // seed: simple average of first `period` changes
-  let avgGain = 0, avgLoss = 0;
-  for (let i = 0; i < period; i++) {
-    if (changes[i] > 0) avgGain += changes[i];
-    else avgLoss += Math.abs(changes[i]);
+
+  if (!meta || !meta.symbol) return;
+  if (!db.getLastCandleTime(meta.symbol)) {
+    try {
+      await binance.backfillCandles(meta.symbol, db);
+    } catch (e) {
+      console.error(`[seed] backfill failed for ${meta.symbol}:`, e.message);
+    }
   }
-  avgGain /= period;
-  avgLoss /= period;
-  // smooth remaining
-  for (let i = period; i < changes.length; i++) {
-    const gain = changes[i] > 0 ? changes[i] : 0;
-    const loss = changes[i] < 0 ? Math.abs(changes[i]) : 0;
-    avgGain = (avgGain * (period - 1) + gain) / period;
-    avgLoss = (avgLoss * (period - 1) + loss) / period;
-  }
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return parseFloat((100 - 100 / (1 + rs)).toFixed(2));
 }
 
-async function fetchMarketChart(id) {
-  const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
-    `?vs_currency=usd&days=30&interval=daily`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`CoinGecko market_chart ${res.status} for ${id}`);
-  return res.json();
+async function seedAndBackfill() {
+  const wl = readJson(WATCHLIST_FILE, { coins: [] });
+  for (const id of wl.coins) await seedCoin(id);
+}
+
+// ── background jobs ───────────────────────────────────────────────────────────
+
+async function updateCandles() {
+  const wl = readJson(WATCHLIST_FILE, { coins: [] });
+  const metaById = Object.fromEntries(db.getAllMeta().map(m => [m.id, m]));
+  for (const id of wl.coins) {
+    const meta = metaById[id];
+    if (!meta || !meta.symbol) continue;
+    try {
+      await binance.fetchNewCandles(meta.symbol, db);
+    } catch (e) {
+      console.error(`[candles] update failed for ${meta.symbol}:`, e.message);
+    }
+  }
 }
 
 async function updateRSI() {
   const wl = readJson(WATCHLIST_FILE, { coins: [] });
   if (!wl.coins.length) return;
+  const metaById = Object.fromEntries(db.getAllMeta().map(m => [m.id, m]));
   const rsiCache = readJson(RSI_FILE, {});
   for (const id of wl.coins) {
-    try {
-      const chart = await fetchMarketChart(id);
-      const closes = chart.prices.map(p => p[1]);
-      rsiCache[id] = { rsi: calculateRSI(closes), updatedAt: new Date().toISOString() };
-    } catch (e) {
-      console.error(`[RSI] ${id}:`, e.message);
-    }
-    // avoid rate-limiting on free tier
-    await new Promise(r => setTimeout(r, 1200));
+    const meta = metaById[id];
+    if (!meta || !meta.symbol) continue;
+    const closes = db.getCloses(meta.symbol, 300);
+    rsiCache[id] = { rsi: db.calculateRSI(closes), updatedAt: new Date().toISOString() };
+  }
+  for (const id of Object.keys(rsiCache)) {
+    if (!wl.coins.includes(id)) delete rsiCache[id];
   }
   writeJson(RSI_FILE, rsiCache);
   console.log('[RSI] updated:', Object.keys(rsiCache).map(k => `${k}=${rsiCache[k].rsi}`).join(', '));
-}
-
-async function fetchPrices(ids) {
-  const url = `https://api.coingecko.com/api/v3/coins/markets` +
-    `?vs_currency=usd&ids=${ids.join(',')}&order=market_cap_desc` +
-    `&sparkline=true&price_change_percentage=1h,24h,7d`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
-  return res.json();
 }
 
 async function updateSignals() {
   const wl = readJson(WATCHLIST_FILE, { coins: [] });
   if (!wl.coins.length) return;
 
-  const rsiCache = readJson(RSI_FILE, {});
-  let marketData = [];
-  try {
-    marketData = await fetchPrices(wl.coins);
-  } catch (e) {
-    console.error('[signals] price fetch failed:', e.message);
-    return;
-  }
-
+  const rsiCache    = readJson(RSI_FILE, {});
   const signalCache = readJson(SIGNALS_FILE, {});
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.error('[signals] ANTHROPIC_API_KEY not set');
-    return;
-  }
+  if (!apiKey) { console.error('[signals] ANTHROPIC_API_KEY not set'); return; }
 
-  for (const coin of marketData) {
-    const rsiEntry = rsiCache[coin.id];
-    const rsi = rsiEntry ? rsiEntry.rsi : null;
+  for (const id of wl.coins) {
+    const meta = db.getMeta(id);
+    if (!meta || !meta.symbol) continue;
+    let ticker;
+    try {
+      ticker = await binance.fetchTicker(meta.symbol);
+    } catch (e) {
+      console.error(`[signals] ticker failed for ${id}:`, e.message);
+      continue;
+    }
+    const rsiEntry = rsiCache[id];
+    const rsi      = rsiEntry ? rsiEntry.rsi : null;
+    const price    = parseFloat(ticker.lastPrice);
+    const change24h = parseFloat(ticker.priceChangePercent);
     try {
       const prompt =
-        `Coin: ${coin.name}\n` +
-        `Current price: $${coin.current_price}\n` +
-        `24h change: ${coin.price_change_percentage_24h != null ? coin.price_change_percentage_24h.toFixed(2) : 'N/A'}%\n` +
+        `Coin: ${meta.name}\n` +
+        `Current price: $${price}\n` +
+        `24h change: ${change24h.toFixed(2)}%\n` +
         `RSI (14): ${rsi != null ? rsi : 'unavailable'}\n\n` +
         `Respond with valid JSON only, no markdown, no prose:\n` +
         `{"signal":"buy","summary":"..."} where signal is exactly one of: buy, sell, hold. ` +
@@ -127,41 +154,46 @@ async function updateSignals() {
         headers: {
           'content-type': 'application/json',
           'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01'
+          'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 200,
-          messages: [{ role: 'user', content: prompt }]
-        })
+          messages: [{ role: 'user', content: prompt }],
+        }),
       });
-
       if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
-      const body = await res.json();
-      const text = body.content[0].text.trim();
+      const body   = await res.json();
+      const text   = body.content[0].text.trim();
       const parsed = JSON.parse(text);
       if (!['buy', 'sell', 'hold'].includes(parsed.signal)) throw new Error(`invalid signal: ${parsed.signal}`);
       if (typeof parsed.summary !== 'string') throw new Error('missing summary');
-
-      signalCache[coin.id] = {
-        signal: parsed.signal,
-        summary: parsed.summary,
-        updatedAt: new Date().toISOString()
-      };
+      signalCache[id] = { signal: parsed.signal, summary: parsed.summary, updatedAt: new Date().toISOString() };
     } catch (e) {
-      console.error(`[signals] ${coin.id}:`, e.message);
+      console.error(`[signals] ${id}:`, e.message);
     }
-    // avoid Anthropic rate limits
     await new Promise(r => setTimeout(r, 500));
   }
 
-  // evict coins removed from watchlist
   for (const id of Object.keys(signalCache)) {
     if (!wl.coins.includes(id)) delete signalCache[id];
   }
-
   writeJson(SIGNALS_FILE, signalCache);
   console.log('[signals] updated:', Object.keys(signalCache).map(k => `${k}=${signalCache[k].signal}`).join(', '));
+}
+
+async function refreshAllMarketCaps() {
+  const wl = readJson(WATCHLIST_FILE, { coins: [] });
+  if (!wl.coins.length) return;
+  try {
+    const caps = await coingecko.refreshMarketCaps(wl.coins);
+    for (const [id, cap] of Object.entries(caps)) {
+      if (cap != null) db.updateMarketCap(id, cap);
+    }
+    console.log('[market_cap] refreshed:', Object.keys(caps).join(', '));
+  } catch (e) {
+    console.error('[market_cap] refresh failed:', e.message);
+  }
 }
 
 // ── watchlist routes ──────────────────────────────────────────────────────────
@@ -175,8 +207,12 @@ app.post('/api/watchlist', (req, res) => {
   if (!coin) return res.status(400).json({ error: 'coin required' });
   const wl = readJson(WATCHLIST_FILE, { coins: [] });
   const id = coin.toLowerCase().trim();
-  if (!wl.coins.includes(id)) wl.coins.push(id);
-  writeJson(WATCHLIST_FILE, wl);
+  if (!wl.coins.includes(id)) {
+    wl.coins.push(id);
+    writeJson(WATCHLIST_FILE, wl);
+    // seed metadata + backfill candles in background; dashboard shows "—" until ready
+    seedCoin(id).catch(e => console.error(`[seed] ${id}:`, e.message));
+  }
   res.json(wl);
 });
 
@@ -187,26 +223,59 @@ app.delete('/api/watchlist/:coin', (req, res) => {
   res.json(wl);
 });
 
-// ── market data route ─────────────────────────────────────────────────────────
+// ── market data route ──────────────────────────────────────────────────────────
 
 app.get('/api/market', async (req, res) => {
   const wl = readJson(WATCHLIST_FILE, { coins: [] });
   if (!wl.coins.length) return res.json([]);
   try {
-    const data = await fetchPrices(wl.coins);
-    res.json(data);
+    const metaById = Object.fromEntries(db.getAllMeta().map(m => [m.id, m]));
+    const results = await Promise.all(wl.coins.map(async id => {
+      const meta = metaById[id];
+      if (!meta || !meta.symbol) return null;
+      let ticker;
+      try {
+        ticker = await binance.fetchTicker(meta.symbol);
+      } catch (e) {
+        console.error(`[market] ticker failed for ${meta.symbol}:`, e.message);
+        return null;
+      }
+      const closes300 = db.getCloses(meta.symbol, 300);
+      const closes168 = closes300.slice(-168);
+      const closes2   = closes300.slice(-2);
+      const p1h = closes2.length === 2
+        ? (closes2[1] - closes2[0]) / closes2[0] * 100
+        : null;
+      const p7d = closes168.length >= 2
+        ? (closes168[closes168.length - 1] - closes168[0]) / closes168[0] * 100
+        : null;
+      return {
+        id,
+        symbol: meta.symbol.replace('USDT', '').toLowerCase(),
+        name:   meta.name,
+        image:  meta.image,
+        current_price:                         parseFloat(ticker.lastPrice),
+        price_change_percentage_1h_in_currency: p1h,
+        price_change_percentage_24h:            parseFloat(ticker.priceChangePercent),
+        price_change_percentage_7d_in_currency: p7d,
+        market_cap:   meta.market_cap,
+        total_volume: parseFloat(ticker.quoteVolume),
+        sparkline_in_7d: { price: closes168 },
+      };
+    }));
+    res.json(results.filter(Boolean));
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
 });
 
-// ── RSI route ─────────────────────────────────────────────────────────────────
+// ── RSI route ──────────────────────────────────────────────────────────────────
 
 app.get('/api/rsi', (req, res) => {
   res.json(readJson(RSI_FILE, {}));
 });
 
-// ── signals route ─────────────────────────────────────────────────────────────
+// ── signals route ──────────────────────────────────────────────────────────────
 
 app.get('/api/signals', (req, res) => {
   res.json(readJson(SIGNALS_FILE, {}));
@@ -226,11 +295,11 @@ app.post('/api/alerts', (req, res) => {
   const alert = {
     id: Date.now().toString(),
     coin: coin.toLowerCase(),
-    condition,        // "above" | "below"
+    condition,
     price: Number(price),
     label: label || '',
     createdAt: new Date().toISOString(),
-    active: true
+    active: true,
   };
   store.alerts.push(alert);
   writeJson(ALERTS_FILE, store);
@@ -250,30 +319,36 @@ app.patch('/api/alerts/:id/reset', (req, res) => {
   if (!alert) return res.status(404).json({ error: 'not found' });
   alert.active = true;
   writeJson(ALERTS_FILE, store);
-  // clear triggered record
   const tr = readJson(TRIGGERED_FILE, { triggered: [] });
   tr.triggered = tr.triggered.filter(id => id !== req.params.id);
   writeJson(TRIGGERED_FILE, tr);
   res.json(alert);
 });
 
-// ── cron: check alerts every minute ──────────────────────────────────────────
+// ── alert checker ──────────────────────────────────────────────────────────────
 
 async function checkAlerts() {
-  const store = readJson(ALERTS_FILE, { alerts: [] });
+  const store  = readJson(ALERTS_FILE, { alerts: [] });
   const active = store.alerts.filter(a => a.active);
   if (!active.length) return;
 
   const triggered = readJson(TRIGGERED_FILE, { triggered: [] });
-  const coins = [...new Set(active.map(a => a.coin))];
+  const coinIds   = [...new Set(active.map(a => a.coin))];
 
-  let prices;
-  try {
-    const data = await fetchPrices(coins);
-    prices = Object.fromEntries(data.map(d => [d.id, d.current_price]));
-  } catch (e) {
-    console.error('[alert check] fetch failed:', e.message);
-    return;
+  // fetch current price per coin from Binance
+  const prices = {};
+  for (const id of coinIds) {
+    const meta = db.getMeta(id);
+    if (!meta || !meta.symbol) {
+      console.warn(`[alert check] no symbol for ${id} — skipping`);
+      continue;
+    }
+    try {
+      const ticker = await binance.fetchTicker(meta.symbol);
+      prices[id] = parseFloat(ticker.lastPrice);
+    } catch (e) {
+      console.error(`[alert check] ticker failed for ${id}:`, e.message);
+    }
   }
 
   let changed = false;
@@ -281,22 +356,18 @@ async function checkAlerts() {
     if (triggered.triggered.includes(alert.id)) continue;
     const current = prices[alert.coin];
     if (current == null) continue;
-
     const hit =
       (alert.condition === 'above' && current >= alert.price) ||
       (alert.condition === 'below' && current <= alert.price);
-
     if (hit) {
       const msg = `${alert.coin.toUpperCase()} is ${alert.condition} $${alert.price.toLocaleString()} — now $${current.toLocaleString()}`;
       console.log(`[ALERT] ${msg}`);
-
       notifier.notify({
         title: 'Crypto Alert' + (alert.label ? `: ${alert.label}` : ''),
         message: msg,
         sound: true,
-        wait: false
+        wait: false,
       });
-
       triggered.triggered.push(alert.id);
       changed = true;
     }
@@ -304,22 +375,36 @@ async function checkAlerts() {
   if (changed) writeJson(TRIGGERED_FILE, triggered);
 }
 
+// ── cron jobs ──────────────────────────────────────────────────────────────────
+
+// every minute: check price alerts
 cron.schedule('* * * * *', () => {
-  checkAlerts().catch(e => console.error('[cron]', e.message));
+  checkAlerts().catch(e => console.error('[cron alerts]', e.message));
 });
 
-cron.schedule('*/10 * * * *', () => {
-  updateRSI()
+// every 15 minutes: fetch new candles → recalc RSI → update signals
+cron.schedule('*/15 * * * *', () => {
+  updateCandles()
+    .then(() => updateRSI())
     .then(() => updateSignals())
-    .catch(e => console.error('[rsi/signals cron]', e.message));
+    .catch(e => console.error('[cron 15min]', e.message));
 });
 
-// ── start ────────────────────────────────────────────────────────────────────
+// every 24 hours at midnight: refresh market caps from CoinGecko
+cron.schedule('0 0 * * *', () => {
+  refreshAllMarketCaps().catch(e => console.error('[cron 24h]', e.message));
+});
 
+// ── start ─────────────────────────────────────────────────────────────────────
+
+db.initDb();
 app.listen(PORT, () => {
   console.log(`\n  Crypto Dashboard running at http://localhost:${PORT}\n`);
-  // run first alert check after 5s
-  setTimeout(() => checkAlerts().catch(() => {}), 5000);
-  // run first RSI + signals update after 10s
-  setTimeout(() => updateRSI().then(() => updateSignals()).catch(() => {}), 10000);
+  // seed metadata + backfill candles; start background jobs after
+  seedAndBackfill()
+    .then(() => {
+      setTimeout(() => checkAlerts().catch(() => {}), 2000);
+      setTimeout(() => updateCandles().then(() => updateRSI()).then(() => updateSignals()).catch(() => {}), 4000);
+    })
+    .catch(e => console.error('[startup]', e.message));
 });
