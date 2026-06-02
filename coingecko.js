@@ -11,15 +11,15 @@ async function fetchMetadata(id) {
   if (!res.ok) throw new Error(`CoinGecko metadata ${res.status} for ${id}`);
   const data = await res.json();
   return {
-    cgSymbol: data.symbol.toUpperCase(), // e.g. "BTC"
+    cgSymbol: (data.symbol || '').toUpperCase(), // e.g. "BTC"
     name: data.name,
-    image: data.image.large,
+    image: data.image?.large ?? null,
     market_cap: data.market_data.market_cap.usd ?? null,
   };
 }
 
 // Batch-fetch market caps for multiple coins. Called every 24h.
-// Returns { [coingeckoId]: market_cap_usd }
+// Returns { [coingeckoId]: market_cap_usd } — market_cap may be null for some coins; callers must guard with != null.
 async function refreshMarketCaps(ids) {
   if (!ids.length) return {};
   const url = `https://api.coingecko.com/api/v3/coins/markets` +
