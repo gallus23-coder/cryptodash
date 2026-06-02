@@ -73,8 +73,11 @@ function updateMarketCap(id, market_cap) {
 // rows: [{ coin_id, interval, time, open, high, low, close, volume }, ...]
 function insertCandles(rows) {
   const ins = prepare(`
-    INSERT OR IGNORE INTO candles (coin_id, interval, time, open, high, low, close, volume)
+    INSERT INTO candles (coin_id, interval, time, open, high, low, close, volume)
     VALUES (@coin_id, @interval, @time, @open, @high, @low, @close, @volume)
+    ON CONFLICT(coin_id, interval, time) DO UPDATE SET
+      open=excluded.open, high=excluded.high, low=excluded.low,
+      close=excluded.close, volume=excluded.volume
   `);
   _db.transaction(rs => { for (const r of rs) ins.run(r); })(rows);
 }
@@ -166,7 +169,19 @@ function calculateRSI(closes, period = 14) {
   return parseFloat((100 - 100 / (1 + avgGain / avgLoss)).toFixed(2));
 }
 
+// Prune candles older than keepMs for a given interval. Called daily.
+function pruneCandles(interval, keepMs) {
+  const cutoff = Date.now() - keepMs;
+  const result = _db.prepare(
+    'DELETE FROM candles WHERE interval = ? AND time < ?'
+  ).run(interval, cutoff);
+  if (result.changes > 0) {
+    console.log(`[db] pruned ${result.changes} old ${interval} candles`);
+  }
+}
+
 module.exports = {
   initDb, upsertMeta, getMeta, getAllMeta, updateMarketCap,
-  insertCandles, getLastCandleTime, getCloses, getCandles, getAggCandles, calculateRSI,
+  insertCandles, getLastCandleTime, getCloses, getCandles, getAggCandles,
+  calculateRSI, pruneCandles,
 };

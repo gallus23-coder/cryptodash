@@ -448,9 +448,14 @@ cron.schedule('*/15 * * * *', () => {
     .catch(e => console.error('[cron 15min] unexpected error:', e.message));
 });
 
-// every 24 hours at midnight: refresh market caps from CoinGecko
+// every 24 hours at midnight: refresh market caps + prune old 1m candles
 cron.schedule('0 0 * * *', () => {
   refreshAllMarketCaps().catch(e => console.error('[cron 24h]', e.message));
+  try {
+    db.pruneCandles('1m', 7 * 24 * 3600 * 1000);
+  } catch (e) {
+    console.error('[cron prune]', e.message);
+  }
 });
 
 // ── start ─────────────────────────────────────────────────────────────────────
