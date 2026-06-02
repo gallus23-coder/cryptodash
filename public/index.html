@@ -323,8 +323,9 @@ function renderTable() {
     const rsiText = rsiVal == null ? '<span style="color:var(--muted)">—</span>' :
       `<span class="rsi-badge ${rsiClass}">${rsiVal.toFixed(1)}</span>`;
     const sigEntry = signalData[row.id];
-    const sigHtml = sigEntry
-      ? `<span class="signal-badge signal-${sigEntry.signal}" title="${sigEntry.summary.replace(/"/g, '&quot;')}">${sigEntry.signal.toUpperCase()}</span>`
+    const validSignal = sigEntry && ['buy', 'sell', 'hold'].includes(sigEntry.signal) ? sigEntry.signal : null;
+    const sigHtml = validSignal
+      ? `<span class="signal-badge signal-${validSignal}" title="${sigEntry.summary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}">${validSignal.toUpperCase()}</span>`
       : `<span class="signal-badge signal-pending">Pending</span>`;
     rows += `<tr>
       <td><div class="coin-cell">
