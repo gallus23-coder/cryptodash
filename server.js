@@ -165,7 +165,9 @@ async function updateSignals() {
       });
       if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
       const body   = await res.json();
-      const text   = body.content[0].text.trim();
+      const raw    = body.content[0].text.trim();
+      // Strip markdown code fences if the model wraps the JSON in ```...```
+      const text   = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
       const parsed = JSON.parse(text);
       if (!['buy', 'sell', 'hold'].includes(parsed.signal)) throw new Error(`invalid signal: ${parsed.signal}`);
       if (typeof parsed.summary !== 'string') throw new Error('missing summary');
