@@ -10,6 +10,8 @@ const DATA_DIR = path.join(__dirname, 'data');
 const WATCHLIST_FILE = path.join(DATA_DIR, 'watchlist.json');
 const ALERTS_FILE = path.join(DATA_DIR, 'alerts.json');
 const TRIGGERED_FILE = path.join(DATA_DIR, 'triggered.json');
+const RSI_FILE = path.join(DATA_DIR, 'rsi.json');
+const SIGNALS_FILE = path.join(DATA_DIR, 'signals.json');
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -23,6 +25,129 @@ function readJson(file, fallback) {
 
 function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
+}
+
+function calculateRSI(prices, period = 14) {
+  if (prices.length < period + 1) return null;
+  const changes = [];
+  for (let i = 1; i < prices.length; i++) {
+    changes.push(prices[i] - prices[i - 1]);
+  }
+  // seed: simple average of first `period` changes
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 0; i < period; i++) {
+    if (changes[i] > 0) avgGain += changes[i];
+    else avgLoss += Math.abs(changes[i]);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+  // smooth remaining
+  for (let i = period; i < changes.length; i++) {
+    const gain = changes[i] > 0 ? changes[i] : 0;
+    const loss = changes[i] < 0 ? Math.abs(changes[i]) : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return parseFloat((100 - 100 / (1 + rs)).toFixed(2));
+}
+
+async function fetchMarketChart(id) {
+  const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
+    `?vs_currency=usd&days=30&interval=daily`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`CoinGecko market_chart ${res.status} for ${id}`);
+  return res.json();
+}
+
+async function updateRSI() {
+  const wl = readJson(WATCHLIST_FILE, { coins: [] });
+  if (!wl.coins.length) return;
+  const rsiCache = readJson(RSI_FILE, {});
+  for (const id of wl.coins) {
+    try {
+      const chart = await fetchMarketChart(id);
+      const closes = chart.prices.map(p => p[1]);
+      rsiCache[id] = { rsi: calculateRSI(closes), updatedAt: new Date().toISOString() };
+    } catch (e) {
+      console.error(`[RSI] ${id}:`, e.message);
+    }
+    // avoid rate-limiting on free tier
+    await new Promise(r => setTimeout(r, 1200));
+  }
+  writeJson(RSI_FILE, rsiCache);
+  console.log('[RSI] updated:', Object.keys(rsiCache).map(k => `${k}=${rsiCache[k].rsi}`).join(', '));
+}
+
+async function updateSignals() {
+  const wl = readJson(WATCHLIST_FILE, { coins: [] });
+  if (!wl.coins.length) return;
+
+  const rsiCache = readJson(RSI_FILE, {});
+  let marketData = [];
+  try {
+    marketData = await fetchPrices(wl.coins);
+  } catch (e) {
+    console.error('[signals] price fetch failed:', e.message);
+    return;
+  }
+
+  const signalCache = readJson(SIGNALS_FILE, {});
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('[signals] ANTHROPIC_API_KEY not set');
+    return;
+  }
+
+  for (const coin of marketData) {
+    const rsiEntry = rsiCache[coin.id];
+    const rsi = rsiEntry ? rsiEntry.rsi : null;
+    try {
+      const prompt =
+        `Coin: ${coin.name}\n` +
+        `Current price: $${coin.current_price}\n` +
+        `24h change: ${coin.price_change_percentage_24h != null ? coin.price_change_percentage_24h.toFixed(2) : 'N/A'}%\n` +
+        `RSI (14): ${rsi != null ? rsi : 'unavailable'}\n\n` +
+        `Respond with valid JSON only, no markdown, no prose:\n` +
+        `{"signal":"buy","summary":"..."} where signal is exactly one of: buy, sell, hold. ` +
+        `Summary is 1-2 plain English sentences suitable for a trading dashboard.`;
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 200,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+
+      if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
+      const body = await res.json();
+      const text = body.content[0].text.trim();
+      const parsed = JSON.parse(text);
+      if (!['buy', 'sell', 'hold'].includes(parsed.signal)) throw new Error(`invalid signal: ${parsed.signal}`);
+      if (typeof parsed.summary !== 'string') throw new Error('missing summary');
+
+      signalCache[coin.id] = {
+        signal: parsed.signal,
+        summary: parsed.summary,
+        updatedAt: new Date().toISOString()
+      };
+    } catch (e) {
+      console.error(`[signals] ${coin.id}:`, e.message);
+    }
+    // avoid Anthropic rate limits
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  writeJson(SIGNALS_FILE, signalCache);
+  console.log('[signals] updated:', Object.keys(signalCache).map(k => `${k}=${signalCache[k].signal}`).join(', '));
 }
 
 async function fetchPrices(ids) {
@@ -68,6 +193,18 @@ app.get('/api/market', async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+
+// ── RSI route ─────────────────────────────────────────────────────────────────
+
+app.get('/api/rsi', (req, res) => {
+  res.json(readJson(RSI_FILE, {}));
+});
+
+// ── signals route ─────────────────────────────────────────────────────────────
+
+app.get('/api/signals', (req, res) => {
+  res.json(readJson(SIGNALS_FILE, {}));
 });
 
 // ── alerts routes ─────────────────────────────────────────────────────────────
@@ -166,10 +303,18 @@ cron.schedule('* * * * *', () => {
   checkAlerts().catch(e => console.error('[cron]', e.message));
 });
 
+cron.schedule('*/10 * * * *', () => {
+  updateRSI()
+    .then(() => updateSignals())
+    .catch(e => console.error('[rsi/signals cron]', e.message));
+});
+
 // ── start ────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
   console.log(`\n  Crypto Dashboard running at http://localhost:${PORT}\n`);
   // run first alert check after 5s
   setTimeout(() => checkAlerts().catch(() => {}), 5000);
+  // run first RSI + signals update after 10s
+  setTimeout(() => updateRSI().then(() => updateSignals()).catch(() => {}), 10000);
 });
