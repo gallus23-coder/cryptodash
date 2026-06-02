@@ -69,12 +69,20 @@ async function seedCoin(id) {
   }
 
   if (!meta || !meta.symbol) return;
-  if (!db.getLastCandleTime(meta.symbol)) {
+  if (!db.getLastCandleTime(id, '1h')) {
     try {
-      await binance.backfillCandles(meta.symbol, db);
+      await binance.backfillCandles(id, meta.symbol, '1h', 90 * 24 * 3600 * 1000, db);
     } catch (e) {
-      console.error(`[seed] backfill failed for ${meta.symbol}:`, e.message);
+      console.error(`[seed] 1h backfill failed for ${id}:`, e.message);
     }
+  }
+  if (!db.getLastCandleTime(id, '1m')) {
+    try {
+      await binance.backfillCandles(id, meta.symbol, '1m', 7 * 24 * 3600 * 1000, db);
+    } catch (e) {
+      console.error(`[seed] 1m backfill failed for ${id}:`, e.message);
+    }
+    await new Promise(r => setTimeout(r, 2000)); // rate-limit gap between coins for 1m backfill
   }
 }
 
@@ -92,9 +100,23 @@ async function updateCandles() {
     const meta = metaById[id];
     if (!meta || !meta.symbol) continue;
     try {
-      await binance.fetchNewCandles(meta.symbol, db);
+      await binance.fetchNewCandles(id, meta.symbol, '1h', db);
     } catch (e) {
-      console.error(`[candles] update failed for ${meta.symbol}:`, e.message);
+      console.error(`[candles] 1h update failed for ${id}:`, e.message);
+    }
+  }
+}
+
+async function update1mCandles() {
+  const wl = readJson(WATCHLIST_FILE, { coins: [] });
+  const metaById = Object.fromEntries(db.getAllMeta().map(m => [m.id, m]));
+  for (const id of wl.coins) {
+    const meta = metaById[id];
+    if (!meta || !meta.symbol) continue;
+    try {
+      await binance.fetchNewCandles(id, meta.symbol, '1m', db);
+    } catch (e) {
+      console.error(`[candles] 1m update failed for ${id}:`, e.message);
     }
   }
 }
@@ -107,7 +129,7 @@ async function updateRSI() {
   for (const id of wl.coins) {
     const meta = metaById[id];
     if (!meta || !meta.symbol) continue;
-    const closes = db.getCloses(meta.symbol, 300);
+    const closes = db.getCloses(id, '1h', 300);
     rsiCache[id] = { rsi: db.calculateRSI(closes), updatedAt: new Date().toISOString() };
   }
   for (const id of Object.keys(rsiCache)) {
@@ -243,7 +265,7 @@ app.get('/api/market', async (req, res) => {
         console.error(`[market] ticker failed for ${meta.symbol}:`, e.message);
         return null;
       }
-      const closes300 = db.getCloses(meta.symbol, 300);
+      const closes300 = db.getCloses(id, '1h', 300);
       const closes168 = closes300.slice(-168);
       const closes2   = closes300.slice(-2);
       const p1h = closes2.length === 2
@@ -270,6 +292,37 @@ app.get('/api/market', async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+
+// ── candles route ──────────────────────────────────────────────────────────────
+
+app.get('/api/candles/:coinId', (req, res) => {
+  const { coinId } = req.params;
+  const interval = req.query.interval || '1h';
+
+  // Fixed time window per interval
+  const windows = {
+    '1m':   24 *  3600 * 1000,
+    '5m':    7 * 86400 * 1000,
+    '15m':  30 * 86400 * 1000,
+    '4h':   90 * 86400 * 1000,
+    '1h':   90 * 86400 * 1000,
+    '1d':  365 * 86400 * 1000,
+  };
+  // Derived intervals: bucket size in ms + source interval
+  const buckets = { '5m': 300000, '15m': 900000, '4h': 14400000, '1d': 86400000 };
+
+  if (!windows[interval]) return res.status(400).json({ error: 'invalid interval' });
+
+  const since = Date.now() - windows[interval];
+  let candles;
+  if (buckets[interval]) {
+    const src = interval === '1d' ? '1h' : '1m';
+    candles = db.getAggCandles(coinId, src, buckets[interval], since);
+  } else {
+    candles = db.getCandles(coinId, interval, since);
+  }
+  res.json(candles);
 });
 
 // ── RSI route ──────────────────────────────────────────────────────────────────
@@ -380,9 +433,10 @@ async function checkAlerts() {
 
 // ── cron jobs ──────────────────────────────────────────────────────────────────
 
-// every minute: check price alerts
+// every minute: check price alerts + fetch new 1m candles
 cron.schedule('* * * * *', () => {
   checkAlerts().catch(e => console.error('[cron alerts]', e.message));
+  update1mCandles().catch(e => console.error('[cron 1m candles]', e.message));
 });
 
 // every 15 minutes: fetch new candles → recalc RSI → update signals

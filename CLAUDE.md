@@ -18,7 +18,7 @@ Local crypto watchlist dashboard running on a Raspberry Pi.
 - binance.js — Binance API: fetchTicker, backfillCandles (90 days), fetchNewCandles
 - coingecko.js — CoinGecko API: fetchMetadata (one-time per coin), refreshMarketCaps (24h)
 - public/index.html — full frontend UI
-- data/crypto.db — SQLite: `candles` table (1h OHLCV), `coin_meta` table
+- data/crypto.db — SQLite: `candles` table (1h + 1m OHLCV, keyed by coin_id+interval+time), `coin_meta` table
 - data/watchlist.json — persisted coin watchlist (stores CoinGecko IDs as canonical keys)
 - data/alerts.json — persisted price alerts
 - data/triggered.json — auto-created, tracks fired alerts
@@ -29,11 +29,12 @@ Local crypto watchlist dashboard running on a Raspberry Pi.
 Watchlist stores CoinGecko IDs (e.g. `bitcoin`, `avalanche-2`). Binance symbols resolved via hardcoded `SYMBOL_MAP` in `binance.js` (e.g. `bitcoin → BTCUSDT`). Unknown coins fall back to `cgSymbol + USDT` from CoinGecko metadata. Resolved symbol stored in `coin_meta.symbol`.
 
 ## Data flow
-- On startup: seed CoinGecko metadata + backfill 90 days of 1h candles for any new coin
-- Every 1 min: check price alerts (Binance ticker)
-- Every 15 min: fetch new candles → recalculate RSI → update signals
+- On startup: seed CoinGecko metadata + backfill 90d of 1h candles + 7d of 1m candles for any new coin (2s delay between coins for 1m backfill)
+- Every 1 min: check price alerts (Binance ticker) + fetch new 1m candles
+- Every 15 min: fetch new 1h candles → recalculate RSI → update signals
 - Every 24h (midnight): refresh market caps from CoinGecko
 - `/api/market`: assembles live response from Binance ticker + SQLite candles (sparkline, 1h change, RSI) + coin_meta (name, image, market_cap)
+- `/api/candles/:coinId?interval=`: returns OHLCV array; native 1m/1h or aggregated 5m/15m/4h/1d; fixed windows (1m→24h, 5m→7d, 15m→30d, 4h/1h→90d, 1d→1y)
 
 ## Dev workflow
 - Restart after backend changes: `sudo systemctl restart crypto-dashboard`
