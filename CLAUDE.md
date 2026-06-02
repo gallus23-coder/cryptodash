@@ -34,7 +34,7 @@ Watchlist stores CoinGecko IDs (e.g. `bitcoin`, `avalanche-2`). Binance symbols 
 - Every 15 min: fetch new 1h candles → recalculate RSI → update signals
 - Every 24h (midnight): refresh market caps from CoinGecko
 - `/api/market`: assembles live response from Binance ticker + SQLite candles (sparkline, 1h change, RSI) + coin_meta (name, image, market_cap)
-- `/api/candles/:coinId?interval=`: returns OHLCV array; native 1m/1h or aggregated 5m/15m/4h/1d; fixed windows (1m→24h, 5m→7d, 15m→30d, 4h/1h→90d, 1d→1y)
+- `/api/candles/:coinId?interval=`: returns OHLCV array; native 1m/1h or aggregated 5m/15m/4h/1d; fixed windows (1m→24h, 5m/15m→7d, 4h/1h/1d→90d)
 
 ## Dev workflow
 - Restart after backend changes: `sudo systemctl restart crypto-dashboard`

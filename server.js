@@ -300,16 +300,16 @@ app.get('/api/candles/:coinId', (req, res) => {
   const { coinId } = req.params;
   const interval = req.query.interval || '1h';
 
-  // Fixed time window per interval
+  // Fixed time window per interval (window = depth of source data available)
   const windows = {
-    '1m':   24 *  3600 * 1000,
-    '5m':    7 * 86400 * 1000,
-    '15m':  30 * 86400 * 1000,
-    '4h':   90 * 86400 * 1000,
-    '1h':   90 * 86400 * 1000,
-    '1d':  365 * 86400 * 1000,
+    '1m':   24 *  3600 * 1000,  // 24h  — native 1m
+    '5m':    7 * 86400 * 1000,  //  7d  — aggregated from 1m (7d stored)
+    '15m':   7 * 86400 * 1000,  //  7d  — aggregated from 1m (7d stored)
+    '4h':   90 * 86400 * 1000,  // 90d  — aggregated from 1h (90d stored)
+    '1h':   90 * 86400 * 1000,  // 90d  — native 1h
+    '1d':   90 * 86400 * 1000,  // 90d  — aggregated from 1h (~90 daily bars)
   };
-  // Derived intervals: bucket size in ms + source interval
+  // Derived intervals: bucket size in ms
   const buckets = { '5m': 300000, '15m': 900000, '4h': 14400000, '1d': 86400000 };
 
   if (!windows[interval]) return res.status(400).json({ error: 'invalid interval' });
@@ -317,7 +317,8 @@ app.get('/api/candles/:coinId', (req, res) => {
   const since = Date.now() - windows[interval];
   let candles;
   if (buckets[interval]) {
-    const src = interval === '1d' ? '1h' : '1m';
+    // 4h and 1d aggregate from 1h data; 5m and 15m aggregate from 1m data
+    const src = (interval === '4h' || interval === '1d') ? '1h' : '1m';
     candles = db.getAggCandles(coinId, src, buckets[interval], since);
   } else {
     candles = db.getCandles(coinId, interval, since);
