@@ -8,6 +8,8 @@ const notifier = require('node-notifier');
 const db = require('./db');
 const binance = require('./binance');
 const coingecko = require('./coingecko');
+const ind       = require('./indicators');
+const feargreed = require('./feargreed');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,6 +19,8 @@ const ALERTS_FILE    = path.join(DATA_DIR, 'alerts.json');
 const TRIGGERED_FILE = path.join(DATA_DIR, 'triggered.json');
 const RSI_FILE       = path.join(DATA_DIR, 'rsi.json');
 const SIGNALS_FILE   = path.join(DATA_DIR, 'signals.json');
+const INDICATORS_FILE = path.join(DATA_DIR, 'indicators.json');
+const FEARGREED_FILE  = path.join(DATA_DIR, 'feargreed.json');
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -137,6 +141,62 @@ async function updateRSI() {
   }
   writeJson(RSI_FILE, rsiCache);
   console.log('[RSI] updated:', Object.keys(rsiCache).map(k => `${k}=${rsiCache[k].rsi}`).join(', '));
+}
+
+async function updateIndicators() {
+  const wl = readJson(WATCHLIST_FILE, { coins: [] });
+  if (!wl.coins.length) return;
+  const cache = {};
+  for (const id of wl.coins) {
+    const closes  = db.getCloses(id, '1h', 300);
+    const volumes = db.getVolumes(id, '1h', 21);
+    if (closes.length < 35) continue;
+    const price       = closes[closes.length - 1];
+    const macd        = ind.calcMACD(closes);
+    const bb          = ind.calcBollingerBands(closes);
+    const stochRsi    = ind.calcStochRSI(closes);
+    const volumeRatio = ind.calcVolumeRatio(volumes);
+    const ema50       = ind.calcEMA(closes, 50);
+    const ema200      = ind.calcEMA(closes, 200);
+    const emaAbovePrice = ema200 != null && price > ema200;
+    // Detect golden/death cross in last 3 candles
+    let goldenCross = false, deathCross = false;
+    const n = closes.length;
+    if (n >= 201) {
+      const emas = [];
+      for (let len = n - 3; len <= n; len++) {
+        emas.push({
+          e50:  ind.calcEMA(closes.slice(0, len), 50),
+          e200: ind.calcEMA(closes.slice(0, len), 200),
+        });
+      }
+      for (let i = 0; i < 3; i++) {
+        const prev = emas[i], curr = emas[i + 1];
+        if (prev.e50 != null && prev.e200 != null && curr.e50 != null && curr.e200 != null) {
+          if (prev.e50 <= prev.e200 && curr.e50 > curr.e200) goldenCross = true;
+          if (prev.e50 >= prev.e200 && curr.e50 < curr.e200) deathCross  = true;
+        }
+      }
+    }
+    cache[id] = {
+      macd, bb, ema50, ema200, emaAbovePrice, goldenCross, deathCross,
+      stochRsi, volumeRatio, updatedAt: new Date().toISOString(),
+    };
+  }
+  writeJson(INDICATORS_FILE, cache);
+  console.log('[indicators] updated:', Object.keys(cache).join(', '));
+}
+
+async function updateFearGreed() {
+  const cached = readJson(FEARGREED_FILE, {});
+  if (cached.fetchedAt && Date.now() - cached.fetchedAt < 3600000) return;
+  try {
+    const fg = await feargreed.fetchFearGreed();
+    writeJson(FEARGREED_FILE, { ...fg, fetchedAt: Date.now() });
+    console.log(`[feargreed] ${fg.value} (${fg.classification})`);
+  } catch (e) {
+    console.error('[feargreed] fetch failed:', e.message);
+  }
 }
 
 async function updateSignals() {
@@ -338,6 +398,18 @@ app.get('/api/signals', (req, res) => {
   res.json(readJson(SIGNALS_FILE, {}));
 });
 
+// ── indicators route ───────────────────────────────────────────────────────────
+
+app.get('/api/indicators', (req, res) => {
+  res.json(readJson(INDICATORS_FILE, {}));
+});
+
+// ── Fear & Greed route ─────────────────────────────────────────────────────────
+
+app.get('/api/feargreed', (req, res) => {
+  res.json(readJson(FEARGREED_FILE, {}));
+});
+
 // ── alerts routes ─────────────────────────────────────────────────────────────
 
 app.get('/api/alerts', (req, res) => {
@@ -440,12 +512,18 @@ cron.schedule('* * * * *', () => {
   update1mCandles().catch(e => console.error('[cron 1m candles]', e.message));
 });
 
-// every 15 minutes: fetch new candles → recalc RSI → update signals
+// every 15 minutes: fetch new candles → recalc RSI → recalc indicators → update signals
 cron.schedule('*/15 * * * *', () => {
   updateCandles()
     .then(() => updateRSI())
+    .then(() => updateIndicators())
     .then(() => updateSignals())
     .catch(e => console.error('[cron 15min] unexpected error:', e.message));
+});
+
+// every hour: refresh Fear & Greed index
+cron.schedule('0 * * * *', () => {
+  updateFearGreed().catch(e => console.error('[cron feargreed]', e.message));
 });
 
 // every 24 hours at midnight: refresh market caps + prune old 1m candles
@@ -467,7 +545,8 @@ app.listen(PORT, () => {
   seedAndBackfill()
     .then(() => {
       setTimeout(() => checkAlerts().catch(() => {}), 2000);
-      setTimeout(() => updateCandles().then(() => updateRSI()).then(() => updateSignals()).catch(() => {}), 4000);
+      setTimeout(() => updateCandles().then(() => updateRSI()).then(() => updateIndicators()).then(() => updateSignals()).catch(() => {}), 4000);
+      setTimeout(() => updateFearGreed().catch(() => {}), 6000);
     })
     .catch(e => console.error('[startup]', e.message));
 });
