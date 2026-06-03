@@ -1,6 +1,6 @@
 # Crypto Dashboard
 
-A self-hosted crypto watchlist and opportunity scanner running on a Raspberry Pi. Provides live price data, technical indicators, AI-generated signals, and a dual-tier opportunity scanner — all in a single-page dashboard accessible at `http://localhost:3000`.
+A self-hosted crypto watchlist, opportunity scanner, and backtesting tool running on a Raspberry Pi. Provides live price data, technical indicators, AI-generated signals, a dual-tier opportunity scanner, and a historical signal backtester with £100 simulation — all in a single-page dashboard accessible at `http://localhost:3000`.
 
 ---
 
@@ -57,8 +57,9 @@ crypto-dashboard/
 ├── indicators.js      — Pure indicator math: EMA, MACD, Bollinger, StochRSI, VolumeRatio
 ├── feargreed.js       — Alternative.me Fear & Greed API: fetchFearGreed
 ├── scanner.js         — Opportunity scanner: Tier 0 / Tier C detection, scoring
+├── backtest.js        — Backtesting: incremental indicators, signal scoring, simulation
 ├── public/
-│   └── index.html     — Full frontend (single file: tabs, table, charts, scanner UI)
+│   └── index.html     — Full frontend (single file: tabs, table, charts, scanner UI, backtest UI)
 ├── data/
 │   ├── crypto.db          — SQLite: candles + coin_meta
 │   ├── watchlist.json     — Persisted watchlist (CoinGecko IDs)
@@ -68,7 +69,8 @@ crypto-dashboard/
 │   ├── signals.json       — Anthropic signal cache per watchlist coin
 │   ├── indicators.json    — Technical indicators cache per watchlist coin
 │   ├── feargreed.json     — Fear & Greed index (refreshed hourly)
-│   └── scanner.json       — Opportunity scanner results (last 24 scans)
+│   ├── scanner.json       — Opportunity scanner results (last 24 scans)
+│   └── backtest.json      — Latest backtest results (written on each run)
 └── test/
     ├── db.test.js
     ├── binance.test.js
@@ -354,9 +356,99 @@ Crossover detection uses aligned EMA200/RSI/MACD series (one value per candle en
 
 ---
 
+## Backtesting (`backtest.js`)
+
+Pure computation module, no I/O. Called from `server.js`. Uses incremental indicator classes for O(n) total computation — each candle processed exactly once with no lookahead bias.
+
+### Incremental indicator classes
+
+| Class | Description |
+|-------|-------------|
+| `IncrEMA(period)` | Standard EMA, seeds from SMA of first `period` values |
+| `IncrRSI(period=14)` | Wilder smoothing RSI |
+| `IncrMACD()` | Composes IncrEMA 12/26/9; returns `{ macd, signal, histogram }` |
+| `IncrBollinger(period=20)` | Population std dev; returns `{ upper, middle, lower }` |
+| `IncrStochRSI()` | 14/14/3/3; returns `{ k, d }` |
+| `IncrVolumeRatio()` | Current volume vs 20-period average |
+
+### Signal scoring (`computeSignal`)
+
+Max 9 points:
+
+| Condition | Points |
+|-----------|--------|
+| RSI < 30 | +2 |
+| RSI 30–45 | +1 |
+| MACD line > 0 AND histogram > 0 | +2 |
+| Price < Bollinger lower band | +2 |
+| Price > EMA200 | +1 |
+| StochRSI %K < 20 | +1 |
+| Volume ratio > 1.5× | +1 |
+
+Score → signal: ≥6 = `strong_buy`, ≥4 = `buy`, =3 = `hold`, =2 = `sell`, ≤1 = `strong_sell`
+
+### `runBacktest(db, params, onProgress)` params
+
+```json
+{ "coins": ["bitcoin", "ethereum"], "days": 90, "forwardWindows": [4, 24, 72] }
+```
+
+- `coins`: array of CoinGecko IDs (uses all watchlist coins if `"all"` is passed as a single string)
+- `days`: test period length; all prior candles used for indicator seeding (no lookahead)
+- `forwardWindows`: hours ahead to measure signal outcome
+
+### Market phase detection
+
+BTC EMA200 computed over full history. For candles in test period, `btcAbove200` flag set per hour. `marketPhase` reports: label (`Predominantly Bearish / Mixed / Ranging / Predominantly Bullish`), `abovePct` (% of test-period hours BTC was above its EMA200).
+
+### Per-coin stats (`calcCoinStats`)
+
+For each forward window × signal class: `count`, `wins`, `winRate`, `avgGain`, `avgLoss`, `rr` (reward/risk), `ev` (expected value %). `bestWindow` = forward window with highest combined BUY+STRONG_BUY win rate. `phaseSplit` included if ≥10 BUY signals in each phase — reports `aboveEMA200` and `belowEMA200` win rates separately.
+
+### £100 simulation (`runSimulation`)
+
+- BUY: invest 10% of pot; STRONG_BUY: 15%
+- Max 50% of pot in any single coin (across all open positions)
+- Stop opening positions if pot < £10
+- Entry fee: 0.26% of invested amount; exit fee: 0.26% of gross proceeds
+- Position held for `bestWindow` hours, then exited at forward price
+- SELL/STRONG_SELL signals trigger early exit for that coin's open positions
+- Returns: `{ startingPot, finalPot, profitLoss, profitLossPct, trades, winningTrades, losingTrades, largestWin, largestLoss, minPot, totalFees, equityCurve }`
+- `equityCurve`: `[{ timestamp, potValue }]`
+
+### Benchmark (`calcBenchmark`)
+
+Equal-weighted buy-and-hold across all tested coins. Buys at first signal timestamp, sells at last. 0.26% fee each side. Returns `{ finalValue, returnPct }`.
+
+### `backtest.json` structure
+
+```json
+{
+  "runAt": 1234567890,
+  "params": { "coins": ["bitcoin"], "days": 90, "forwardWindows": [4, 24, 72] },
+  "marketPhase": { "label": "Mixed / Ranging", "abovePct": 34.6, "ema200Start": 77822, "ema200End": 72346 },
+  "coinStats": {
+    "bitcoin": {
+      "totalSignals": 720,
+      "byClassification": { "strong_buy": 12, "buy": 48, "hold": 600, "sell": 42, "strong_sell": 18 },
+      "byWindowByClass": { "4": { "buy": { "count": 48, "wins": 26, "winRate": 0.54, "avgGain": 1.2, "avgLoss": 0.9, "rr": 1.33, "ev": 0.24 } } },
+      "bestWindow": 4,
+      "avgHoursBetweenBuys": 41.2,
+      "maxConsecutiveLosses": 5,
+      "phaseSplit": { "aboveEMA200": { "count": 32, "winRate": 0.625 }, "belowEMA200": { "count": 16, "winRate": 0.375 } }
+    }
+  },
+  "simulation": { "finalPot": 94.87, "profitLoss": -5.13, "trades": 81, ... },
+  "benchmark": { "finalValue": 83.19, "returnPct": -16.81 },
+  "signals": { "bitcoin": [ { "timestamp": 1234567890, "close": 95000, "signal": "buy", "score": 4, "btcAbove200": true, "forward": { "4": { "price": 96200, "changePct": 1.26 } } } ] }
+}
+```
+
+---
+
 ## Frontend (`public/index.html`)
 
-Single HTML file. No build step. Vanilla JS. Two tabs:
+Single HTML file. No build step. Vanilla JS. Three tabs:
 
 ### Watchlist tab
 
@@ -387,6 +479,16 @@ Single HTML file. No build step. Vanilla JS. Two tabs:
 - **Disclaimer**: shown below hero card and empty state
 - **Polling**: scanner data refreshed every 5 min (`loadScanner()`)
 
+### Backtest tab
+
+- **Controls bar**: coin dropdown (watchlist coins + "All Coins"), period selector (30/60/90d), forward window checkboxes (4h/24h/72h), Run Backtest button
+- **Progress bar**: animated fill with status message while job runs; polls `GET /api/backtest/status` every 1s
+- **Market phase banner**: color-coded left border (red = bearish, amber = mixed, green = bullish); shows label and BTC-above-EMA200 percentage
+- **Equity curve**: SVG line chart with £100 baseline reference line; line color green if final > £100, red otherwise
+- **Simulation card**: Strategy vs Buy-and-Hold side by side (final pot, P&L, return %); stats row with trade count, wins, losses, fees, min pot, max win
+- **Per-coin stat cards**: grid layout; combined BUY+STRONG_BUY win rate, EV, R/R, signal count, bull/bear phase split (if available)
+- **Polling**: results loaded once on tab open; re-fetched after each run completes
+
 ---
 
 ## API Endpoints
@@ -401,6 +503,9 @@ Single HTML file. No build step. Vanilla JS. Two tabs:
 | GET | `/api/feargreed` | Fear & Greed index (`{ value, classification, fetchedAt }`) |
 | GET | `/api/scanner` | Latest scanner result + 24-scan history |
 | POST | `/api/scanner/run` | Trigger immediate scanner run; returns updated scanner data |
+| POST | `/api/backtest` | Start async backtest job `{ coins, days, forwardWindows }`; returns `{ jobId }` immediately |
+| GET | `/api/backtest/status` | Job state `{ status, progress, message, jobId }` — status: idle/running/done/error |
+| GET | `/api/backtest/results` | Latest backtest results from `data/backtest.json` |
 | GET | `/api/watchlist` | Current watchlist `{ coins: [...] }` |
 | POST | `/api/watchlist` | Add coin `{ coin: "bitcoin" }` (seeds metadata + candles async) |
 | DELETE | `/api/watchlist/:coin` | Remove coin |
