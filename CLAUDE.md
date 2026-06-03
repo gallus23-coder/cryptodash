@@ -49,6 +49,12 @@ Watchlist stores CoinGecko IDs (e.g. `bitcoin`, `avalanche-2`). Binance symbols 
 - Runs on: http://localhost:3000
 - Inspect SQLite: `node -e "const db=require('./db');db.initDb();console.log(db.getAllMeta())"`
 
+## Signal display
+- Signal badge (5-level: STRONG BUY / BUY / HOLD / SELL / STRONG SELL) shown in the Signal column; `Pending` when not yet available
+- Signal summary text shown as third line below coin name/symbol in the Asset column (`.coin-summary`, font-size 11px, `--muted` color); hidden entirely when no signal available
+- Tooltip on badge also shows summary text (HTML-escaped)
+- `loadSignals()` polls `/api/signals` every 30 seconds and re-renders the table, keeping both the inline summary and the badge tooltip in sync
+
 ## Conventions
 - Keep frontend as a single HTML file unless it gets unwieldy
 - API routes all under /api/
