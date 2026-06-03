@@ -249,6 +249,14 @@ tbody tr.has-summary { border-bottom: none; }
 .bt-curve-title { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .bt-curve { width: 100%; height: 180px; display: block; }
 .bt-curve-legend { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.bt-compare { background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--radius); padding: 14px 16px; }
+.bt-cmp-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+.bt-cmp-table thead th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); padding: 4px 10px 8px; text-align: right; border-bottom: 1px solid var(--border); }
+.bt-cmp-table thead th:first-child { text-align: left; }
+.bt-cmp-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+.bt-cmp-label { padding: 6px 10px; color: var(--muted); text-align: left; font-size: 11px; }
+.bt-cmp-val { padding: 6px 10px; text-align: right; color: var(--text); }
+.bt-cmp-delta { padding: 6px 10px; text-align: right; font-weight: 500; }
 </style>
 </head>
 <body>
@@ -912,6 +920,7 @@ function updateCountdown() {
 
 // ── backtest ──────────────────────────────────────────────────────────────────
 let backtestData = null;
+let backtestPrevious = null;
 let btPollInterval = null;
 
 function populateBtCoinDropdown() {
@@ -926,7 +935,13 @@ function populateBtCoinDropdown() {
 async function loadBacktest() {
   try {
     const r = await fetch('/api/backtest/results');
-    if (r.ok) { backtestData = await r.json(); renderBacktest(); }
+    if (r.ok) {
+      const data = await r.json();
+      // Handle both new { current, previous } format and old direct-result format
+      backtestData = data.current || data;
+      backtestPrevious = data.previous || null;
+      renderBacktest();
+    }
   } catch (_) {}
 }
 
@@ -966,7 +981,11 @@ async function runBacktestNow() {
           document.getElementById('bt-progress-wrap').style.display = 'none';
           btn.disabled = false; btn.textContent = 'Run Backtest';
           const rr = await fetch('/api/backtest/results');
-          backtestData = rr.ok ? await rr.json() : null;
+          if (rr.ok) {
+            const data = await rr.json();
+            backtestData = data.current || data;
+            backtestPrevious = data.previous || null;
+          }
           renderBacktest();
         } else if (status.status === 'error') {
           clearInterval(btPollInterval); btPollInterval = null;
@@ -1111,8 +1130,54 @@ function renderBacktest() {
     </div>`;
   }
 
+  // Comparison bar (Current vs Previous)
+  let compareHtml = '';
+  if (backtestPrevious) {
+    const prev = backtestPrevious;
+    const pSim = prev.simulation || {};
+    const pBh  = prev.benchmark  || {};
+    const delta = (sim.finalPot || 100) - (pSim.finalPot || 100);
+    const deltaClass = delta >= 0 ? 'up' : 'dn';
+    const deltaStr = (delta >= 0 ? '+' : '') + delta.toFixed(2);
+
+    const mkRow = (label, cur, prv, isCurrency, isGood) => {
+      const d = cur - prv;
+      const cls = d === 0 ? '' : (isGood ? (d > 0 ? 'up' : 'dn') : (d < 0 ? 'up' : 'dn'));
+      const fmt = v => isCurrency ? '£' + v.toFixed(2) : v.toFixed(0);
+      const dStr = (d >= 0 ? '+' : '') + (isCurrency ? '£' + Math.abs(d).toFixed(2) : Math.abs(d).toFixed(0));
+      return `<tr>
+        <td class="bt-cmp-label">${label}</td>
+        <td class="bt-cmp-val">${fmt(cur)}</td>
+        <td class="bt-cmp-val" style="color:var(--muted)">${fmt(prv)}</td>
+        <td class="bt-cmp-delta ${cls}">${d !== 0 ? dStr : '—'}</td>
+      </tr>`;
+    };
+
+    compareHtml = `<div class="bt-compare" style="max-width:860px">
+      <div class="bt-sim-header" style="margin-bottom:8px">
+        <span class="bt-sim-title">// current vs previous</span>
+        <span class="bt-sim-period ${deltaClass}">${deltaStr} pot change</span>
+      </div>
+      <table class="bt-cmp-table">
+        <thead><tr>
+          <th class="bt-cmp-label"></th>
+          <th class="bt-cmp-val">Current</th>
+          <th class="bt-cmp-val" style="color:var(--muted)">Previous</th>
+          <th class="bt-cmp-delta">Δ</th>
+        </tr></thead>
+        <tbody>
+          ${mkRow('Final pot', sim.finalPot || 100, pSim.finalPot || 100, true, true)}
+          ${mkRow('Trades', sim.trades || 0, pSim.trades || 0, false, false)}
+          ${mkRow('Win rate %', sim.trades ? (sim.winningTrades / sim.trades * 100) : 0, pSim.trades ? (pSim.winningTrades / pSim.trades * 100) : 0, false, true)}
+          ${mkRow('Total fees', sim.totalFees || 0, pSim.totalFees || 0, true, false)}
+          ${mkRow('Min pot', sim.minPot || 100, pSim.minPot || 100, true, true)}
+        </tbody>
+      </table>
+    </div>`;
+  }
+
   const runAtStr = runAt ? `<div style="font-family:var(--mono);font-size:11px;color:var(--muted)">Last run: ${new Date(runAt).toLocaleString()}</div>` : '';
-  el.innerHTML = runAtStr + phaseBanner + curveHtml + simCard +
+  el.innerHTML = runAtStr + phaseBanner + compareHtml + curveHtml + simCard +
     (coinCardsHtml ? `<div class="bt-coins-grid">${coinCardsHtml}</div>` : '');
 }
 

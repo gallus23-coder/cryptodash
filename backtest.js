@@ -106,7 +106,8 @@ class IncrVolumeRatio {
 
 // ── Signal scoring ────────────────────────────────────────────────────────────
 
-function computeSignal(close, rsi, macd, bb, ema200, stochRsi, volRatio) {
+// Raw score: 0–9 points from indicator conditions.
+function computeRawScore(close, rsi, macd, bb, ema200, stochRsi, volRatio) {
   let score = 0;
   if (rsi !== null) { if (rsi < 30) score += 2; else if (rsi <= 45) score += 1; }
   if (macd && macd.macd > 0 && macd.histogram > 0) score += 2;
@@ -114,11 +115,28 @@ function computeSignal(close, rsi, macd, bb, ema200, stochRsi, volRatio) {
   if (ema200 !== null && close > ema200) score += 1;
   if (stochRsi && stochRsi.k < 20) score += 1;
   if (volRatio !== null && volRatio > 1.5) score += 1;
-  if (score >= 6) return { score, signal: 'strong_buy' };
-  if (score >= 4) return { score, signal: 'buy' };
-  if (score <= 1) return { score, signal: 'strong_sell' };
-  if (score === 2) return { score, signal: 'sell' };
-  return { score, signal: 'hold' };
+  return score;
+}
+
+// Classify a raw score into a signal, applying:
+//   • tightened thresholds (buy ≥6, strong_buy ≥8)
+//   • 2-candle confirmation (prevScore must also meet threshold)
+//   • market phase gate (no buys when BTC below EMA200)
+//   • 4h minimum holding period per coin (lastBuyTs)
+function classifySignal(score, prevScore, btcAbove200, lastBuyTs, timestamp) {
+  // Sell signals — no gate, no confirmation needed
+  if (score <= 1) return 'strong_sell';
+  if (score === 2) return 'sell';
+
+  // Buy signals — all three guards must pass
+  const canBuy = btcAbove200 !== false; // null (unknown) = allow; false = bear gate
+  const COOLDOWN_MS = 4 * 3600000;
+  const cooledDown = lastBuyTs === null || (timestamp - lastBuyTs) >= COOLDOWN_MS;
+
+  if (score >= 8 && canBuy && prevScore !== null && prevScore >= 8 && cooledDown) return 'strong_buy';
+  if (score >= 6 && canBuy && prevScore !== null && prevScore >= 6 && cooledDown) return 'buy';
+
+  return 'hold';
 }
 
 // ── Signal generation for one coin ───────────────────────────────────────────
@@ -143,14 +161,27 @@ function generateCoinSignals(candles, testStartTs, forwardWindowsH, btcAbove200M
   const vol = new IncrVolumeRatio();
 
   const signals = [];
+  let prevScore = null;  // raw score of previous candle (for 2-candle confirmation)
+  let lastBuyTs = null;  // timestamp of last buy/strong_buy (for 4h cooldown)
+
   for (const c of candles) {
     const e200 = ema200.next(c.close); ema50.next(c.close);
     const r = rsi.next(c.close); const m = macd.next(c.close);
     const b = bb.next(c.close); const s = stoch.next(c.close);
     const v = vol.next(c.volume);
-    if (c.time < testStartTs) continue;
 
-    const { score, signal } = computeSignal(c.close, r, m, b, e200, s, v);
+    const score = computeRawScore(c.close, r, m, b, e200, s, v);
+
+    if (c.time < testStartTs) {
+      prevScore = score;
+      continue;
+    }
+
+    const btcAbove = btcAbove200Map.get(c.time) ?? null;
+    const signal = classifySignal(score, prevScore, btcAbove, lastBuyTs, c.time);
+    if (signal === 'buy' || signal === 'strong_buy') lastBuyTs = c.time;
+    prevScore = score;
+
     const forward = {};
     for (const w of forwardWindowsH) {
       const fp = priceAt(c.time + w * 3600000);
@@ -158,7 +189,7 @@ function generateCoinSignals(candles, testStartTs, forwardWindowsH, btcAbove200M
     }
     signals.push({
       timestamp: c.time, close: c.close, signal, score,
-      btcAbove200: btcAbove200Map.get(c.time) ?? null,
+      btcAbove200: btcAbove,
       forward,
     });
   }
@@ -310,7 +341,7 @@ function runSimulation(allSignals, coinStats, forwardWindowsH) {
 
     // BUY: open position
     if ((signal === 'buy' || signal === 'strong_buy') && pot >= 10) {
-      const pct = signal === 'strong_buy' ? 0.15 : 0.10;
+      const pct = signal === 'strong_buy' ? 0.08 : 0.05;
       const coinExposure = positions.filter(p => p.coinId === coinId).reduce((s, p) => s + p.invested, 0);
       let invest = Math.min(pot * pct, pot * 0.5 - coinExposure);
       if (invest < 1) continue;

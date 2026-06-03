@@ -563,11 +563,14 @@ app.post('/api/backtest', (req, res) => {
   backtestJob = { status: 'running', progress: 0, message: 'Starting…', jobId };
   res.json({ jobId });
 
+  const existingFile = readJson(BACKTEST_FILE, null);
+  const previousResult = existingFile?.current || existingFile || null;
+
   backtest.runBacktest(db, { coins, days, forwardWindows }, (progress, message) => {
     backtestJob.progress = progress;
     backtestJob.message = message;
   }).then(result => {
-    writeJson(BACKTEST_FILE, result);
+    writeJson(BACKTEST_FILE, { current: result, previous: previousResult });
     backtestJob = { status: 'done', progress: 100, message: 'Complete', jobId };
     console.log(`[backtest] done — ${result.params.days}d, ${Object.keys(result.coinStats).length} coins`);
   }).catch(e => {

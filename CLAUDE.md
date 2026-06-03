@@ -371,9 +371,9 @@ Pure computation module, no I/O. Called from `server.js`. Uses incremental indic
 | `IncrStochRSI()` | 14/14/3/3; returns `{ k, d }` |
 | `IncrVolumeRatio()` | Current volume vs 20-period average |
 
-### Signal scoring (`computeSignal`)
+### Signal scoring (`computeRawScore` + `classifySignal`)
 
-Max 9 points:
+Raw score: 0–9 points from indicator conditions.
 
 | Condition | Points |
 |-----------|--------|
@@ -385,7 +385,21 @@ Max 9 points:
 | StochRSI %K < 20 | +1 |
 | Volume ratio > 1.5× | +1 |
 
-Score → signal: ≥6 = `strong_buy`, ≥4 = `buy`, =3 = `hold`, =2 = `sell`, ≤1 = `strong_sell`
+Signal classification applies **four guards** on top of the raw score:
+
+| Score | Signal | Guards applied |
+|-------|--------|----------------|
+| ≥ 8 | `strong_buy` | 2-candle confirmation + BTC above EMA200 + 4h cooldown |
+| ≥ 6 | `buy` | 2-candle confirmation + BTC above EMA200 + 4h cooldown |
+| 3–5 | `hold` | — |
+| = 2 | `sell` | None |
+| ≤ 1 | `strong_sell` | None |
+
+**2-candle confirmation**: previous candle must also have met the same score threshold (≥8 for strong_buy, ≥6 for buy). Filters single-candle noise.
+
+**Market phase gate**: BUY/STRONG_BUY suppressed when BTC is below its EMA200. `btcAbove200 === false` blocks buys; `null` (unknown) allows them.
+
+**4-hour cooldown**: no new BUY signal on same coin within 4h of previous BUY.
 
 ### `runBacktest(db, params, onProgress)` params
 
@@ -407,7 +421,7 @@ For each forward window × signal class: `count`, `wins`, `winRate`, `avgGain`, 
 
 ### £100 simulation (`runSimulation`)
 
-- BUY: invest 10% of pot; STRONG_BUY: 15%
+- BUY: invest 5% of pot; STRONG_BUY: 8%
 - Max 50% of pot in any single coin (across all open positions)
 - Stop opening positions if pot < £10
 - Entry fee: 0.26% of invested amount; exit fee: 0.26% of gross proceeds
