@@ -119,10 +119,15 @@ select.form-input { cursor: pointer; }
 .rsi-high { background: rgba(248,113,113,0.12); color: #f87171; border: 1px solid rgba(248,113,113,0.3); }
 .rsi-mid { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
 .signal-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-family: var(--mono); cursor: default; white-space: nowrap; }
-.signal-buy  { background: rgba(74,222,128,0.12); color: #4ade80; border: 1px solid rgba(74,222,128,0.30); }
-.signal-sell { background: rgba(248,113,113,0.12); color: #f87171; border: 1px solid rgba(248,113,113,0.30); }
-.signal-hold { background: rgba(251,191,36,0.10); color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); }
-.signal-pending { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+.signal-strong_buy  { background: rgba(74,222,128,0.20); color: #4ade80; border: 1px solid rgba(74,222,128,0.45); font-weight: 600; }
+.signal-buy         { background: rgba(74,222,128,0.10); color: #4ade80; border: 1px solid rgba(74,222,128,0.25); }
+.signal-hold        { background: rgba(251,191,36,0.10); color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); }
+.signal-sell        { background: rgba(248,113,113,0.10); color: #f87171; border: 1px solid rgba(248,113,113,0.25); }
+.signal-strong_sell { background: rgba(248,113,113,0.20); color: #f87171; border: 1px solid rgba(248,113,113,0.45); font-weight: 600; }
+.signal-pending     { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+.fng-bar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.fng-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.fng-value { font-size: 14px; font-weight: 500; }
 </style>
 </head>
 <body>
@@ -138,6 +143,12 @@ select.form-input { cursor: pointer; }
   <main>
     <!-- left: market data -->
     <div class="left-panel">
+      <div class="fng-bar" id="fng-bar">
+        <span class="fng-label">Fear &amp; Greed</span>
+        <span class="fng-value" id="fng-value">—</span>
+        <span id="fng-class" style="color:var(--muted)"></span>
+      </div>
+
       <div class="summary-grid" id="summary-grid">
         <div class="stat"><div class="stat-label">Tracked</div><div class="stat-value" id="s-count">—</div></div>
         <div class="stat"><div class="stat-label">Gainers</div><div class="stat-value up" id="s-gainers">—</div></div>
@@ -210,6 +221,7 @@ select.form-input { cursor: pointer; }
 let marketData = [];
 let rsiData = {};
 let signalData = {};
+let fearGreedData = {};
 let sortCol = 'market_cap', sortDir = -1;
 
 // ── formatting ────────────────────────────────────────────────────────────────
@@ -241,6 +253,33 @@ function spark(prices) {
   const up = prices[prices.length-1] >= prices[0];
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
     <polyline points="${pts}" fill="none" stroke="${up?'#4ade80':'#f87171'}" stroke-width="1.5"/></svg>`;
+}
+
+// ── Fear & Greed ──────────────────────────────────────────────────────────────
+async function loadFearGreed() {
+  try {
+    const r = await fetch('/api/feargreed');
+    fearGreedData = r.ok ? await r.json() : {};
+    const el = document.getElementById('fng-value');
+    const cls = document.getElementById('fng-class');
+    if (fearGreedData.value == null) {
+      el.textContent = '—';
+      el.style.color = 'var(--muted)';
+      cls.textContent = '';
+      return;
+    }
+    const v = fearGreedData.value;
+    const color = v < 25 ? 'var(--red)'
+      : v < 50 ? 'var(--amber)'
+      : v < 75 ? 'var(--accent)'
+      : '#a78bfa';
+    el.textContent = v;
+    el.style.color = color;
+    cls.textContent = '— ' + fearGreedData.classification;
+    cls.style.color = color;
+  } catch (e) {
+    // silently leave existing display
+  }
 }
 
 // ── status pill ───────────────────────────────────────────────────────────────
@@ -323,9 +362,11 @@ function renderTable() {
     const rsiText = rsiVal == null ? '<span style="color:var(--muted)">—</span>' :
       `<span class="rsi-badge ${rsiClass}">${rsiVal.toFixed(1)}</span>`;
     const sigEntry = signalData[row.id];
-    const validSignal = sigEntry && ['buy', 'sell', 'hold'].includes(sigEntry.signal) ? sigEntry.signal : null;
+    const VALID_SIGNALS = ['strong_buy', 'buy', 'hold', 'sell', 'strong_sell'];
+    const SIGNAL_LABELS = { strong_buy: 'STRONG BUY', buy: 'BUY', hold: 'HOLD', sell: 'SELL', strong_sell: 'STRONG SELL' };
+    const validSignal = sigEntry && VALID_SIGNALS.includes(sigEntry.signal) ? sigEntry.signal : null;
     const sigHtml = validSignal
-      ? `<span class="signal-badge signal-${validSignal}" title="${sigEntry.summary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}">${validSignal.toUpperCase()}</span>`
+      ? `<span class="signal-badge signal-${validSignal}" title="${(sigEntry.summary||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}">${SIGNAL_LABELS[validSignal]}</span>`
       : `<span class="signal-badge signal-pending">Pending</span>`;
     rows += `<tr>
       <td><div class="coin-cell">
@@ -456,8 +497,10 @@ async function resetAlert(id) {
 // ── init ──────────────────────────────────────────────────────────────────────
 loadMarket();
 loadAlerts();
+loadFearGreed();
 setInterval(loadMarket, 60000);
 setInterval(loadAlerts, 30000);
+setInterval(loadFearGreed, 300000);
 </script>
 </body>
 </html>
