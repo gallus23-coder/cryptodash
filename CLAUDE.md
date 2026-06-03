@@ -51,9 +51,12 @@ Watchlist stores CoinGecko IDs (e.g. `bitcoin`, `avalanche-2`). Binance symbols 
 
 ## Signal display
 - Signal badge (5-level: STRONG BUY / BUY / HOLD / SELL / STRONG SELL) shown in the Signal column; `Pending` when not yet available
-- Signal summary text shown as third line below coin name/symbol in the Asset column (`.coin-summary`, font-size 11px, `--muted` color); hidden entirely when no signal available
+- Signal summary text shown as second full-width row beneath each coin row (`.summary-row`), spanning all columns via `colspan="10"`; not rendered at all when no signal available
+- Summary row has a 3px left border colour-coded by signal: STRONG BUY #22c55e, BUY #4ade80, HOLD #fbbf24, SELL #f87171, STRONG SELL #ef4444
+- Background `--bg3`, padding `6px 14px 10px 14px`, font-size 12px, colour `--muted`
+- Coin row suppresses its bottom border (`has-summary` class) when a summary row follows, so the pair reads as one grouped unit
 - Tooltip on badge also shows summary text (HTML-escaped)
-- `loadSignals()` polls `/api/signals` every 30 seconds and re-renders the table, keeping both the inline summary and the badge tooltip in sync
+- `loadSignals()` polls `/api/signals` every 30 seconds and re-renders the table, keeping both the summary row and the badge tooltip in sync
 
 ## Conventions
 - Keep frontend as a single HTML file unless it gets unwieldy
