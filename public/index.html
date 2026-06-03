@@ -27,7 +27,7 @@
 body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; min-height: 100vh; }
 
 /* layout */
-.shell { display: grid; grid-template-rows: 56px 1fr; min-height: 100vh; }
+.shell { display: grid; grid-template-rows: 56px 40px 1fr; min-height: 100vh; }
 header { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 header h1 { font-family: var(--mono); font-size: 15px; font-weight: 500; letter-spacing: 0.06em; color: var(--accent); }
 .header-right { display: flex; align-items: center; gap: 12px; }
@@ -40,7 +40,7 @@ header h1 { font-family: var(--mono); font-size: 15px; font-weight: 500; letter-
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 #updated { font-size: 11px; color: var(--muted); font-family: var(--mono); }
 
-main { display: grid; grid-template-columns: 1fr 320px; overflow: hidden; height: calc(100vh - 56px); }
+main { display: grid; grid-template-columns: 1fr 320px; overflow: hidden; height: calc(100vh - 96px); }
 .left-panel { overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
 .right-panel { border-left: 1px solid var(--border); overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; background: var(--bg2); }
 
@@ -135,6 +135,72 @@ select.form-input { cursor: pointer; }
 .summary-row.sig-sell        td { border-left: 3px solid #f87171; color: #f87171; }
 .summary-row.sig-strong_sell td { border-left: 3px solid #ef4444; color: #ef4444; }
 tbody tr.has-summary { border-bottom: none; }
+
+/* tab bar */
+.tab-bar { display: flex; align-items: center; gap: 2px; padding: 0 24px; background: var(--bg2); border-bottom: 1px solid var(--border); }
+.tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); cursor: pointer; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; padding: 0 14px; height: 40px; text-transform: uppercase; transition: color 0.15s, border-color 0.15s; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* opportunities panel */
+.opp-panel { height: calc(100vh - 96px); overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+.opp-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.opp-title { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text); }
+.opp-meta { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.hero-card { background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--radius); padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
+.hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.tier-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 4px; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; }
+.tier-new-riser { background: rgba(74,222,128,0.15); color: #4ade80; border: 1px solid rgba(74,222,128,0.4); }
+.tier-dip { background: rgba(96,165,250,0.12); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3); }
+.hero-sym { font-family: var(--mono); font-size: 28px; font-weight: 500; color: var(--text); }
+.hero-name { font-size: 13px; color: var(--muted); font-family: var(--sans); margin-top: 2px; }
+.hero-price { font-family: var(--mono); font-size: 22px; font-weight: 500; }
+.hero-change { display: inline-block; padding: 2px 8px; border-radius: 4px; font-family: var(--mono); font-size: 13px; margin-left: 8px; }
+.hero-relstr { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: var(--sans); }
+.hero-relstr .up { color: #4ade80; font-weight: 500; }
+.hero-relstr .dn { color: #f87171; font-weight: 500; }
+.score-row { display: flex; align-items: center; gap: 12px; }
+.score-label { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.score-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg3); flex: 1; }
+.score-seg { height: 100%; transition: flex 0.3s; }
+.seg-recency    { background: #4ade80; }
+.seg-volume     { background: #60a5fa; }
+.seg-macd       { background: #fbbf24; }
+.seg-rs         { background: #a78bfa; }
+.seg-rsi        { background: #4ade80; }
+.seg-ema50      { background: #60a5fa; }
+.seg-empty      { background: transparent; }
+.score-legend { display: flex; gap: 10px; flex-wrap: wrap; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.score-legend span::before { content: '■ '; }
+.score-legend .l-recency::before    { color: #4ade80; }
+.score-legend .l-volume::before     { color: #60a5fa; }
+.score-legend .l-macd::before       { color: #fbbf24; }
+.score-legend .l-rs::before         { color: #a78bfa; }
+.score-legend .l-rsi::before        { color: #4ade80; }
+.score-legend .l-ema50::before      { color: #60a5fa; }
+.hero-signal-row { display: flex; align-items: center; gap: 12px; }
+.hero-signal-badge { padding: 5px 14px; font-size: 13px; }
+.hero-summary { font-size: 13px; color: var(--muted); font-family: var(--sans); line-height: 1.5; }
+.hero-stats { display: flex; gap: 20px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.hero-stats span strong { color: var(--text); }
+.hero-add { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
+.hero-add input { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg); color: var(--text); font-family: var(--mono); outline: none; width: 180px; }
+.hero-add input:focus { border-color: var(--accent2); }
+.also-section { max-width: 860px; }
+.also-section details { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); }
+.also-section summary { padding: 10px 16px; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+.also-section summary::-webkit-details-marker { display: none; }
+.also-section summary::after { content: '▸'; font-size: 10px; transition: transform 0.15s; }
+.also-section details[open] summary::after { transform: rotate(90deg); }
+.also-inner { padding: 0 16px 12px; display: flex; flex-direction: column; gap: 6px; }
+.also-subsection { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 8px; margin-bottom: 4px; }
+.also-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-family: var(--mono); font-size: 12px; }
+.also-sym { font-weight: 500; color: var(--text); min-width: 100px; }
+.also-score { color: var(--muted); }
+.empty-opp { max-width: 860px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; color: var(--muted); font-size: 13px; font-family: var(--sans); line-height: 1.6; }
+.disclaimer { max-width: 860px; font-size: 11px; color: var(--muted); font-family: var(--sans); line-height: 1.5; opacity: 0.7; border-top: 1px solid var(--border); padding-top: 12px; }
 </style>
 </head>
 <body>
@@ -147,6 +213,12 @@ tbody tr.has-summary { border-bottom: none; }
     </div>
   </header>
 
+  <nav class="tab-bar">
+    <button class="tab active" onclick="switchTab('watchlist')">Watchlist</button>
+    <button class="tab" onclick="switchTab('opportunities')">Opportunities</button>
+  </nav>
+
+  <div id="tab-watchlist" class="tab-content active">
   <main>
     <!-- left: market data -->
     <div class="left-panel">
@@ -222,6 +294,25 @@ tbody tr.has-summary { border-bottom: none; }
       </div>
     </div>
   </main>
+  </div><!-- /tab-watchlist -->
+
+  <div id="tab-opp" class="tab-content">
+    <div class="opp-panel">
+      <div class="opp-header">
+        <span class="opp-title">// opportunities</span>
+        <div class="opp-meta">
+          <span id="scan-time">—</span>
+          <span>·</span>
+          <span>Next scan <span id="scan-countdown">—</span></span>
+          <button class="btn primary" id="scan-now-btn" onclick="triggerScan()">Scan Now</button>
+        </div>
+      </div>
+      <div id="opp-content">
+        <div class="loading-state">Loading scanner…</div>
+      </div>
+    </div>
+  </div><!-- /tab-opp -->
+
 </div>
 
 <script>
@@ -229,6 +320,7 @@ let marketData = [];
 let rsiData = {};
 let signalData = {};
 let fearGreedData = {};
+let scannerData = null;
 let sortCol = 'market_cap', sortDir = -1;
 
 // ── formatting ────────────────────────────────────────────────────────────────
@@ -506,6 +598,218 @@ async function resetAlert(id) {
   loadAlerts();
 }
 
+// ── tab switching ─────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab[onclick="switchTab('${name}')"]`).classList.add('active');
+  document.getElementById(`tab-${name}`).classList.add('active');
+  if (name === 'opportunities' && !scannerData) loadScanner();
+}
+
+// ── scanner ───────────────────────────────────────────────────────────────────
+const SIGNAL_COLORS = {
+  strong_buy: '#22c55e', buy: '#4ade80', hold: '#fbbf24',
+  sell: '#f87171', strong_sell: '#ef4444',
+};
+const SIGNAL_LABELS = { strong_buy: 'STRONG BUY', buy: 'BUY', hold: 'HOLD', sell: 'SELL', strong_sell: 'STRONG SELL' };
+
+function fmtRelStrength(rs) {
+  if (rs == null) return '—';
+  const abs = Math.abs(rs).toFixed(2);
+  const cls = rs >= 0 ? 'up' : 'dn';
+  const dir = rs >= 0 ? 'Outperforming BTC by' : 'Underperforming BTC by';
+  return `<span class="${cls}">${dir} ${rs >= 0 ? '+' : '-'}${abs}%</span>`;
+}
+
+function buildScoreBar(winner) {
+  if (!winner || !winner.scoreBreakdown) return '';
+  const sb = winner.scoreBreakdown;
+  const empty = Math.max(0, 100 - winner.score);
+  let segs = '', legend = '';
+  if (winner.tier === 0) {
+    segs = `
+      <div class="score-seg seg-recency"    style="flex:${sb.recency}"    title="Recency: ${sb.recency}/25"></div>
+      <div class="score-seg seg-volume"     style="flex:${sb.volume}"     title="Volume: ${sb.volume}/25"></div>
+      <div class="score-seg seg-macd"       style="flex:${sb.macd}"       title="MACD: ${sb.macd}/25"></div>
+      <div class="score-seg seg-rs"         style="flex:${sb.relStrength}" title="Rel. Strength: ${sb.relStrength}/25"></div>
+      <div class="score-seg seg-empty"      style="flex:${empty}"></div>`;
+    legend = `<span class="l-recency">Recency ${sb.recency}</span>
+      <span class="l-volume">Volume ${sb.volume}</span>
+      <span class="l-macd">MACD ${sb.macd}</span>
+      <span class="l-rs">Rel. Strength ${sb.relStrength}</span>`;
+  } else {
+    segs = `
+      <div class="score-seg seg-rsi"   style="flex:${sb.rsi}"   title="RSI proximity: ${sb.rsi}/40"></div>
+      <div class="score-seg seg-ema50" style="flex:${sb.ema50}" title="EMA50 proximity: ${sb.ema50}/30"></div>
+      <div class="score-seg seg-macd"  style="flex:${sb.macd}"  title="MACD strength: ${sb.macd}/30"></div>
+      <div class="score-seg seg-empty" style="flex:${empty}"></div>`;
+    legend = `<span class="l-rsi">RSI ${sb.rsi}</span>
+      <span class="l-ema50">EMA50 dist ${sb.ema50}</span>
+      <span class="l-macd">MACD ${sb.macd}</span>`;
+  }
+  return `
+    <div class="score-row">
+      <span class="score-label">Score ${winner.score}/100</span>
+      <div class="score-bar">${segs}</div>
+    </div>
+    <div class="score-legend">${legend}</div>`;
+}
+
+function renderOpportunities() {
+  const el = document.getElementById('opp-content');
+  if (!scannerData) { el.innerHTML = '<div class="loading-state">Loading scanner…</div>'; return; }
+
+  const { latest, updatedAt } = scannerData;
+
+  // update header meta
+  document.getElementById('scan-time').textContent =
+    updatedAt ? 'Last scan ' + new Date(updatedAt).toLocaleTimeString() : '—';
+
+  if (!latest || !latest.winner) {
+    el.innerHTML = `
+      <div class="empty-opp">
+        No candidates found in current scan. Tier 0 requires a fresh 200 EMA crossover with volume
+        confirmation — this fires rarely and only in genuine trend transitions. Tier C requires a
+        confirmed uptrend with a clean pullback. In extended or bearish markets both will correctly
+        return nothing.
+      </div>
+      <div class="disclaimer">
+        Tier 0 identifies early trend transitions. Tier C identifies dips within established uptrends.
+        These are algorithmic signals only and not financial advice. Always do your own research before trading.
+      </div>`;
+    return;
+  }
+
+  const w = latest.winner;
+  const sym = w.symbol.replace('USDT', '');
+  const isT0 = w.tier === 0;
+
+  const tierBadge = isT0
+    ? `<span class="tier-badge tier-new-riser">★ NEW RISER</span>`
+    : `<span class="tier-badge tier-dip">● DIP IN UPTREND</span>`;
+
+  const priceClass = w.change24h >= 0 ? 'up' : 'dn';
+  const changePct  = (w.change24h >= 0 ? '+' : '') + w.change24h.toFixed(2) + '%';
+
+  const sigBadge = w.signal
+    ? `<span class="signal-badge signal-${w.signal} hero-signal-badge">${SIGNAL_LABELS[w.signal] || w.signal.toUpperCase()}</span>`
+    : `<span class="signal-badge signal-pending hero-signal-badge">Pending</span>`;
+
+  const scoreBar = buildScoreBar(w);
+  const relStr   = fmtRelStrength(w.relStrength);
+
+  const statsItems = [
+    w.rsi != null        ? `<span>RSI <strong>${w.rsi.toFixed(1)}</strong></span>` : '',
+    w.macd               ? `<span>MACD <strong>${w.macd.macd >= 0 ? '+' : ''}${w.macd.macd.toFixed(4)}</strong></span>` : '',
+    w.distFromEMA50Pct != null ? `<span>EMA50 dist <strong>${w.distFromEMA50Pct.toFixed(1)}%</strong></span>` : '',
+    w.volRatio != null   ? `<span>Vol ratio <strong>${w.volRatio.toFixed(2)}x</strong></span>` : '',
+    isT0 && w.ema200CrossoverAgo != null ? `<span>200 EMA crossed <strong>${w.ema200CrossoverAgo}h ago</strong></span>` : '',
+  ].filter(Boolean).join('');
+
+  // also-qualified subsections
+  const makeAlsoRows = (list) => list.map(c => {
+    const csym = c.symbol.replace('USDT', '');
+    const tbadge = c.tier === 0
+      ? `<span class="tier-badge tier-new-riser" style="font-size:9px;padding:2px 6px">T0</span>`
+      : `<span class="tier-badge tier-dip" style="font-size:9px;padding:2px 6px">TC</span>`;
+    return `<div class="also-row">${tbadge}<span class="also-sym">${csym}</span><span class="also-score">${c.score}/100</span></div>`;
+  }).join('');
+
+  const t0Others = latest.otherTier0 || [];
+  const tcOthers = latest.otherTierC || [];
+  const hasOthers = t0Others.length > 0 || tcOthers.length > 0;
+
+  const alsoSection = hasOthers ? `
+    <div class="also-section">
+      <details>
+        <summary>Also qualified (${t0Others.length + tcOthers.length})</summary>
+        <div class="also-inner">
+          ${t0Others.length ? `<div class="also-subsection">Other Tier 0</div>${makeAlsoRows(t0Others)}` : ''}
+          ${tcOthers.length ? `<div class="also-subsection">Other Tier C</div>${makeAlsoRows(tcOthers)}` : ''}
+        </div>
+      </details>
+    </div>` : '';
+
+  const scanTs = latest.timestamp
+    ? `<span style="font-size:11px;color:var(--muted);font-family:var(--mono)">${new Date(latest.timestamp).toLocaleString()}</span>`
+    : '';
+
+  el.innerHTML = `
+    <div class="hero-card">
+      <div class="hero-top">
+        <div>
+          ${tierBadge}
+          <div style="margin-top:10px">
+            <span class="hero-sym">${sym}</span>
+            <span class="hero-change pct ${priceClass}">${changePct}</span>
+          </div>
+          <div class="hero-price">${fmtPrice(w.price)}</div>
+          <div class="hero-relstr">${relStr}</div>
+        </div>
+        ${scanTs}
+      </div>
+      ${scoreBar}
+      <div class="hero-signal-row">
+        ${sigBadge}
+        ${w.signalSummary ? `<span class="hero-summary">${w.signalSummary.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>` : ''}
+      </div>
+      <div class="hero-stats">${statsItems}</div>
+      <div class="hero-add">
+        <input id="opp-add-input" value="${sym.toLowerCase()}" placeholder="CoinGecko ID" />
+        <button class="btn primary" onclick="addFromScanner()">Add to Watchlist</button>
+      </div>
+    </div>
+    ${alsoSection}
+    <div class="disclaimer">
+      Tier 0 identifies early trend transitions. Tier C identifies dips within established uptrends.
+      These are algorithmic signals only and not financial advice. Always do your own research before trading.
+    </div>`;
+}
+
+async function loadScanner() {
+  try {
+    const r = await fetch('/api/scanner');
+    scannerData = r.ok ? await r.json() : null;
+    renderOpportunities();
+  } catch (_) {}
+}
+
+async function triggerScan() {
+  const btn = document.getElementById('scan-now-btn');
+  btn.textContent = 'Scanning…';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/scanner/run', { method: 'POST' });
+    scannerData = r.ok ? await r.json() : scannerData;
+    renderOpportunities();
+  } catch (_) {}
+  btn.textContent = 'Scan Now';
+  btn.disabled = false;
+}
+
+async function addFromScanner() {
+  const val = document.getElementById('opp-add-input').value.trim().toLowerCase();
+  if (!val) return;
+  await fetch('/api/watchlist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ coin: val }),
+  });
+  alert(`Added ${val} to watchlist.`);
+}
+
+function updateCountdown() {
+  const el = document.getElementById('scan-countdown');
+  if (!el) return;
+  const nextAt = ((scannerData && scannerData.updatedAt) || 0) + 3600000;
+  const remaining = nextAt - Date.now();
+  if (remaining <= 0) { el.textContent = 'soon'; return; }
+  const m = Math.floor(remaining / 60000);
+  const s = Math.floor((remaining % 60000) / 1000);
+  el.textContent = `${m}m ${s}s`;
+}
+
 // ── signals refresh ───────────────────────────────────────────────────────────
 async function loadSignals() {
   try {
@@ -519,10 +823,13 @@ async function loadSignals() {
 loadMarket();
 loadAlerts();
 loadFearGreed();
+loadScanner();
 setInterval(loadMarket, 60000);
 setInterval(loadAlerts, 30000);
 setInterval(loadFearGreed, 300000);
 setInterval(loadSignals, 30000);
+setInterval(loadScanner, 300000);
+setInterval(updateCountdown, 1000);
 </script>
 </body>
 </html>

@@ -10,6 +10,7 @@ const binance = require('./binance');
 const coingecko = require('./coingecko');
 const ind       = require('./indicators');
 const feargreed = require('./feargreed');
+const scanner   = require('./scanner');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,6 +22,7 @@ const RSI_FILE       = path.join(DATA_DIR, 'rsi.json');
 const SIGNALS_FILE   = path.join(DATA_DIR, 'signals.json');
 const INDICATORS_FILE = path.join(DATA_DIR, 'indicators.json');
 const FEARGREED_FILE  = path.join(DATA_DIR, 'feargreed.json');
+const SCANNER_FILE    = path.join(DATA_DIR, 'scanner.json');
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -291,6 +293,98 @@ async function updateSignals() {
   console.log('[signals] updated:', Object.keys(signalCache).map(k => `${k}=${signalCache[k].signal}`).join(', '));
 }
 
+function buildScannerPrompt(winner, winnerTier, fng) {
+  const fngStr = fng.value != null ? `${fng.value}/100 (${fng.classification})` : 'unavailable';
+  const sym = winner.symbol.replace('USDT', '');
+  const lines = [
+    `Coin: ${sym}`,
+    `Price: $${winner.price}`,
+    `24h change: ${winner.change24h.toFixed(2)}%`,
+    `RSI (14): ${winner.rsi != null ? winner.rsi.toFixed(1) : 'unavailable'}`,
+  ];
+  if (winner.macd) {
+    lines.push(`MACD line: ${winner.macd.macd.toFixed(6)} | Signal: ${winner.macd.signal.toFixed(6)} | Histogram: ${winner.macd.histogram.toFixed(6)}`);
+  }
+  if (winner.ema50  != null) lines.push(`EMA50: $${winner.ema50.toFixed(4)}`);
+  if (winner.ema200 != null) {
+    lines.push(`EMA200: $${winner.ema200.toFixed(4)} | Price ${winner.price > winner.ema200 ? 'above' : 'below'} 200 EMA`);
+  }
+  if (winner.distFromEMA50Pct != null) lines.push(`Distance from EMA50: ${winner.distFromEMA50Pct.toFixed(2)}%`);
+  if (winner.volRatio != null) lines.push(`Volume ratio vs 20-period avg: ${winner.volRatio.toFixed(2)}x`);
+  const rsDir = winner.relStrength >= 0 ? 'outperforming' : 'underperforming';
+  lines.push(`Relative strength vs BTC: ${rsDir} by ${Math.abs(winner.relStrength).toFixed(2)}%`);
+  if (winnerTier === 0 && winner.ema200CrossoverAgo != null) {
+    lines.push(`200 EMA crossover: ${winner.ema200CrossoverAgo} hour(s) ago`);
+  }
+  lines.push(`Fear & Greed: ${fngStr}`);
+  lines.push('');
+  if (winnerTier === 0) {
+    lines.push('Context: This coin has been identified as a new riser — price has just crossed above the 200 EMA with volume confirmation and momentum alignment. Frame the signal as an early entry opportunity.');
+  } else {
+    lines.push('Context: This coin has been identified as a dip-in-uptrend candidate within a confirmed uptrend. Frame the signal as a measured re-entry opportunity.');
+  }
+  lines.push('');
+  lines.push('Respond with valid JSON only, no markdown, no prose:');
+  lines.push('{"signal":"buy","summary":"..."} where signal is exactly one of: strong_buy, buy, hold, sell, strong_sell');
+  lines.push('Summary: 1-2 plain English sentences referencing specific indicator values.');
+  return lines.join('\n');
+}
+
+async function updateScanner() {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) { console.error('[scanner] ANTHROPIC_API_KEY not set'); return; }
+
+  const watchlistSymbols = new Set(db.getAllMeta().map(m => m.symbol).filter(Boolean));
+  let result;
+  try {
+    result = await scanner.runScanner(watchlistSymbols);
+  } catch (e) {
+    console.error('[scanner] scan failed:', e.message);
+    return;
+  }
+
+  if (result.winner) {
+    const fng = readJson(FEARGREED_FILE, {});
+    const prompt = buildScannerPrompt(result.winner, result.winnerTier, fng);
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 200,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      if (!res.ok) throw new Error(`Anthropic API ${res.status}`);
+      const body   = await res.json();
+      const raw    = body.content[0].text.trim();
+      const text   = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      const parsed = JSON.parse(text);
+      if (!['strong_buy', 'buy', 'hold', 'sell', 'strong_sell'].includes(parsed.signal))
+        throw new Error(`invalid signal: ${parsed.signal}`);
+      if (typeof parsed.summary !== 'string') throw new Error('missing summary');
+      result.winner.signal        = parsed.signal;
+      result.winner.signalSummary = parsed.summary;
+    } catch (e) {
+      console.error('[scanner] Claude failed:', e.message);
+    }
+  }
+
+  const existing = readJson(SCANNER_FILE, { history: [] });
+  const history  = [{ ...result, storedAt: Date.now() }, ...(existing.history || [])].slice(0, 24);
+  writeJson(SCANNER_FILE, { latest: result, history, updatedAt: Date.now() });
+
+  const winStr = result.winner
+    ? `${result.winner.symbol} tier${result.winnerTier} score=${result.winner.score}`
+    : 'no candidates';
+  console.log(`[scanner] ${winStr}`);
+}
+
 async function refreshAllMarketCaps() {
   const wl = readJson(WATCHLIST_FILE, { coins: [] });
   if (!wl.coins.length) return;
@@ -434,6 +528,21 @@ app.get('/api/feargreed', (req, res) => {
   res.json(readJson(FEARGREED_FILE, {}));
 });
 
+// ── scanner routes ─────────────────────────────────────────────────────────────
+
+app.get('/api/scanner', (req, res) => {
+  res.json(readJson(SCANNER_FILE, { latest: null, history: [], updatedAt: null }));
+});
+
+app.post('/api/scanner/run', async (req, res) => {
+  try {
+    await updateScanner();
+    res.json(readJson(SCANNER_FILE, {}));
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ── alerts routes ─────────────────────────────────────────────────────────────
 
 app.get('/api/alerts', (req, res) => {
@@ -550,6 +659,11 @@ cron.schedule('0 * * * *', () => {
   updateFearGreed().catch(e => console.error('[cron feargreed]', e.message));
 });
 
+// every hour at minute 5: run opportunity scanner
+cron.schedule('5 * * * *', () => {
+  updateScanner().catch(e => console.error('[cron scanner]', e.message));
+});
+
 // every 24 hours at midnight: refresh market caps + prune old 1m candles
 cron.schedule('0 0 * * *', () => {
   refreshAllMarketCaps().catch(e => console.error('[cron 24h]', e.message));
@@ -571,6 +685,7 @@ app.listen(PORT, () => {
       setTimeout(() => checkAlerts().catch(() => {}), 2000);
       setTimeout(() => updateCandles().then(() => updateRSI()).then(() => updateIndicators()).then(() => updateSignals()).catch(() => {}), 4000);
       setTimeout(() => updateFearGreed().catch(() => {}), 6000);
+      setTimeout(() => updateScanner().catch(() => {}), 10000);
     })
     .catch(e => console.error('[startup]', e.message));
 });
