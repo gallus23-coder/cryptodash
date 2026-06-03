@@ -65,3 +65,18 @@ test('getAggCandles aggregates into 5-minute buckets', () => {
   assert.equal(b1.open,  TC[4].open);
   assert.equal(b1.close, TC[5].close);
 });
+
+test('getVolumes returns volumes oldest-first, limited to N', () => {
+  // TC candles were inserted in earlier test; they have volumes 1000,1100,1200,1300,1400,1500
+  const vols = db.getVolumes(COIN, INT, 3);
+  assert.equal(vols.length, 3);
+  // oldest-first: last 3 by DESC time reversed → indices 3,4,5 → 1300,1400,1500
+  assert.equal(vols[0], 1300);
+  assert.equal(vols[1], 1400);
+  assert.equal(vols[2], 1500);
+});
+
+test('getVolumes returns empty array for unknown coin', () => {
+  const vols = db.getVolumes('unknown', INT, 10);
+  assert.equal(vols.length, 0);
+});
