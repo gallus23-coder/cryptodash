@@ -111,7 +111,7 @@ function calcStochRSI(closes) {
 function calcVolumeRatio(volumes) {
   if (volumes.length < 21) return null;
   const avg20 = volumes.slice(0, 20).reduce((a, b) => a + b, 0) / 20;
-  return avg20 === 0 ? null : volumes[20] / avg20;
+  return avg20 === 0 ? null : volumes[volumes.length - 1] / avg20;
 }
 
 module.exports = { calcEMA, calcMACD, calcBollingerBands, calcStochRSI, calcVolumeRatio };
