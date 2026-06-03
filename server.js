@@ -11,6 +11,7 @@ const coingecko = require('./coingecko');
 const ind       = require('./indicators');
 const feargreed = require('./feargreed');
 const scanner   = require('./scanner');
+const backtest  = require('./backtest');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,9 +24,13 @@ const SIGNALS_FILE   = path.join(DATA_DIR, 'signals.json');
 const INDICATORS_FILE = path.join(DATA_DIR, 'indicators.json');
 const FEARGREED_FILE  = path.join(DATA_DIR, 'feargreed.json');
 const SCANNER_FILE    = path.join(DATA_DIR, 'scanner.json');
+const BACKTEST_FILE   = path.join(DATA_DIR, 'backtest.json');
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ── backtest job state ────────────────────────────────────────────────────────
+let backtestJob = { status: 'idle', progress: 0, message: '', jobId: null };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -541,6 +546,44 @@ app.post('/api/scanner/run', async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+
+// ── backtest routes ────────────────────────────────────────────────────────────
+
+app.post('/api/backtest', (req, res) => {
+  if (backtestJob.status === 'running') {
+    return res.status(409).json({ error: 'backtest already running', jobId: backtestJob.jobId });
+  }
+  const { coins, days, forwardWindows } = req.body;
+  if (!Array.isArray(coins) || !coins.length) return res.status(400).json({ error: 'coins array required' });
+  if (!days || days < 1) return res.status(400).json({ error: 'days required' });
+  if (!Array.isArray(forwardWindows) || !forwardWindows.length) return res.status(400).json({ error: 'forwardWindows array required' });
+
+  const jobId = Date.now().toString();
+  backtestJob = { status: 'running', progress: 0, message: 'Starting…', jobId };
+  res.json({ jobId });
+
+  backtest.runBacktest(db, { coins, days, forwardWindows }, (progress, message) => {
+    backtestJob.progress = progress;
+    backtestJob.message = message;
+  }).then(result => {
+    writeJson(BACKTEST_FILE, result);
+    backtestJob = { status: 'done', progress: 100, message: 'Complete', jobId };
+    console.log(`[backtest] done — ${result.params.days}d, ${Object.keys(result.coinStats).length} coins`);
+  }).catch(e => {
+    console.error('[backtest] failed:', e.message);
+    backtestJob = { status: 'error', progress: 0, message: e.message, jobId };
+  });
+});
+
+app.get('/api/backtest/status', (req, res) => {
+  res.json(backtestJob);
+});
+
+app.get('/api/backtest/results', (req, res) => {
+  const data = readJson(BACKTEST_FILE, null);
+  if (!data) return res.status(404).json({ error: 'no results' });
+  res.json(data);
 });
 
 // ── alerts routes ─────────────────────────────────────────────────────────────

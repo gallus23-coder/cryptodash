@@ -209,6 +209,46 @@ tbody tr.has-summary { border-bottom: none; }
 .empty-opp-heading { font-family: var(--mono); font-size: 15px; font-weight: 500; color: var(--muted); }
 .empty-opp-sub { font-family: var(--sans); font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 520px; opacity: 0.8; }
 .empty-opp-time { font-family: var(--mono); font-size: 11px; color: var(--muted); opacity: 0.5; margin-top: 4px; }
+
+/* backtest panel */
+.bt-panel { height: calc(100vh - 96px); overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+.bt-controls { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.bt-control-group { display: flex; flex-direction: column; gap: 4px; }
+.bt-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-family: var(--mono); }
+.bt-checkboxes { display: flex; gap: 10px; align-items: center; height: 31px; }
+.bt-checkboxes label { display: flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 12px; color: var(--text); cursor: pointer; }
+.bt-checkboxes input[type=checkbox] { accent-color: var(--accent); width: 13px; height: 13px; }
+.bt-progress-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
+.bt-progress-bar { height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+.bt-progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s; width: 0%; }
+.bt-progress-msg { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.bt-phase-banner { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-left: 3px solid; background: var(--bg2); border-radius: var(--radius); border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12px; max-width: 860px; }
+.bt-phase-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); white-space: nowrap; }
+.bt-sim-card { background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--radius); padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; max-width: 860px; }
+.bt-sim-header { display: flex; align-items: center; justify-content: space-between; }
+.bt-sim-title { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text); }
+.bt-sim-period { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.bt-sim-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.bt-sim-col { display: flex; flex-direction: column; gap: 2px; }
+.bt-sim-label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.bt-sim-big { font-family: var(--mono); font-size: 28px; font-weight: 500; }
+.bt-sim-sub { font-family: var(--mono); font-size: 13px; }
+.bt-sim-stats { display: flex; gap: 18px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 10px; }
+.bt-sim-stats strong { color: var(--text); }
+.bt-coins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; max-width: 860px; }
+.bt-coin-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.bt-coin-header { display: flex; align-items: center; justify-content: space-between; }
+.bt-coin-sym { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text); text-transform: uppercase; }
+.bt-coin-window { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.bt-coin-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+.bt-stat-item { display: flex; flex-direction: column; gap: 1px; }
+.bt-stat-label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.bt-stat-val { font-family: var(--mono); font-size: 13px; color: var(--text); }
+.bt-phase-split { display: flex; gap: 12px; font-family: var(--mono); font-size: 11px; border-top: 1px solid var(--border); padding-top: 6px; }
+.bt-curve-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; max-width: 860px; }
+.bt-curve-title { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.bt-curve { width: 100%; height: 180px; display: block; }
+.bt-curve-legend { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -224,6 +264,7 @@ tbody tr.has-summary { border-bottom: none; }
   <nav class="tab-bar">
     <button class="tab active" onclick="switchTab('watchlist')">Watchlist</button>
     <button class="tab" onclick="switchTab('opportunities')">Opportunities</button>
+    <button class="tab" onclick="switchTab('backtest')">Backtest</button>
   </nav>
 
   <div id="tab-watchlist" class="tab-content active">
@@ -320,6 +361,43 @@ tbody tr.has-summary { border-bottom: none; }
       </div>
     </div>
   </div><!-- /tab-opp -->
+
+  <div id="tab-backtest" class="tab-content">
+    <div class="bt-panel">
+      <div class="bt-controls">
+        <div class="bt-control-group">
+          <label class="bt-label">Coin</label>
+          <select class="form-input" id="bt-coin" style="width:160px">
+            <option value="all">All Coins</option>
+          </select>
+        </div>
+        <div class="bt-control-group">
+          <label class="bt-label">Period</label>
+          <select class="form-input" id="bt-days" style="width:110px">
+            <option value="30">30 days</option>
+            <option value="60">60 days</option>
+            <option value="90" selected>90 days</option>
+          </select>
+        </div>
+        <div class="bt-control-group">
+          <label class="bt-label">Forward Windows</label>
+          <div class="bt-checkboxes">
+            <label><input type="checkbox" id="bt-fw4" value="4" checked> 4h</label>
+            <label><input type="checkbox" id="bt-fw24" value="24" checked> 24h</label>
+            <label><input type="checkbox" id="bt-fw72" value="72" checked> 72h</label>
+          </div>
+        </div>
+        <button class="btn primary" id="bt-run-btn" onclick="runBacktestNow()">Run Backtest</button>
+      </div>
+      <div class="bt-progress-wrap" id="bt-progress-wrap" style="display:none">
+        <div class="bt-progress-bar"><div class="bt-progress-fill" id="bt-progress-fill"></div></div>
+        <div class="bt-progress-msg" id="bt-progress-msg">Starting…</div>
+      </div>
+      <div id="bt-content">
+        <div class="loading-state">Run a backtest to see results.</div>
+      </div>
+    </div>
+  </div><!-- /tab-backtest -->
 
 </div>
 
@@ -613,6 +691,7 @@ function switchTab(name) {
   document.querySelector(`.tab[onclick="switchTab('${name}')"]`).classList.add('active');
   document.getElementById(`tab-${name}`).classList.add('active');
   if (name === 'opportunities' && !scannerData) loadScanner();
+  if (name === 'backtest') { populateBtCoinDropdown(); if (!backtestData) loadBacktest(); }
 }
 
 // ── scanner ───────────────────────────────────────────────────────────────────
@@ -829,6 +908,212 @@ function updateCountdown() {
   const m = Math.floor(remaining / 60000);
   const s = Math.floor((remaining % 60000) / 1000);
   el.textContent = `${m}m ${s}s`;
+}
+
+// ── backtest ──────────────────────────────────────────────────────────────────
+let backtestData = null;
+let btPollInterval = null;
+
+function populateBtCoinDropdown() {
+  const sel = document.getElementById('bt-coin');
+  if (!sel) return;
+  const current = sel.value;
+  const coins = marketData.map(d => d.id);
+  sel.innerHTML = `<option value="all">All Coins</option>` +
+    coins.map(id => `<option value="${id}"${id === current ? ' selected' : ''}>${id}</option>`).join('');
+}
+
+async function loadBacktest() {
+  try {
+    const r = await fetch('/api/backtest/results');
+    if (r.ok) { backtestData = await r.json(); renderBacktest(); }
+  } catch (_) {}
+}
+
+async function runBacktestNow() {
+  const btn = document.getElementById('bt-run-btn');
+  const coinVal = document.getElementById('bt-coin').value;
+  const days = parseInt(document.getElementById('bt-days').value);
+  const fws = [4, 24, 72].filter(v => document.getElementById(`bt-fw${v}`).checked);
+  if (!fws.length) { alert('Select at least one forward window.'); return; }
+
+  const coins = coinVal === 'all' ? marketData.map(d => d.id) : [coinVal];
+  if (!coins.length) { alert('No coins available.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  document.getElementById('bt-progress-wrap').style.display = 'block';
+  document.getElementById('bt-progress-fill').style.width = '0%';
+  document.getElementById('bt-progress-msg').textContent = 'Starting…';
+  document.getElementById('bt-content').innerHTML = '';
+
+  try {
+    const r = await fetch('/api/backtest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ coins, days, forwardWindows: fws }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+
+    btPollInterval = setInterval(async () => {
+      try {
+        const sr = await fetch('/api/backtest/status');
+        const status = await sr.json();
+        document.getElementById('bt-progress-fill').style.width = status.progress + '%';
+        document.getElementById('bt-progress-msg').textContent = status.message;
+        if (status.status === 'done') {
+          clearInterval(btPollInterval); btPollInterval = null;
+          document.getElementById('bt-progress-wrap').style.display = 'none';
+          btn.disabled = false; btn.textContent = 'Run Backtest';
+          const rr = await fetch('/api/backtest/results');
+          backtestData = rr.ok ? await rr.json() : null;
+          renderBacktest();
+        } else if (status.status === 'error') {
+          clearInterval(btPollInterval); btPollInterval = null;
+          document.getElementById('bt-progress-wrap').style.display = 'none';
+          btn.disabled = false; btn.textContent = 'Run Backtest';
+          document.getElementById('bt-content').innerHTML =
+            `<div class="loading-state" style="color:var(--red)">⚠ ${status.message}</div>`;
+        }
+      } catch (_) {}
+    }, 1000);
+  } catch (e) {
+    document.getElementById('bt-progress-wrap').style.display = 'none';
+    btn.disabled = false; btn.textContent = 'Run Backtest';
+    document.getElementById('bt-content').innerHTML =
+      `<div class="loading-state" style="color:var(--red)">⚠ ${e.message}</div>`;
+  }
+}
+
+function renderBacktest() {
+  const el = document.getElementById('bt-content');
+  if (!backtestData) {
+    el.innerHTML = '<div class="loading-state">Run a backtest to see results.</div>';
+    return;
+  }
+  const { runAt, params, marketPhase, coinStats, simulation, benchmark } = backtestData;
+
+  // Market phase banner
+  let phaseBanner = '';
+  if (marketPhase) {
+    const pct = marketPhase.abovePct;
+    const color = pct < 30 ? 'var(--red)' : pct < 70 ? 'var(--amber)' : 'var(--accent)';
+    phaseBanner = `<div class="bt-phase-banner" style="border-color:${color};color:${color}">
+      <span class="bt-phase-label">Market Phase</span>
+      <span>${marketPhase.label} — BTC above EMA200 ${pct}% of test period</span>
+    </div>`;
+  }
+
+  // Per-coin stats
+  let coinCardsHtml = '';
+  for (const [coinId, stats] of Object.entries(coinStats || {})) {
+    const bw = stats.bestWindow;
+    const bwCls = bw && stats.byWindowByClass?.[bw];
+    const buyStats = bwCls?.buy || {};
+    const sbStats  = bwCls?.strong_buy || {};
+    const combined = (() => {
+      const sigs = (buyStats.count || 0) + (sbStats.count || 0);
+      if (!sigs) return {};
+      const wins = (buyStats.wins || 0) + (sbStats.wins || 0);
+      const wr = sigs ? wins / sigs : 0;
+      const ag = ((buyStats.avgGain || 0) * (buyStats.count || 0) + (sbStats.avgGain || 0) * (sbStats.count || 0)) / sigs;
+      const al = ((buyStats.avgLoss || 0) * (buyStats.count || 0) + (sbStats.avgLoss || 0) * (sbStats.count || 0)) / sigs;
+      const rr = al > 0 ? ag / al : null;
+      const ev = (wr * ag) - ((1 - wr) * al);
+      return { winRate: wr, rr, ev, count: sigs };
+    })();
+    const wrStr = combined.winRate != null ? (combined.winRate * 100).toFixed(0) + '%' : '—';
+    const evStr = combined.ev != null ? (combined.ev >= 0 ? '+' : '') + combined.ev.toFixed(2) + '%' : '—';
+    const rrStr = combined.rr != null ? combined.rr.toFixed(2) : '—';
+    const evClass = combined.ev >= 0 ? 'up' : 'dn';
+    const ps = stats.phaseSplit;
+    coinCardsHtml += `
+      <div class="bt-coin-card">
+        <div class="bt-coin-header">
+          <span class="bt-coin-sym">${coinId}</span>
+          <span class="bt-coin-window">${bw ? `best: ${bw}h` : 'n/a'}</span>
+        </div>
+        <div class="bt-coin-stats">
+          <div class="bt-stat-item"><span class="bt-stat-label">Buy Win Rate</span><span class="bt-stat-val">${wrStr}</span></div>
+          <div class="bt-stat-item"><span class="bt-stat-label">EV</span><span class="bt-stat-val ${evClass}">${evStr}</span></div>
+          <div class="bt-stat-item"><span class="bt-stat-label">R/R</span><span class="bt-stat-val">${rrStr}</span></div>
+          <div class="bt-stat-item"><span class="bt-stat-label">Buy Signals</span><span class="bt-stat-val">${combined.count || 0}</span></div>
+        </div>
+        ${ps ? `<div class="bt-phase-split">
+          <span style="color:var(--accent)">Bull: ${(ps.aboveEMA200.winRate * 100).toFixed(0)}% WR (${ps.aboveEMA200.count})</span>
+          <span style="color:var(--red)">Bear: ${(ps.belowEMA200.winRate * 100).toFixed(0)}% WR (${ps.belowEMA200.count})</span>
+        </div>` : ''}
+      </div>`;
+  }
+
+  // Simulation card
+  const sim = simulation || {};
+  const pl = sim.profitLoss ?? 0;
+  const plClass = pl >= 0 ? 'up' : 'dn';
+  const plStr = (pl >= 0 ? '+' : '') + '£' + Math.abs(pl).toFixed(2);
+  const plPct = sim.profitLossPct != null ? (sim.profitLossPct >= 0 ? '+' : '') + sim.profitLossPct.toFixed(2) + '%' : '—';
+  const bh = benchmark || {};
+  const bhFinal = bh.finalValue || 100;
+  const bhPl = bhFinal - 100;
+  const bhClass = bhPl >= 0 ? 'up' : 'dn';
+  const bhPlStr = (bhPl >= 0 ? '+' : '') + '£' + Math.abs(bhPl).toFixed(2);
+  const bhPct = bh.returnPct != null ? (bh.returnPct >= 0 ? '+' : '') + bh.returnPct.toFixed(2) + '%' : '—';
+
+  const simCard = `
+    <div class="bt-sim-card">
+      <div class="bt-sim-header">
+        <span class="bt-sim-title">// £100 simulation</span>
+        <span class="bt-sim-period">${params?.days || 0}d · ${params?.coins?.length || 0} coin(s)</span>
+      </div>
+      <div class="bt-sim-cols">
+        <div class="bt-sim-col">
+          <div class="bt-sim-label">Strategy</div>
+          <div class="bt-sim-big ${plClass}">£${(sim.finalPot || 100).toFixed(2)}</div>
+          <div class="bt-sim-sub ${plClass}">${plStr} (${plPct})</div>
+        </div>
+        <div class="bt-sim-col">
+          <div class="bt-sim-label">Buy &amp; Hold</div>
+          <div class="bt-sim-big ${bhClass}">£${bhFinal.toFixed(2)}</div>
+          <div class="bt-sim-sub ${bhClass}">${bhPlStr} (${bhPct})</div>
+        </div>
+      </div>
+      <div class="bt-sim-stats">
+        <span>Trades <strong>${sim.trades || 0}</strong></span>
+        <span>Wins <strong class="up">${sim.winningTrades || 0}</strong></span>
+        <span>Losses <strong class="dn">${sim.losingTrades || 0}</strong></span>
+        <span>Fees <strong>£${(sim.totalFees || 0).toFixed(2)}</strong></span>
+        <span>Min pot <strong>£${(sim.minPot || 0).toFixed(2)}</strong></span>
+        <span>Max win <strong>£${(sim.largestWin || 0).toFixed(2)}</strong></span>
+      </div>
+    </div>`;
+
+  // Equity curve
+  let curveHtml = '';
+  const ec = sim.equityCurve;
+  if (ec && ec.length >= 2) {
+    const W = 828, H = 160, PAD = 6;
+    const vals = ec.map(p => p.potValue);
+    const minV = Math.min(...vals, 80), maxV = Math.max(...vals, 100);
+    const range = maxV - minV || 1;
+    const toX = (i, len) => PAD + (i / (len - 1)) * (W - PAD * 2);
+    const toY = v => H - PAD - ((v - minV) / range) * (H - PAD * 2);
+    const pts = ec.map((p, i) => `${toX(i, ec.length).toFixed(1)},${toY(p.potValue).toFixed(1)}`).join(' ');
+    const ecFinal = ec[ec.length - 1].potValue;
+    const lineColor = ecFinal >= 100 ? '#4ade80' : '#f87171';
+    const base100Y = toY(100).toFixed(1);
+    curveHtml = `<div class="bt-curve-wrap">
+      <div class="bt-curve-title">Equity Curve</div>
+      <svg class="bt-curve" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <line x1="${PAD}" y1="${base100Y}" x2="${W - PAD}" y2="${base100Y}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+        <polyline points="${pts}" fill="none" stroke="${lineColor}" stroke-width="2"/>
+      </svg>
+      <div class="bt-curve-legend"><span>£${minV.toFixed(0)}</span><span>£100</span><span>£${maxV.toFixed(0)}</span></div>
+    </div>`;
+  }
+
+  const runAtStr = runAt ? `<div style="font-family:var(--mono);font-size:11px;color:var(--muted)">Last run: ${new Date(runAt).toLocaleString()}</div>` : '';
+  el.innerHTML = runAtStr + phaseBanner + curveHtml + simCard +
+    (coinCardsHtml ? `<div class="bt-coins-grid">${coinCardsHtml}</div>` : '');
 }
 
 // ── signals refresh ───────────────────────────────────────────────────────────
