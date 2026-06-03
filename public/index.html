@@ -201,6 +201,14 @@ tbody tr.has-summary { border-bottom: none; }
 .also-score { color: var(--muted); }
 .empty-opp { max-width: 860px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; color: var(--muted); font-size: 13px; font-family: var(--sans); line-height: 1.6; }
 .disclaimer { max-width: 860px; font-size: 11px; color: var(--muted); font-family: var(--sans); line-height: 1.5; opacity: 0.7; border-top: 1px solid var(--border); padding-top: 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { display: inline-block; animation: spin 0.8s linear infinite; }
+.btn.scan-done { border-color: rgba(74,222,128,0.4); color: var(--accent); }
+.empty-opp-styled { max-width: 860px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 48px 32px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.empty-opp-icon { font-size: 48px; color: var(--muted); opacity: 0.4; line-height: 1; }
+.empty-opp-heading { font-family: var(--mono); font-size: 15px; font-weight: 500; color: var(--muted); }
+.empty-opp-sub { font-family: var(--sans); font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 520px; opacity: 0.8; }
+.empty-opp-time { font-family: var(--mono); font-size: 11px; color: var(--muted); opacity: 0.5; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -667,14 +675,17 @@ function renderOpportunities() {
     updatedAt ? 'Last scan ' + new Date(updatedAt).toLocaleTimeString() : '—';
 
   if (!latest || !latest.winner) {
+    const lastTs = latest && latest.timestamp
+      ? 'Last scan ' + new Date(latest.timestamp).toLocaleString()
+      : updatedAt ? 'Last scan ' + new Date(updatedAt).toLocaleString() : '';
     el.innerHTML = `
-      <div class="empty-opp">
-        No candidates found in current scan. Tier 0 requires a fresh 200 EMA crossover with volume
-        confirmation — this fires rarely and only in genuine trend transitions. Tier C requires a
-        confirmed uptrend with a clean pullback. In extended or bearish markets both will correctly
-        return nothing.
+      <div class="empty-opp-styled">
+        <div class="empty-opp-icon">🔭</div>
+        <div class="empty-opp-heading">No Opportunities Found</div>
+        <div class="empty-opp-sub">Neither Tier 0 nor Tier C criteria are currently met across the top 100 coins. This typically occurs in bearish or extended markets — the filters are working correctly.</div>
+        ${lastTs ? `<div class="empty-opp-time">${lastTs}</div>` : ''}
       </div>
-      <div class="disclaimer">
+      <div class="disclaimer" style="margin-top:16px">
         Tier 0 identifies early trend transitions. Tier C identifies dips within established uptrends.
         These are algorithmic signals only and not financial advice. Always do your own research before trading.
       </div>`;
@@ -777,15 +788,25 @@ async function loadScanner() {
 
 async function triggerScan() {
   const btn = document.getElementById('scan-now-btn');
-  btn.textContent = 'Scanning…';
   btn.disabled = true;
+  btn.innerHTML = '<span class="spin">⟳</span> Scanning…';
   try {
     const r = await fetch('/api/scanner/run', { method: 'POST' });
     scannerData = r.ok ? await r.json() : scannerData;
     renderOpportunities();
-  } catch (_) {}
-  btn.textContent = 'Scan Now';
-  btn.disabled = false;
+    btn.innerHTML = '✓ Scan complete';
+    btn.classList.remove('primary');
+    btn.classList.add('scan-done');
+    setTimeout(() => {
+      btn.innerHTML = 'Scan Now';
+      btn.classList.add('primary');
+      btn.classList.remove('scan-done');
+      btn.disabled = false;
+    }, 2000);
+  } catch (_) {
+    btn.innerHTML = 'Scan Now';
+    btn.disabled = false;
+  }
 }
 
 async function addFromScanner() {
