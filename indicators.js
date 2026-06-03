@@ -24,7 +24,7 @@ function calcMACD(closes) {
   const macdSeries = [];
   for (let i = 12; i < closes.length; i++) {
     ema12 = closes[i] * k12 + ema12 * (1 - k12);
-    if (i >= 25) {
+    if (i >= 26) {
       ema26 = closes[i] * k26 + ema26 * (1 - k26);
       macdSeries.push(ema12 - ema26);
     }
