@@ -204,9 +204,15 @@ async function updateSignals() {
   if (!wl.coins.length) return;
 
   const rsiCache    = readJson(RSI_FILE, {});
+  const indCache    = readJson(INDICATORS_FILE, {});
+  const fng         = readJson(FEARGREED_FILE, {});
   const signalCache = readJson(SIGNALS_FILE, {});
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) { console.error('[signals] ANTHROPIC_API_KEY not set'); return; }
+
+  const fngStr = fng.value != null
+    ? `${fng.value}/100 (${fng.classification})`
+    : 'unavailable';
 
   for (const id of wl.coins) {
     const meta = db.getMeta(id);
@@ -222,15 +228,33 @@ async function updateSignals() {
     const rsi      = rsiEntry ? rsiEntry.rsi : null;
     const price    = parseFloat(ticker.lastPrice);
     const change24h = parseFloat(ticker.priceChangePercent);
+    const i = indCache[id] || {};
     try {
-      const prompt =
-        `Coin: ${meta.name}\n` +
-        `Current price: $${price}\n` +
-        `24h change: ${change24h.toFixed(2)}%\n` +
-        `RSI (14): ${rsi != null ? rsi : 'unavailable'}\n\n` +
-        `Respond with valid JSON only, no markdown, no prose:\n` +
-        `{"signal":"buy","summary":"..."} where signal is exactly one of: buy, sell, hold. ` +
-        `Summary is 1-2 plain English sentences suitable for a trading dashboard.`;
+      const lines = [
+        `Coin: ${meta.name}`,
+        `Price: $${price}`,
+        `24h change: ${change24h.toFixed(2)}%`,
+        `RSI (14): ${rsi != null ? rsi.toFixed(1) : 'unavailable'}`,
+      ];
+      if (i.macd) {
+        lines.push(`MACD: ${i.macd.macd.toFixed(2)} | Signal: ${i.macd.signal.toFixed(2)} | Histogram: ${i.macd.histogram.toFixed(2)}`);
+      }
+      if (i.bb) {
+        lines.push(`Bollinger: Upper $${i.bb.upper.toFixed(2)} Middle $${i.bb.middle.toFixed(2)} Lower $${i.bb.lower.toFixed(2)} BW: ${i.bb.bandwidthPct.toFixed(1)}%`);
+      }
+      if (i.ema50 != null) lines.push(`EMA50: $${i.ema50.toFixed(2)}`);
+      if (i.ema200 != null) lines.push(`EMA200: $${i.ema200.toFixed(2)} | Price ${i.emaAbovePrice ? 'above' : 'below'} 200 EMA`);
+      if (i.goldenCross) lines.push('Golden cross detected in last 3 candles.');
+      if (i.deathCross)  lines.push('Death cross detected in last 3 candles.');
+      if (i.stochRsi)    lines.push(`Stoch RSI: %K=${i.stochRsi.k.toFixed(1)} %D=${i.stochRsi.d.toFixed(1)}`);
+      if (i.volumeRatio != null) lines.push(`Volume ratio vs 20-period avg: ${i.volumeRatio.toFixed(2)}x`);
+      lines.push(`Fear & Greed: ${fngStr}`);
+      lines.push('');
+      lines.push('Respond with valid JSON only, no markdown, no prose:');
+      lines.push('{"signal":"buy","summary":"..."} where signal is exactly one of: strong_buy, buy, hold, sell, strong_sell');
+      lines.push('Summary: 1-2 plain English sentences referencing specific indicator values.');
+
+      const prompt = lines.join('\n');
 
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -248,10 +272,10 @@ async function updateSignals() {
       if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
       const body   = await res.json();
       const raw    = body.content[0].text.trim();
-      // Strip markdown code fences if the model wraps the JSON in ```...```
       const text   = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
       const parsed = JSON.parse(text);
-      if (!['buy', 'sell', 'hold'].includes(parsed.signal)) throw new Error(`invalid signal: ${parsed.signal}`);
+      if (!['strong_buy', 'buy', 'hold', 'sell', 'strong_sell'].includes(parsed.signal))
+        throw new Error(`invalid signal: ${parsed.signal}`);
       if (typeof parsed.summary !== 'string') throw new Error('missing summary');
       signalCache[id] = { signal: parsed.signal, summary: parsed.summary, updatedAt: new Date().toISOString() };
     } catch (e) {
