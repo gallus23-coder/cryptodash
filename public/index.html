@@ -538,7 +538,7 @@ function updateSummary() {
 }
 
 // ── gauge helpers ──────────────────────────────────────────────────────────────
-function buildGaugeRow(coinId, price) {
+function buildGaugeRowInner(coinId, price) {
   const ind = indicatorData[coinId] || {};
   const rsi = (rsiData[coinId] || {}).rsi;
   const fgv = fearGreedData.value;
@@ -621,10 +621,15 @@ function buildGaugeRow(coinId, price) {
   if (fgBit) parts.push(`<div class="gauge-item">${fgBit}</div>`);
   parts.push(`<div class="gauge-item"><span class="gauge-label">Funding</span><span style="font-size:11px;color:var(--muted)">—</span></div>`);
 
-  return `<td colspan="10"><div class="gauge-inner">
+  const isOpen = openPanelCoin === coinId;
+  return `<div class="gauge-inner">
     ${parts.join('<div class="gauge-divider"></div>')}
-    <button class="explain-btn" onclick="toggleIndicatorPanel('${coinId}')">▼ explain</button>
-  </div></td>`;
+    <button class="explain-btn" onclick="toggleIndicatorPanel('${coinId}')">${isOpen ? '▲ close' : '▼ explain'}</button>
+  </div>`;
+}
+
+function buildGaugeRow(coinId, price) {
+  return `<td colspan="10">${buildGaugeRowInner(coinId, price)}</td>`;
 }
 
 // ── indicator explanation panel ────────────────────────────────────────────────
@@ -792,6 +797,26 @@ function attachRowHovers() {
   });
 }
 
+// ── signal HTML helpers (used by renderTable and in-place updates) ─────────────
+function buildSignalBadgeHtml(id) {
+  const sigEntry = signalData[id];
+  const validSignal = sigEntry && VALID_SIGNALS.includes(sigEntry.signal) ? sigEntry.signal : null;
+  const safeSummary = esc(sigEntry?.summary || '');
+  return validSignal
+    ? `<span class="signal-badge signal-${validSignal}" title="${safeSummary}">${SIGNAL_LABELS[validSignal]}</span>`
+    : `<span class="signal-badge signal-pending">Pending</span>`;
+}
+
+function buildSignalRowInner(id) {
+  const sigEntry = signalData[id];
+  const validSignal = sigEntry && VALID_SIGNALS.includes(sigEntry.signal) ? sigEntry.signal : null;
+  const safeSummary = esc(sigEntry?.summary || '');
+  return `<div class="signal-inner">
+    ${validSignal ? `<span class="signal-badge signal-${validSignal}" style="font-size:10px">${SIGNAL_LABELS[validSignal]}</span>` : ''}
+    ${safeSummary ? `<span class="signal-summary-text">${safeSummary}</span>` : '<span style="font-size:11px;color:var(--muted)">Signal pending…</span>'}
+  </div>`;
+}
+
 // ── render table ───────────────────────────────────────────────────────────────
 function renderTable() {
   const data = [...marketData].sort((a, b) => {
@@ -832,13 +857,6 @@ function renderTable() {
       ? '<span style="color:var(--muted)">—</span>'
       : `<span class="rsi-col-badge ${rsiCls}">${rsiVal.toFixed(1)}</span>`;
 
-    const sigEntry    = signalData[id];
-    const validSignal = sigEntry && VALID_SIGNALS.includes(sigEntry.signal) ? sigEntry.signal : null;
-    const safeSummary = esc(sigEntry?.summary || '');
-    const sigHtml     = validSignal
-      ? `<span class="signal-badge signal-${validSignal}" title="${safeSummary}">${SIGNAL_LABELS[validSignal]}</span>`
-      : `<span class="signal-badge signal-pending">Pending</span>`;
-
     // coin row
     rows += `<tr class="coin-row" data-coin="${id}">
       <td><div class="coin-cell">
@@ -855,16 +873,13 @@ function renderTable() {
       <td style="font-family:var(--mono)">${fmtBig(row.market_cap)}</td>
       <td style="font-family:var(--mono)">${fmtBig(row.total_volume)}</td>
       <td>${rsiHtml}</td>
-      <td>${sigHtml}</td>
+      <td class="sig-td">${buildSignalBadgeHtml(id)}</td>
       <td></td>
     </tr>`;
 
     // signal row
     rows += `<tr class="signal-row" data-coin="${id}">
-      <td colspan="10"><div class="signal-inner">
-        ${validSignal ? `<span class="signal-badge signal-${validSignal}" style="font-size:10px">${SIGNAL_LABELS[validSignal]}</span>` : ''}
-        ${safeSummary ? `<span class="signal-summary-text">${safeSummary}</span>` : '<span style="font-size:11px;color:var(--muted)">Signal pending…</span>'}
-      </div></td>
+      <td colspan="10">${buildSignalRowInner(id)}</td>
     </tr>`;
 
     // gauge row
@@ -884,14 +899,19 @@ function renderTable() {
   renderTags();
   attachRowHovers();
 
-  // restore open panel
+  // restore open panel (suppress transition so it doesn't re-animate)
   if (openPanelCoin) {
     const price = (marketData.find(d => d.id === openPanelCoin) || {}).current_price;
     const panel = document.getElementById(`ind-panel-${openPanelCoin}`);
+    const btn   = document.querySelector(`tr.gauge-row[data-coin="${openPanelCoin}"] .explain-btn`);
     if (panel) {
+      panel.style.transition = 'none';
       panel.innerHTML = buildIndicatorPanel(openPanelCoin, price);
       panel.classList.add('open');
+      panel.offsetHeight; // force reflow before re-enabling transition
+      panel.style.transition = '';
     }
+    if (btn) btn.textContent = '▲ close';
   }
 }
 
@@ -960,7 +980,36 @@ async function loadSignals() {
     const [sr, ir] = await Promise.all([fetch('/api/signals'), fetch('/api/indicators')]);
     signalData    = sr.ok ? await sr.json() : signalData;
     indicatorData = ir.ok ? await ir.json() : indicatorData;
-    if (marketData.length) renderTable();
+    if (!marketData.length) return;
+
+    // Update each coin's cells in-place — no DOM rebuild, no collapse animation
+    for (const d of marketData) {
+      const id = d.id, price = d.current_price;
+
+      // Signal badge in coin-row
+      const sigTd = document.querySelector(`tr.coin-row[data-coin="${id}"] .sig-td`);
+      if (sigTd) sigTd.innerHTML = buildSignalBadgeHtml(id);
+
+      // Signal-row inner content
+      const sigRowTd = document.querySelector(`tr.signal-row[data-coin="${id}"] td`);
+      if (sigRowTd) sigRowTd.innerHTML = buildSignalRowInner(id);
+
+      // Gauge row inner content (preserves open/close button label)
+      const gaugeTd = document.querySelector(`tr.gauge-row[data-coin="${id}"] td`);
+      if (gaugeTd) gaugeTd.innerHTML = buildGaugeRowInner(id, price);
+    }
+
+    // Update open panel in-place — same data source, no collapse
+    if (openPanelCoin) {
+      const price = (marketData.find(d => d.id === openPanelCoin) || {}).current_price;
+      const panel = document.getElementById(`ind-panel-${openPanelCoin}`);
+      if (panel && panel.classList.contains('open')) {
+        panel.innerHTML = buildIndicatorPanel(openPanelCoin, price);
+      }
+      // Restore button label after gauge rebuild
+      const btn = document.querySelector(`tr.gauge-row[data-coin="${openPanelCoin}"] .explain-btn`);
+      if (btn) btn.textContent = '▲ close';
+    }
   } catch (_) {}
 }
 
