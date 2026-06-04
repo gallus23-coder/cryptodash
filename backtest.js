@@ -405,9 +405,7 @@ async function runBacktest(db, params, onProgress) {
   const testStartTs = Date.now() - days * 24 * 3600 * 1000;
 
   const allMeta = db.getAllMeta();
-  const coinList = (coins === 'all')
-    ? allMeta.map(m => m.id)
-    : (Array.isArray(coins) ? coins : [coins]);
+  const coinList = Array.isArray(coins) ? coins : [coins];
 
   // Market phase: BTC 200 EMA per hour in test period
   const btcAbove200Map = new Map();

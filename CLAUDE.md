@@ -407,7 +407,7 @@ Signal classification applies **four guards** on top of the raw score:
 { "coins": ["bitcoin", "ethereum"], "days": 90, "forwardWindows": [4, 24, 72] }
 ```
 
-- `coins`: array of CoinGecko IDs (uses all watchlist coins if `"all"` is passed as a single string)
+- `coins`: array of CoinGecko IDs — must be a non-empty array; the frontend populates it from the watchlist
 - `days`: test period length; all prior candles used for indicator seeding (no lookahead)
 - `forwardWindows`: hours ahead to measure signal outcome
 
@@ -436,25 +436,30 @@ Equal-weighted buy-and-hold across all tested coins. Buys at first signal timest
 
 ### `backtest.json` structure
 
+Top-level keys are `current` and `previous` (both have the same shape; `previous` is null on first run).
+
 ```json
 {
-  "runAt": 1234567890,
-  "params": { "coins": ["bitcoin"], "days": 90, "forwardWindows": [4, 24, 72] },
-  "marketPhase": { "label": "Mixed / Ranging", "abovePct": 34.6, "ema200Start": 77822, "ema200End": 72346 },
-  "coinStats": {
-    "bitcoin": {
-      "totalSignals": 720,
-      "byClassification": { "strong_buy": 12, "buy": 48, "hold": 600, "sell": 42, "strong_sell": 18 },
-      "byWindowByClass": { "4": { "buy": { "count": 48, "wins": 26, "winRate": 0.54, "avgGain": 1.2, "avgLoss": 0.9, "rr": 1.33, "ev": 0.24 } } },
-      "bestWindow": 4,
-      "avgHoursBetweenBuys": 41.2,
-      "maxConsecutiveLosses": 5,
-      "phaseSplit": { "aboveEMA200": { "count": 32, "winRate": 0.625 }, "belowEMA200": { "count": 16, "winRate": 0.375 } }
-    }
+  "current": {
+    "runAt": 1234567890,
+    "params": { "coins": ["bitcoin"], "days": 90, "forwardWindows": [4, 24, 72] },
+    "marketPhase": { "label": "Mixed / Ranging", "abovePct": 34.6, "ema200Start": 77822, "ema200End": 72346 },
+    "coinStats": {
+      "bitcoin": {
+        "totalSignals": 720,
+        "byClassification": { "strong_buy": 2, "buy": 20, "hold": 660, "sell": 20, "strong_sell": 18 },
+        "byWindowByClass": { "4": { "buy": { "count": 20, "wins": 11, "winRate": 0.55, "avgGain": 1.2, "avgLoss": 0.9, "rr": 1.33, "ev": 0.21 } } },
+        "bestWindow": 4,
+        "avgHoursBetweenBuys": 96.0,
+        "maxConsecutiveLosses": 3,
+        "phaseSplit": null
+      }
+    },
+    "simulation": { "finalPot": 99.33, "profitLoss": -0.67, "trades": 22, "winningTrades": 4, "losingTrades": 18, "totalFees": 0.53, "minPot": 73.47, "largestWin": 0.82, "largestLoss": 2.10, "equityCurve": [...] },
+    "benchmark": { "finalValue": 86.98, "returnPct": -13.02 },
+    "signals": { "bitcoin": [ { "timestamp": 1234567890, "close": 95000, "signal": "buy", "score": 6, "btcAbove200": true, "forward": { "4": { "price": 96200, "changePct": 1.26 } } } ] }
   },
-  "simulation": { "finalPot": 94.87, "profitLoss": -5.13, "trades": 81, ... },
-  "benchmark": { "finalValue": 83.19, "returnPct": -16.81 },
-  "signals": { "bitcoin": [ { "timestamp": 1234567890, "close": 95000, "signal": "buy", "score": 4, "btcAbove200": true, "forward": { "4": { "price": 96200, "changePct": 1.26 } } } ] }
+  "previous": { ... }
 }
 ```
 
