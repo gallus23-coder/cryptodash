@@ -147,6 +147,10 @@ tr.indicator-row td { padding: 0; border-bottom: 1px solid var(--border); }
 .impact-bearish { background: #FEE2E2; color: #B91C1C; }
 .impact-neutral { background: var(--bg3); color: var(--muted); }
 .ind-explanation { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.ind-has-tip { cursor: help; border-bottom: 1px dashed var(--border2); display: inline; }
+#ind-tip { position: fixed; z-index: 300; background: #111827; color: #F9FAFB; font-size: 12px; line-height: 1.5; padding: 8px 10px; border-radius: 7px; max-width: 220px; pointer-events: none; opacity: 0; transition: opacity 0.15s; box-shadow: 0 4px 12px rgba(0,0,0,0.3); white-space: normal; }
+#ind-tip.visible { opacity: 1; }
+#ind-tip::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #111827; }
 
 /* hover highlight across all rows of same coin */
 tr.row-hover td { background: #F0F9FF; }
@@ -408,6 +412,8 @@ select.form-input { cursor: pointer; }
   </div>
 </div>
 
+<div id="ind-tip"></div>
+
 <!-- Glossary modal -->
 <div class="modal-backdrop" id="glossary-modal" onclick="closeGlossary(event)">
   <div class="modal-box">
@@ -622,10 +628,13 @@ function buildGaugeRow(coinId, price) {
 }
 
 // ── indicator explanation panel ────────────────────────────────────────────────
-function indTableRow(name, value, reading, impact, explanation) {
+function indTableRow(name, value, reading, impact, explanation, tipText) {
   const impClass = impact === 'Bullish' ? 'impact-bullish' : impact === 'Bearish' ? 'impact-bearish' : 'impact-neutral';
+  const nameHtml = tipText
+    ? `<span class="ind-has-tip" data-tip="${esc(tipText)}">${name}</span>`
+    : name;
   return `<tr>
-    <td class="ind-name">${name}</td>
+    <td class="ind-name">${nameHtml}</td>
     <td class="ind-value">${value}</td>
     <td class="ind-reading">${reading}</td>
     <td><span class="impact-badge ${impClass}">${impact}</span></td>
@@ -637,6 +646,7 @@ function buildIndicatorPanel(coinId, price) {
   const ind = indicatorData[coinId] || {};
   const rsi = (rsiData[coinId] || {}).rsi;
   const fgv = fearGreedData.value;
+  const sigEntry = signalData[coinId] || {};
   const rows = [];
 
   // RSI
@@ -644,7 +654,8 @@ function buildIndicatorPanel(coinId, price) {
     const reading = rsi < 30 ? 'Oversold' : rsi > 70 ? 'Overbought' : rsi < 50 ? 'Neutral-low' : 'Neutral-high';
     const impact  = rsi < 35 ? 'Bullish' : rsi > 65 ? 'Bearish' : 'Neutral';
     rows.push(indTableRow('RSI-14', rsi.toFixed(1), reading, impact,
-      'Below 30 = oversold, above 70 = overbought. Signal scoring awards 2 pts when RSI &lt; 30, 1 pt when RSI ≤ 45.'));
+      'Below 30 = oversold, above 70 = overbought. Signal scoring awards 2 pts when RSI &lt; 30, 1 pt when RSI ≤ 45.',
+      'Relative Strength Index — measures whether a coin is overbought or oversold. Below 30 = oversold (potential buy). Above 70 = overbought (potential sell).'));
   }
 
   // MACD
@@ -655,7 +666,8 @@ function buildIndicatorPanel(coinId, price) {
     rows.push(indTableRow('MACD (12/26/9)',
       `${m.macd >= 0 ? '+' : ''}${m.macd.toFixed(4)} / hist ${m.histogram >= 0 ? '+' : ''}${m.histogram.toFixed(4)}`,
       reading, impact,
-      'MACD line above zero with positive histogram = 2 pts in signal score. Histogram direction shows momentum.'));
+      'MACD line above zero with positive histogram = 2 pts in signal score. Histogram direction shows momentum.',
+      'Moving Average Convergence Divergence — tracks momentum by comparing two moving averages. Arrow up = bullish momentum building. Arrow down = bearish.'));
   }
 
   // Bollinger Bands
@@ -668,7 +680,8 @@ function buildIndicatorPanel(coinId, price) {
     rows.push(indTableRow('Bollinger Bands',
       `Mid ${fmtPrice(middle)} · BW ${bandwidthPct != null ? bandwidthPct.toFixed(1)+'%' : '—'}`,
       reading, impact,
-      'Price below lower band scores 2 pts. Bandwidth% shows volatility: narrow = squeeze incoming.'));
+      'Price below lower band scores 2 pts. Bandwidth% shows volatility: narrow = squeeze incoming.',
+      'Price bands based on volatility. Price at the lower band = statistically cheap vs recent history. Price at upper band = expensive.'));
   }
 
   // EMA50
@@ -677,7 +690,8 @@ function buildIndicatorPanel(coinId, price) {
     const distPct = price != null ? Math.abs(price - ind.ema50) / ind.ema50 * 100 : null;
     const reading = above ? `Above (+${distPct != null ? distPct.toFixed(1) : '?'}%)` : `Below (−${distPct != null ? distPct.toFixed(1) : '?'}%)`;
     rows.push(indTableRow('EMA50', fmtPrice(ind.ema50), reading, above ? 'Bullish' : 'Bearish',
-      'Short-term trend. Price proximity to EMA50 is a key factor in Tier C scanner scoring.'));
+      'Short-term trend. Price proximity to EMA50 is a key factor in Tier C scanner scoring.',
+      '50-period Exponential Moving Average — tracks the medium-term trend. Price above it = medium-term uptrend. Often acts as dynamic support.'));
   }
 
   // EMA200
@@ -686,7 +700,8 @@ function buildIndicatorPanel(coinId, price) {
     const crossNote = ind.goldenCross ? ' · Golden cross detected' : ind.deathCross ? ' · Death cross detected' : '';
     rows.push(indTableRow('EMA200', fmtPrice(ind.ema200), (above ? 'Price above' : 'Price below') + crossNote,
       above ? 'Bullish' : 'Bearish',
-      'Long-term trend filter. Signal scoring awards 1 pt when price > EMA200. Market phase gate blocks buys when below.'));
+      'Long-term trend filter. Signal scoring awards 1 pt when price > EMA200. Market phase gate blocks buys when below.',
+      '200-period Exponential Moving Average — the most important trend indicator used by institutional traders. Price above = confirmed bull market. Price below = bear market.'));
   }
 
   // StochRSI
@@ -697,7 +712,8 @@ function buildIndicatorPanel(coinId, price) {
     rows.push(indTableRow('StochRSI %K/%D',
       `%K ${k.toFixed(1)} / %D ${d.toFixed(1)}`,
       reading, impact,
-      'More sensitive oscillator. %K &lt; 20 = oversold, awards 1 pt in signal scoring. Faster signals than raw RSI.'));
+      'More sensitive oscillator. %K &lt; 20 = oversold, awards 1 pt in signal scoring. Faster signals than raw RSI.',
+      'Stochastic RSI — a more sensitive version of RSI. Reacts faster to momentum shifts. Below 20 = deeply oversold. Above 80 = overbought.'));
   }
 
   // Volume ratio
@@ -706,7 +722,8 @@ function buildIndicatorPanel(coinId, price) {
     const reading = vr > 2 ? 'Very high' : vr > 1.5 ? 'Elevated' : vr > 0.8 ? 'Normal' : 'Low';
     const impact  = vr > 1.5 ? 'Bullish' : vr < 0.6 ? 'Bearish' : 'Neutral';
     rows.push(indTableRow('Volume Ratio', `${vr.toFixed(2)}×`, reading, impact,
-      'Current volume vs 20-period average. Above 1.5× = elevated conviction, scores 1 pt. High vol on up = accumulation.'));
+      'Current volume vs 20-period average. Above 1.5× = elevated conviction, scores 1 pt. High vol on up = accumulation.',
+      'Confirms whether price moves have conviction behind them. High volume on a price rise = genuine buying interest. Low volume = weak, unreliable move.'));
   }
 
   // Fear & Greed
@@ -714,17 +731,26 @@ function buildIndicatorPanel(coinId, price) {
     const cls = fearGreedData.classification || '';
     const impact = fgv < 30 ? 'Bullish' : fgv > 70 ? 'Bearish' : 'Neutral';
     rows.push(indTableRow('Fear &amp; Greed', String(fgv), cls, impact,
-      'Market-wide sentiment. Extreme Fear (< 25) is often a contrarian buy signal. Refreshed hourly.'));
+      'Market-wide sentiment. Extreme Fear (< 25) is often a contrarian buy signal. Refreshed hourly.',
+      'Measures overall crypto market sentiment 0–100. Extreme Fear often marks market bottoms. Extreme Greed often precedes corrections. Best used as a contrarian indicator.'));
   }
 
   if (!rows.length) return `<div style="padding:12px;color:var(--muted);font-size:12px">Indicator data not yet available. Refreshes every 15 minutes.</div>`;
+
+  const updatedAt = sigEntry.updatedAt;
+  const timeStr = updatedAt ? new Date(updatedAt).toLocaleTimeString() : null;
+  const timestampLine = `Signal refreshes every 10 minutes · Indicators update every 10 minutes · Generated ${timeStr || 'Generating...'}`;
 
   return `<table class="ind-table">
     <thead><tr>
       <th>Indicator</th><th>Value</th><th>Reading</th><th>Impact</th><th>How it&apos;s used</th>
     </tr></thead>
     <tbody>${rows.join('')}</tbody>
-  </table>`;
+  </table>
+  <div style="margin-top:10px;padding:10px 12px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;">
+    <div style="font-size:12px;font-weight:600;color:#1E40AF;margin-bottom:3px">Claude AI interpretation</div>
+    <div style="font-size:11px;color:#3B82F6">${timestampLine}</div>
+  </div>`;
 }
 
 function toggleIndicatorPanel(coinId) {
@@ -1326,6 +1352,24 @@ function renderBacktest() {
     curveHtml + (curveHtml ? '<div style="height:8px"></div>' : '') +
     simCard + (coinCardsHtml ? `<div class="bt-coins-grid" style="margin-top:8px">${coinCardsHtml}</div>` : '');
 }
+
+// ── indicator tooltips ─────────────────────────────────────────────────────────
+(function() {
+  const tip = document.getElementById('ind-tip');
+  document.addEventListener('mouseover', e => {
+    const el = e.target.closest('.ind-has-tip');
+    if (!el) return;
+    tip.textContent = el.dataset.tip;
+    const rect = el.getBoundingClientRect();
+    tip.style.left = (rect.left + rect.width / 2) + 'px';
+    tip.style.top  = (rect.top + window.scrollY - 8) + 'px';
+    tip.style.transform = 'translate(-50%, -100%)';
+    tip.classList.add('visible');
+  });
+  document.addEventListener('mouseout', e => {
+    if (e.target.closest('.ind-has-tip')) tip.classList.remove('visible');
+  });
+})();
 
 // ── init ───────────────────────────────────────────────────────────────────────
 loadMarket();
