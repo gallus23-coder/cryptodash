@@ -59,7 +59,7 @@ crypto-dashboard/
 ├── scanner.js         — Opportunity scanner: Tier 0 / Tier C detection, scoring
 ├── backtest.js        — Backtesting: incremental indicators, signal scoring, simulation
 ├── public/
-│   └── index.html     — Full frontend (single file: tabs, table, charts, scanner UI, backtest UI)
+│   └── index.html     — Full frontend (single file: Watchlist/Opportunities/Backtest/Portfolio tabs)
 ├── data/
 │   ├── crypto.db          — SQLite: candles + coin_meta
 │   ├── watchlist.json     — Persisted watchlist (CoinGecko IDs)
@@ -467,19 +467,33 @@ Top-level keys are `current` and `previous` (both have the same shape; `previous
 
 ## Frontend (`public/index.html`)
 
-Single HTML file. No build step. Vanilla JS. Three tabs:
+Single HTML file. No build step. Vanilla JS. Light theme design system.
+
+**Design system**: Inter font, `#F9FAFB` page bg, `#FFFFFF` cards, `#111827` dark sticky header. CSS custom properties: `--accent: #16A34A`, `--red: #DC2626`, `--amber: #D97706`, `--muted: #9CA3AF`, `--mono`.
+
+**Layout**: Sticky dark header with logo + inline nav tabs → persistent summary bar → full-width tab content (no sidebar).
+
+**Four tabs**: Watchlist, Opportunities, Backtest, Portfolio (placeholder).
+
+### Summary bar (always visible, below header)
+
+Fear & Greed badge + 5 stat items: Tracked, Gainers, Losers, Best 24h, Worst 24h.
 
 ### Watchlist tab
 
-- **Header stats bar**: Fear & Greed badge, 5 summary cards (tracked, gainers, losers, best/worst 24h)
-- **Watchlist table**: 10 columns — Asset, Price, 1h%, 24h%, 7d%, Market Cap, Vol 24h, 7d Sparkline, RSI-14, Signal badge
-  - Signal badge: `STRONG BUY / BUY / HOLD / SELL / STRONG SELL` colour-coded; `Pending` while awaiting Claude
-  - Signal summary row: full-width `<tr>` spanning all columns beneath each coin with a valid signal; 3px left border colour-coded to signal; text colour matches border
-  - Coin rows with a summary row below have `border-bottom: none` (grouped visual unit)
+- **Watchlist table**: 10 columns — Asset, Price, 1h%, 24h%, 7d%, Mkt Cap, Vol 24h, RSI, Signal, `?` (glossary button)
+- **4-row-per-coin structure** (all rows carry `data-coin` attribute for hover grouping):
+  1. **coin-row**: main data row
+  2. **signal-row**: full-width `colspan="10"` — signal badge + Claude summary text
+  3. **gauge-row**: full-width — RSI progress bar, MACD ▲/▼/◆ icon, BB position (Near Lower/Mid-Band/Near Upper), EMA50 + EMA200 coloured circles (green = above, red = below), StochRSI bar, F&G value, Funding (static "—"), "▼ explain" toggle button
+  4. **indicator-row**: hidden by default, `max-height` CSS transition; contains breakdown table + timestamp box
+- **Indicator explanation panel**: 5-column breakdown table (Indicator / Value / Reading / Impact badge / How it's used). Indicator names have `cursor:help` dashed underline; hovering shows a custom dark tooltip (220px max-width, `#111827` bg, downward arrow, 0.15s fade) via event delegation on `document`. Single `#ind-tip` div shared across all tooltips. Only one panel open at a time (`openPanelCoin` global).
+- **Claude AI interpretation box**: blue box at bottom of panel showing `"Signal refreshes every 10 minutes · Indicators update every 10 minutes · Generated HH:MM:SS"`. Time from `signalData[coinId].updatedAt`; shows `Generating...` if null.
+- **Hover highlight**: `attachRowHovers()` adds `.row-hover` to all `[data-coin="${id}"]` rows on mouseenter; removed on mouseleave.
+- **Glossary modal**: `?` column header opens full-screen backdrop modal with definitions for all 7 indicators. Closeable by clicking backdrop or Escape.
 - **Coin tags**: clickable pills to remove coins from watchlist
-- **Add coin**: input field accepts CoinGecko IDs
-- **Right panel**: price alerts (set, list, re-arm, delete)
-- **Polling**: full market refresh every 60s; signal-only refresh every 30s (`loadSignals()`)
+- **Add coin**: input field (CoinGecko ID), Enter or button to confirm
+- **Polling**: full market refresh every 60s (`loadMarket()` fetches `/api/market`, `/api/rsi`, `/api/signals`, `/api/indicators` in parallel); signal+indicator refresh every 30s (`loadSignals()`)
 
 ### Opportunities tab
 
@@ -494,7 +508,7 @@ Single HTML file. No build step. Vanilla JS. Three tabs:
   - Key stats row: RSI, MACD, EMA50 distance, volume ratio, hours since 200 EMA crossover (Tier 0 only)
   - Add to Watchlist input (pre-filled with symbol, editable) + Add button
 - **Also qualified** (`<details>` collapsed by default): Other Tier 0 and Other Tier C subsections, symbol + score only
-- **Empty state** (when no candidates): 🔭 telescope icon, "No Opportunities Found" heading, explanatory subtext, last scan time
+- **Empty state**: 🔭 telescope icon, "No Opportunities Found" heading, explanatory subtext, last scan time
 - **Disclaimer**: shown below hero card and empty state
 - **Polling**: scanner data refreshed every 5 min (`loadScanner()`)
 
@@ -503,10 +517,15 @@ Single HTML file. No build step. Vanilla JS. Three tabs:
 - **Controls bar**: coin dropdown (watchlist coins + "All Coins"), period selector (30/60/90d), forward window checkboxes (4h/24h/72h), Run Backtest button
 - **Progress bar**: animated fill with status message while job runs; polls `GET /api/backtest/status` every 1s
 - **Market phase banner**: color-coded left border (red = bearish, amber = mixed, green = bullish); shows label and BTC-above-EMA200 percentage
-- **Equity curve**: SVG line chart with £100 baseline reference line; line color green if final > £100, red otherwise
+- **Current vs Previous comparison table**: shown when `backtestPrevious` exists; Δ column colour-coded
+- **Equity curve**: SVG line chart with £100 baseline; line green if final > £100, red otherwise
 - **Simulation card**: Strategy vs Buy-and-Hold side by side (final pot, P&L, return %); stats row with trade count, wins, losses, fees, min pot, max win
 - **Per-coin stat cards**: grid layout; combined BUY+STRONG_BUY win rate, EV, R/R, signal count, bull/bear phase split (if available)
 - **Polling**: results loaded once on tab open; re-fetched after each run completes
+
+### Portfolio tab
+
+Placeholder card — "Portfolio Tracker — Coming soon."
 
 ---
 
