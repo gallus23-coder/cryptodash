@@ -494,6 +494,7 @@ Fear & Greed badge + 5 stat items: Tracked, Gainers, Losers, Best 24h, Worst 24h
 - **Coin tags**: clickable pills to remove coins from watchlist
 - **Add coin**: input field (CoinGecko ID), Enter or button to confirm
 - **Polling**: full market refresh every 60s (`loadMarket()` fetches `/api/market`, `/api/rsi`, `/api/signals`, `/api/indicators` in parallel); signal+indicator refresh every 30s (`loadSignals()`)
+  - `loadSignals()` does **targeted in-place DOM updates** (not `renderTable()`): updates `.sig-td`, signal-row TD, and gauge-row TD per coin via `querySelector`. If an indicator panel is open, its content is updated in-place without collapsing — `panel.classList.contains('open')` guards the update, no class change fires
 
 ### Opportunities tab
 
