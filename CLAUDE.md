@@ -478,6 +478,92 @@ sudo systemctl restart freqtrade
 
 ---
 
+## Automated Trading Flow
+
+The system operates fully autonomously once running. No human input is required for signal generation, entries, or exits. The only human touchpoints are watchlist management, reviewing learning recommendations, and the one-time decision to go live.
+
+### End-to-end flow
+
+**Every 15 minutes — cryptodash signal cycle:**
+
+1. Fetches latest 1h candles from Binance into SQLite
+2. Recalculates RSI, MACD, Bollinger, EMA50/200, StochRSI, volume ratio, ATR-14
+3. Calls Claude API (`claude-haiku-4-5-20251001`) with all indicators + full strategy context (5% SL, 10% TP, 72h time stop embedded in system prompt)
+4. Claude returns structured JSON: `{ signal, summary, entryQuality, riskAssessment, newsImpact, newsNote }`
+5. Saves result to `data/signals.json` keyed by CoinGecko ID
+
+**Every hour — Freqtrade entry check (top of hour, on 1h candle close):**
+
+For each pair in the whitelist, Freqtrade runs the 7-point entry check:
+
+| # | Check | Source |
+|---|-------|--------|
+| 1 | `signal === "strong_buy"` | `signals.json` |
+| 2 | `entryQuality.allCriteriaMet === true` | `signals.json` |
+| 3 | Signal age < 20 minutes (`updatedAt` timestamp) | `signals.json` |
+| 4 | `close > EMA200` | Freqtrade dataframe |
+| 5 | `RSI < 45` | Freqtrade dataframe |
+| 6 | `MACD > 0` | Freqtrade dataframe |
+| 7 | `volume > 0` | Freqtrade dataframe |
+
+If ALL 7 pass → Freqtrade places a BUY order automatically → desktop notification fires.
+
+**Every 60 seconds — Freqtrade position monitor:**
+
+Open positions are checked continuously against current price:
+
+- Price drops 5% from entry → **stop loss** → position closed automatically → notification
+- Price rises 10% from entry → **take profit** → position closed automatically → notification
+- 72 hours elapsed since entry → **time stop** → `custom_exit` fires → notification
+- All closures are automatic with zero human input required
+
+**Every 10 minutes — signal reversal check:**
+
+- If `signals.json` flips to `sell` or `strong_sell` while a position is open, `custom_exit` triggers on the next hourly candle close with reason `signal_reversal` → notification
+
+### What runs automatically (no human input)
+
+- Signal generation (Claude API call every 15 min)
+- Entry decisions (7-point check on every hourly candle)
+- Stop loss exits (-5%)
+- Take profit exits (+10%)
+- Time stop exits (72h)
+- Signal reversal exits
+- All desktop notifications
+
+### What requires human input
+
+- **Adding coins to watchlist** — deliberate decision; affects which coins get signals and which Freqtrade pairs are monitored
+- **Reviewing learning analysis** — every 5 closed trades, the system surfaces recommendations (accept/reject)
+- **Responding to daily loss limit notifications** — automated trading suspends; human decides whether to resume
+- **Going live** — the only action that moves real money: manually setting `dry_run: false` in `config.json` and restarting Freqtrade
+
+### Current market behaviour
+
+The strategy only enters confirmed uptrends (price > EMA200). During bearish market conditions (BTC below its 200 EMA), Claude will correctly generate `hold` or `strong_sell` signals and Freqtrade will place no entries. This is by design — the strategy is conservative and sits out downtrends entirely.
+
+First entries will fire when BTC reclaims its 200 EMA and individual coins independently meet all 7 entry criteria.
+
+### Notification types
+
+Notifications fire via the Pi desktop (node-notifier) for all automated events:
+
+| Event | Content |
+|-------|---------|
+| Trade opened | Pair, entry price, stop loss level, take profit level |
+| Take profit hit | Pair, exit price, gain in £ |
+| Stop loss hit | Pair, exit price, loss in £ |
+| Time stop triggered | Pair, exit price, P&L |
+| Signal reversal exit | Pair, exit price, P&L |
+| Daily loss limit reached | Auto trading suspended — manual resume required |
+| Learning analysis ready | Number of recommendations pending review |
+
+### Live mode
+
+The automated flow is identical in live mode. The only difference is that Freqtrade places real Kraken orders instead of simulated ones. See the Going Live section above and complete the go-live checklist (section 14 of this document) before switching `dry_run` to `false`.
+
+---
+
 ## Opportunity Scanner (`scanner.js`)
 
 Runs hourly at :05. Scans top 100 USDT pairs by 24h quote volume, excluding all watchlist coins. Fetches 250 1h candles per coin.
