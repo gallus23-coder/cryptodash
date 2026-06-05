@@ -271,7 +271,10 @@ function buildWatchlistSignalPrompt(meta, price, change24h, rsi, i, fngStr) {
   if (i.goldenCross) lines.push('Golden cross detected in last 3 candles.');
   if (i.deathCross)  lines.push('Death cross detected in last 3 candles.');
   if (i.stochRsi)    lines.push(`Stoch RSI: %K=${i.stochRsi.k.toFixed(1)} %D=${i.stochRsi.d.toFixed(1)}`);
-  if (i.volumeRatio != null) lines.push(`Volume ratio vs 20-period avg: ${i.volumeRatio.toFixed(2)}x`);
+  if (i.volumeRatio != null) {
+    const vrLabel = i.volumeRatio >= 1.2 ? 'above 1.2x — entry requirement met' : 'below 1.2x — entry requirement NOT met';
+    lines.push(`Volume ratio vs 20-period avg: ${i.volumeRatio.toFixed(2)}x (${vrLabel})`);
+  }
   if (i.atr14 != null) {
     const atrPct = i.atr14Pct != null ? ` (${i.atr14Pct.toFixed(2)}% of price)` : '';
     lines.push(`ATR-14 (1h): $${i.atr14.toFixed(4)}${atrPct}`);

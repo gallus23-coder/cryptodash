@@ -33,7 +33,7 @@ async function _fetchKlines(symbol, interval, startTime, limit = 1000) {
 }
 
 // Convert a Binance kline array to a candles-table row.
-// k[0]=openTime  k[1]=open  k[2]=high  k[3]=low  k[4]=close  k[7]=quoteAssetVolume(USDT)
+// k[0]=openTime  k[1]=open  k[2]=high  k[3]=low  k[4]=close  k[5]=baseAssetVolume
 function _klineToRow(coin_id, interval, k) {
   return {
     coin_id,
@@ -43,7 +43,7 @@ function _klineToRow(coin_id, interval, k) {
     high:   parseFloat(k[2]),
     low:    parseFloat(k[3]),
     close:  parseFloat(k[4]),
-    volume: parseFloat(k[7]),
+    volume: parseFloat(k[5]),
   };
 }
 
@@ -74,10 +74,15 @@ async function fetchNewCandles(coin_id, symbol, interval, db) {
     const lookback = interval === '1h' ? 90 * 24 * 3600 * 1000 : 7 * 24 * 3600 * 1000;
     return backfillCandles(coin_id, symbol, interval, lookback, db);
   }
-  const klines = await _fetchKlines(symbol, interval, lastTime + 1);
+  // Start from lastTime (not lastTime+1) so the last stored candle is always
+  // re-fetched and updated with its latest accumulated volume. Closed candles
+  // update once more to their final value; the open candle accumulates
+  // correctly across the hour. ON CONFLICT DO UPDATE handles the upsert.
+  const klines = await _fetchKlines(symbol, interval, lastTime);
   if (!klines.length) return;
   db.insertCandles(klines.map(k => _klineToRow(coin_id, interval, k)));
-  console.log(`[binance] fetched ${klines.length} new ${interval} candles for ${symbol}`);
+  const newCount = klines.length - 1; // subtract the re-fetched existing candle
+  if (newCount > 0) console.log(`[binance] fetched ${newCount} new ${interval} candles for ${symbol}`);
 }
 
 module.exports = { SYMBOL_MAP, fetchTicker, backfillCandles, fetchNewCandles };
