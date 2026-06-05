@@ -105,6 +105,14 @@ function getVolumes(coin_id, interval, limit) {
   return rows.map(r => r.volume).reverse();
 }
 
+// Returns last N candles as {high, low, close} oldest-first (for ATR etc).
+function getOHLCLimit(coin_id, interval, limit) {
+  const rows = prepare(
+    'SELECT high, low, close FROM candles WHERE coin_id = ? AND interval = ? ORDER BY time DESC LIMIT ?'
+  ).all(coin_id, interval, limit);
+  return rows.reverse();
+}
+
 // Returns full candle rows for time >= since, oldest-first.
 function getCandles(coin_id, interval, since) {
   return prepare(
@@ -190,6 +198,6 @@ function pruneCandles(interval, keepMs) {
 
 module.exports = {
   initDb, upsertMeta, getMeta, getAllMeta, updateMarketCap,
-  insertCandles, getLastCandleTime, getCloses, getVolumes, getCandles, getAggCandles,
+  insertCandles, getLastCandleTime, getCloses, getVolumes, getOHLCLimit, getCandles, getAggCandles,
   calculateRSI, pruneCandles,
 };

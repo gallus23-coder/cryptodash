@@ -746,12 +746,69 @@ function buildIndicatorPanel(coinId, price) {
   const timeStr = updatedAt ? new Date(updatedAt).toLocaleTimeString() : null;
   const timestampLine = `Signal refreshes every 10 minutes · Indicators update every 10 minutes · Generated ${timeStr || 'Generating...'}`;
 
+  // Strategy Alignment section — only render if extended signal data is present
+  let strategyHtml = '';
+  const eq = sigEntry.entryQuality;
+  const ra = sigEntry.riskAssessment;
+  if (eq || ra) {
+    const riskColour = v => v === 'low' ? '#16A34A' : v === 'high' ? '#DC2626' : '#D97706';
+    const newsColour = v => v === 'none' ? '#6B7280' : v === 'major' ? '#DC2626' : '#D97706';
+
+    let eqHtml = '';
+    if (eq) {
+      const allMet = eq.allCriteriaMet;
+      const metIcon = allMet ? '✓' : '✗';
+      const metColour = allMet ? '#16A34A' : '#DC2626';
+      eqHtml += `<div style="margin-bottom:6px;font-size:12px">
+        <span style="font-weight:600;color:${metColour}">${metIcon} All entry criteria met: ${allMet ? 'Yes' : 'No'}</span>
+      </div>`;
+      if (eq.marginalCriteria && eq.marginalCriteria.length) {
+        eqHtml += `<div style="margin-bottom:3px;font-size:11px;color:#D97706">⚠ Marginal: ${eq.marginalCriteria.join(' · ')}</div>`;
+      }
+      if (eq.failingCriteria && eq.failingCriteria.length) {
+        eqHtml += `<div style="margin-bottom:3px;font-size:11px;color:#DC2626">✗ Failing: ${eq.failingCriteria.join(' · ')}</div>`;
+      }
+    }
+
+    let raHtml = '';
+    if (ra) {
+      raHtml += `<div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">`;
+      raHtml += `<div style="background:#F9FAFB;border:1px solid var(--border);border-radius:4px;padding:6px 8px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:2px">Stop-loss risk</div>
+        <div style="font-size:12px;font-weight:600;color:${riskColour(ra.stopLossRisk)}">${(ra.stopLossRisk||'—').toUpperCase()}</div>
+        ${ra.stopLossNote ? `<div style="font-size:10px;color:#6B7280;margin-top:2px">${ra.stopLossNote}</div>` : ''}
+      </div>`;
+      raHtml += `<div style="background:#F9FAFB;border:1px solid var(--border);border-radius:4px;padding:6px 8px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:2px">Take-profit</div>
+        <div style="font-size:12px;font-weight:600;color:${ra.takeProfitReachable ? '#16A34A' : '#DC2626'}">${ra.takeProfitReachable ? 'Reachable' : 'Unlikely'}</div>
+        ${ra.takeProfitNote ? `<div style="font-size:10px;color:#6B7280;margin-top:2px">${ra.takeProfitNote}</div>` : ''}
+      </div>`;
+      raHtml += `<div style="background:#F9FAFB;border:1px solid var(--border);border-radius:4px;padding:6px 8px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);margin-bottom:2px">72h time stop</div>
+        <div style="font-size:12px;font-weight:600;color:${riskColour(ra.timeStopRisk)}">${(ra.timeStopRisk||'—').toUpperCase()}</div>
+        ${ra.timeStopNote ? `<div style="font-size:10px;color:#6B7280;margin-top:2px">${ra.timeStopNote}</div>` : ''}
+      </div>`;
+      raHtml += `</div>`;
+    }
+
+    const ni = sigEntry.newsImpact || 'none';
+    const newsHtml = ni !== 'none' && sigEntry.newsNote
+      ? `<div style="margin-top:6px;font-size:11px;color:${newsColour(ni)}">📰 News (${ni}): ${sigEntry.newsNote}</div>`
+      : '';
+
+    strategyHtml = `<div style="margin-top:10px;padding:10px 12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:6px;">
+      <div style="font-size:12px;font-weight:600;color:#15803D;margin-bottom:6px">Strategy Alignment — Mean Reversion in Uptrend</div>
+      ${eqHtml}${raHtml}${newsHtml}
+    </div>`;
+  }
+
   return `<table class="ind-table">
     <thead><tr>
       <th>Indicator</th><th>Value</th><th>Reading</th><th>Impact</th><th>How it&apos;s used</th>
     </tr></thead>
     <tbody>${rows.join('')}</tbody>
   </table>
+  ${strategyHtml}
   <div style="margin-top:10px;padding:10px 12px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;">
     <div style="font-size:12px;font-weight:600;color:#1E40AF;margin-bottom:3px">Claude AI interpretation</div>
     <div style="font-size:11px;color:#3B82F6">${timestampLine}</div>

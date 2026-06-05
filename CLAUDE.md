@@ -144,8 +144,9 @@ Base URL: `https://api.binance.com`
 
 - Used for AI signal generation (watchlist coins) and opportunity scanner winner
 - Model: `claude-haiku-4-5-20251001`
-- Max tokens: 200 per call
-- Returns JSON: `{ "signal": "buy", "summary": "..." }`
+- Max tokens: 800 per call (watchlist signals), 200 (scanner signal)
+- Watchlist signals use a `system` prompt field (`WATCHLIST_SIGNAL_SYSTEM` constant in `server.js`) — scanner signals do not
+- Watchlist returns extended JSON (see Claude Signal Generation section); scanner returns `{ "signal": "...", "summary": "..." }`
 
 ---
 
@@ -170,6 +171,9 @@ All functions are pure math (no I/O). Take arrays of close prices oldest-first.
 | Bollinger Bands | `calcBollingerBands(closes)` | 20-period, 2 std dev (population) | 20 closes |
 | Stochastic RSI | `calcStochRSI(closes)` | 14/14/3/3 | 28 closes |
 | Volume Ratio | `calcVolumeRatio(volumes)` | vs 20-period avg | 21 volumes |
+| ATR | `calcATR(candles, period=14)` | Simplified: avg(high−low) over 14 candles | 14 candles |
+
+`calcATR` takes `{high, low, close}` objects — use `db.getOHLCLimit(coin_id, interval, 14)` to fetch.
 
 **EMA**: seeded from SMA of first `period` values, `k = 2/(period+1)`.
 
@@ -215,7 +219,7 @@ initDb()
 
 1. `updateCandles()` — fetch new 1h candles from Binance for each watchlist coin
 2. `updateRSI()` — read closes from SQLite, recalculate RSI-14, write `rsi.json`
-3. `updateIndicators()` — compute MACD, Bollinger, EMA50/200, golden/death cross, StochRSI, volume ratio; write `indicators.json`
+3. `updateIndicators()` — compute MACD, Bollinger, EMA50/200, golden/death cross, StochRSI, volume ratio, ATR-14; write `indicators.json`
 4. `updateSignals()` — for each watchlist coin: fetch live ticker, build prompt, call Claude API, write `signals.json`
 
 ---
@@ -239,18 +243,53 @@ initDb()
 
 ### Watchlist signals (`updateSignals`)
 
-Called every 15 min for every watchlist coin. Prompt includes:
-- Coin name, price, 24h change
-- RSI-14
-- MACD line / signal / histogram
+Called every 15 min for every watchlist coin. Uses a **system prompt** (`WATCHLIST_SIGNAL_SYSTEM` in `server.js`) defining the **Mean Reversion in Uptrend** strategy, and a per-coin **user prompt** built by `buildWatchlistSignalPrompt()`.
+
+**Strategy parameters embedded in system prompt:**
+- Entry criteria (ALL must be met for buy): price > EMA200, RSI 25–45, price within 5% of EMA50, MACD line > 0, StochRSI %K < 30, volume ratio ≥ 1.2×
+- Risk: 5% stop loss, 10% take profit, 72h time stop
+- Signal scale: `strong_buy` (all 6 met), `buy` (5/6), `hold`, `sell`, `strong_sell`
+
+**User prompt includes:**
+- Coin name, price, 24h change, RSI-14
+- MACD line / signal / histogram (6 decimal places)
 - Bollinger Bands (upper, middle, lower, bandwidth%)
-- EMA50, EMA200, whether price is above/below 200 EMA
+- EMA50, EMA200, price direction vs 200 EMA
 - Golden/death cross flag (if detected in last 3 candles)
-- Stochastic RSI %K and %D
+- StochRSI %K and %D
 - Volume ratio vs 20-period avg
+- ATR-14 (1h) in $ and as % of price
 - Fear & Greed index
 
-Returns JSON `{ signal, summary }`. Signal must be one of: `strong_buy`, `buy`, `hold`, `sell`, `strong_sell`. Cached in `signals.json` keyed by CoinGecko ID. Stale entries (coins removed from watchlist) are evicted on each run.
+**Returns extended JSON** stored in `signals.json`:
+```json
+{
+  "signal": "buy",
+  "summary": "...",
+  "entryQuality": {
+    "allCriteriaMet": false,
+    "marginalCriteria": ["StochRSI at 32 slightly above 30"],
+    "failingCriteria": ["Volume at 0.9x below 1.2x"]
+  },
+  "riskAssessment": {
+    "stopLossRisk": "low",
+    "stopLossNote": "ATR 1.8% well within 5% stop",
+    "takeProfitReachable": true,
+    "takeProfitNote": "Momentum suggests 10% achievable",
+    "timeStopRisk": "medium",
+    "timeStopNote": "Setup may take >24h to resolve"
+  },
+  "newsImpact": "none",
+  "newsNote": null,
+  "updatedAt": "2026-06-05T..."
+}
+```
+
+Signal must be one of: `strong_buy`, `buy`, `hold`, `sell`, `strong_sell`. If `entryQuality`/`riskAssessment` fields are absent (old cached entries or parse failure), they are stored as `null` — the UI degrades gracefully.
+
+**IMPORTANT:** The system prompt must stay in sync with strategy parameters. If entry criteria, stop/target levels, or the signal scale change, update `WATCHLIST_SIGNAL_SYSTEM` in `server.js`.
+
+Stale entries (coins removed from watchlist) are evicted on each run.
 
 ### Scanner signal (`updateScanner`)
 
@@ -486,8 +525,9 @@ Fear & Greed badge + 5 stat items: Tracked, Gainers, Losers, Best 24h, Worst 24h
   1. **coin-row**: main data row
   2. **signal-row**: full-width `colspan="10"` — signal badge + Claude summary text
   3. **gauge-row**: full-width — RSI progress bar, MACD ▲/▼/◆ icon, BB position (Near Lower/Mid-Band/Near Upper), EMA50 + EMA200 coloured circles (green = above, red = below), StochRSI bar, F&G value, Funding (static "—"), "▼ explain" toggle button
-  4. **indicator-row**: hidden by default, `max-height` CSS transition; contains breakdown table + timestamp box
+  4. **indicator-row**: hidden by default, `max-height` CSS transition; contains breakdown table + Strategy Alignment section + Claude AI box
 - **Indicator explanation panel**: 5-column breakdown table (Indicator / Value / Reading / Impact badge / How it's used). Indicator names have `cursor:help` dashed underline; hovering shows a custom dark tooltip (220px max-width, `#111827` bg, downward arrow, 0.15s fade) via event delegation on `document`. Single `#ind-tip` div shared across all tooltips. Only one panel open at a time (`openPanelCoin` global).
+- **Strategy Alignment section**: green box rendered between indicator table and Claude AI box. Only rendered when `signalData[coinId].entryQuality` or `signalData[coinId].riskAssessment` is non-null (graceful degradation for old cached signals). Shows: all-criteria-met flag, marginal/failing criteria lists, 3-column risk grid (stop-loss risk / take-profit reachability / 72h time stop), and news impact if non-none. Risk levels colour-coded green/amber/red.
 - **Claude AI interpretation box**: blue box at bottom of panel showing `"Signal refreshes every 10 minutes · Indicators update every 10 minutes · Generated HH:MM:SS"`. Time from `signalData[coinId].updatedAt`; shows `Generating...` if null.
 - **Hover highlight**: `attachRowHovers()` adds `.row-hover` to all `[data-coin="${id}"]` rows on mouseenter; removed on mouseleave.
 - **Glossary modal**: `?` column header opens full-screen backdrop modal with definitions for all 7 indicators. Closeable by clicking backdrop or Escape.

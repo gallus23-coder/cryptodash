@@ -114,4 +114,12 @@ function calcVolumeRatio(volumes) {
   return avg20 === 0 ? null : volumes[volumes.length - 1] / avg20;
 }
 
-module.exports = { calcEMA, calcMACD, calcBollingerBands, calcStochRSI, calcVolumeRatio };
+// ATR-14 (simplified): average of (high - low) over last 14 candles.
+// candles: array of {high, low, close} oldest-first, needs >= 14 entries.
+function calcATR(candles, period = 14) {
+  if (candles.length < period) return null;
+  const last = candles.slice(-period);
+  return last.reduce((sum, c) => sum + (c.high - c.low), 0) / period;
+}
+
+module.exports = { calcEMA, calcMACD, calcBollingerBands, calcStochRSI, calcVolumeRatio, calcATR };

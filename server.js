@@ -157,6 +157,7 @@ async function updateIndicators() {
   for (const id of wl.coins) {
     const closes  = db.getCloses(id, '1h', 300);
     const volumes = db.getVolumes(id, '1h', 21);
+    const ohlc    = db.getOHLCLimit(id, '1h', 14);
     if (closes.length < 35) continue;
     const price       = closes[closes.length - 1];
     const macd        = ind.calcMACD(closes);
@@ -166,6 +167,8 @@ async function updateIndicators() {
     const ema50       = ind.calcEMA(closes, 50);
     const ema200      = ind.calcEMA(closes, 200);
     const emaAbovePrice = ema200 != null && price > ema200;
+    const atr14       = ind.calcATR(ohlc, 14);
+    const atr14Pct    = (atr14 != null && price > 0) ? (atr14 / price * 100) : null;
     // Detect golden/death cross in last 3 candles
     let goldenCross = false, deathCross = false;
     const n = closes.length;
@@ -187,7 +190,7 @@ async function updateIndicators() {
     }
     cache[id] = {
       macd, bb, ema50, ema200, emaAbovePrice, goldenCross, deathCross,
-      stochRsi, volumeRatio, updatedAt: new Date().toISOString(),
+      stochRsi, volumeRatio, atr14, atr14Pct, updatedAt: new Date().toISOString(),
     };
   }
   writeJson(INDICATORS_FILE, cache);
@@ -204,6 +207,79 @@ async function updateFearGreed() {
   } catch (e) {
     console.error('[feargreed] fetch failed:', e.message);
   }
+}
+
+const WATCHLIST_SIGNAL_SYSTEM = `You are a systematic crypto trading assistant. Your only job is to evaluate whether a coin currently meets the criteria for our exact trading strategy and report that evaluation as structured JSON.
+
+STRATEGY: Mean Reversion in Uptrend
+Entry criteria (ALL must be met for a buy signal):
+  1. Price above EMA200 (confirmed uptrend)
+  2. RSI between 25 and 45 (pulled back from overbought)
+  3. Price within 5% of EMA50 (near mean)
+  4. MACD line > 0 (macro momentum positive)
+  5. Stochastic RSI %K below 30 (oversold on fast oscillator)
+  6. Volume ratio >= 1.2x 20-period average (participation confirming move)
+
+Risk parameters:
+  - Stop loss: 5% below entry
+  - Take profit: 10% above entry
+  - Time stop: exit if target not reached within 72 hours
+
+Signal scale:
+  strong_buy  — ALL 6 criteria met, strong momentum alignment
+  buy         — 5 of 6 criteria met (one marginal miss)
+  hold        — setup partially forming but not actionable yet
+  sell        — uptrend intact but indicators deteriorating, consider reducing
+  strong_sell — multiple criteria failing or downtrend signals present
+
+Respond ONLY with valid JSON, no markdown, no prose. Use exactly this shape:
+{
+  "signal": "<strong_buy|buy|hold|sell|strong_sell>",
+  "summary": "<1-2 sentences referencing specific values>",
+  "entryQuality": {
+    "allCriteriaMet": <true|false>,
+    "marginalCriteria": ["<criterion text if nearly met>"],
+    "failingCriteria": ["<criterion text if failing>"]
+  },
+  "riskAssessment": {
+    "stopLossRisk": "<low|medium|high>",
+    "stopLossNote": "<one sentence on ATR vs 5% stop>",
+    "takeProfitReachable": <true|false>,
+    "takeProfitNote": "<one sentence on momentum towards 10% target>",
+    "timeStopRisk": "<low|medium|high>",
+    "timeStopNote": "<one sentence on likelihood of resolving within 72h>"
+  },
+  "newsImpact": "<none|minor|major>",
+  "newsNote": "<one sentence if newsImpact is minor or major, else null>"
+}`;
+
+function buildWatchlistSignalPrompt(meta, price, change24h, rsi, i, fngStr) {
+  const lines = [
+    `Coin: ${meta.name}`,
+    `Price: $${price}`,
+    `24h change: ${change24h.toFixed(2)}%`,
+    `RSI (14): ${rsi != null ? rsi.toFixed(1) : 'unavailable'}`,
+  ];
+  if (i.macd) {
+    lines.push(`MACD line: ${i.macd.macd.toFixed(6)} | Signal: ${i.macd.signal.toFixed(6)} | Histogram: ${i.macd.histogram.toFixed(6)}`);
+  }
+  if (i.bb) {
+    lines.push(`Bollinger: Upper $${i.bb.upper.toFixed(4)} Middle $${i.bb.middle.toFixed(4)} Lower $${i.bb.lower.toFixed(4)} BW: ${i.bb.bandwidthPct.toFixed(1)}%`);
+  }
+  if (i.ema50  != null) lines.push(`EMA50: $${i.ema50.toFixed(4)}`);
+  if (i.ema200 != null) lines.push(`EMA200: $${i.ema200.toFixed(4)} | Price ${i.emaAbovePrice ? 'above' : 'below'} 200 EMA`);
+  if (i.goldenCross) lines.push('Golden cross detected in last 3 candles.');
+  if (i.deathCross)  lines.push('Death cross detected in last 3 candles.');
+  if (i.stochRsi)    lines.push(`Stoch RSI: %K=${i.stochRsi.k.toFixed(1)} %D=${i.stochRsi.d.toFixed(1)}`);
+  if (i.volumeRatio != null) lines.push(`Volume ratio vs 20-period avg: ${i.volumeRatio.toFixed(2)}x`);
+  if (i.atr14 != null) {
+    const atrPct = i.atr14Pct != null ? ` (${i.atr14Pct.toFixed(2)}% of price)` : '';
+    lines.push(`ATR-14 (1h): $${i.atr14.toFixed(4)}${atrPct}`);
+  }
+  lines.push(`Fear & Greed: ${fngStr}`);
+  lines.push('');
+  lines.push('Evaluate this coin against the strategy criteria above and return the JSON response.');
+  return lines.join('\n');
 }
 
 async function updateSignals() {
@@ -231,37 +307,13 @@ async function updateSignals() {
       console.error(`[signals] ticker failed for ${id}:`, e.message);
       continue;
     }
-    const rsiEntry = rsiCache[id];
-    const rsi      = rsiEntry ? rsiEntry.rsi : null;
-    const price    = parseFloat(ticker.lastPrice);
+    const rsiEntry  = rsiCache[id];
+    const rsi       = rsiEntry ? rsiEntry.rsi : null;
+    const price     = parseFloat(ticker.lastPrice);
     const change24h = parseFloat(ticker.priceChangePercent);
     const i = indCache[id] || {};
     try {
-      const lines = [
-        `Coin: ${meta.name}`,
-        `Price: $${price}`,
-        `24h change: ${change24h.toFixed(2)}%`,
-        `RSI (14): ${rsi != null ? rsi.toFixed(1) : 'unavailable'}`,
-      ];
-      if (i.macd) {
-        lines.push(`MACD: ${i.macd.macd.toFixed(2)} | Signal: ${i.macd.signal.toFixed(2)} | Histogram: ${i.macd.histogram.toFixed(2)}`);
-      }
-      if (i.bb) {
-        lines.push(`Bollinger: Upper $${i.bb.upper.toFixed(2)} Middle $${i.bb.middle.toFixed(2)} Lower $${i.bb.lower.toFixed(2)} BW: ${i.bb.bandwidthPct.toFixed(1)}%`);
-      }
-      if (i.ema50 != null) lines.push(`EMA50: $${i.ema50.toFixed(2)}`);
-      if (i.ema200 != null) lines.push(`EMA200: $${i.ema200.toFixed(2)} | Price ${i.emaAbovePrice ? 'above' : 'below'} 200 EMA`);
-      if (i.goldenCross) lines.push('Golden cross detected in last 3 candles.');
-      if (i.deathCross)  lines.push('Death cross detected in last 3 candles.');
-      if (i.stochRsi)    lines.push(`Stoch RSI: %K=${i.stochRsi.k.toFixed(1)} %D=${i.stochRsi.d.toFixed(1)}`);
-      if (i.volumeRatio != null) lines.push(`Volume ratio vs 20-period avg: ${i.volumeRatio.toFixed(2)}x`);
-      lines.push(`Fear & Greed: ${fngStr}`);
-      lines.push('');
-      lines.push('Respond with valid JSON only, no markdown, no prose:');
-      lines.push('{"signal":"buy","summary":"..."} where signal is exactly one of: strong_buy, buy, hold, sell, strong_sell');
-      lines.push('Summary: 1-2 plain English sentences referencing specific indicator values.');
-
-      const prompt = lines.join('\n');
+      const prompt = buildWatchlistSignalPrompt(meta, price, change24h, rsi, i, fngStr);
 
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -272,7 +324,8 @@ async function updateSignals() {
         },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 200,
+          max_tokens: 800,
+          system: WATCHLIST_SIGNAL_SYSTEM,
           messages: [{ role: 'user', content: prompt }],
         }),
       });
@@ -284,7 +337,15 @@ async function updateSignals() {
       if (!['strong_buy', 'buy', 'hold', 'sell', 'strong_sell'].includes(parsed.signal))
         throw new Error(`invalid signal: ${parsed.signal}`);
       if (typeof parsed.summary !== 'string') throw new Error('missing summary');
-      signalCache[id] = { signal: parsed.signal, summary: parsed.summary, updatedAt: new Date().toISOString() };
+      signalCache[id] = {
+        signal:          parsed.signal,
+        summary:         parsed.summary,
+        entryQuality:    parsed.entryQuality    || null,
+        riskAssessment:  parsed.riskAssessment  || null,
+        newsImpact:      parsed.newsImpact      || 'none',
+        newsNote:        parsed.newsNote        || null,
+        updatedAt: new Date().toISOString(),
+      };
     } catch (e) {
       console.error(`[signals] ${id}:`, e.message);
     }
