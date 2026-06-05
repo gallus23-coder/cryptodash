@@ -1,6 +1,21 @@
-# Crypto Dashboard
+# Crypto Dashboard + Freqtrade — Full System
 
-A self-hosted crypto watchlist, opportunity scanner, and backtesting tool running on a Raspberry Pi. Provides live price data, technical indicators, AI-generated signals, a dual-tier opportunity scanner, and a historical signal backtester with £100 simulation — all in a single-page dashboard accessible at `http://localhost:3000`.
+Two systemd services running on a Raspberry Pi. **Cryptodash** (Node.js) fetches market data, computes indicators, generates Claude AI signals, and serves a web dashboard. **Freqtrade** (Python) reads those signals and executes trades on Kraken.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Raspberry Pi                          │
+│                                                         │
+│  ┌──────────────────────┐   signals.json  ┌──────────┐  │
+│  │  crypto-dashboard    │ ──────────────► │freqtrade │  │
+│  │  Node.js  :3000      │                 │Python    │  │
+│  │  (watchlist, signals,│                 │:8080     │  │
+│  │   scanner, backtest) │                 │(dry-run) │  │
+│  └──────────────────────┘                 └──────────┘  │
+│           │ SQLite (candles)                    │        │
+│           │ Binance API (USDT)          Kraken API (GBP) │
+└─────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -8,16 +23,18 @@ A self-hosted crypto watchlist, opportunity scanner, and backtesting tool runnin
 
 | Layer | Technology |
 |-------|-----------|
-| Runtime | Node.js (v20) |
+| Runtime (cryptodash) | Node.js (v20) |
 | Web framework | Express |
 | Database | SQLite via `better-sqlite3` (synchronous) |
 | Scheduling | `node-cron` |
 | Frontend | Vanilla JS + HTML (single file: `public/index.html`) |
 | AI signals | Anthropic API (`claude-haiku-4-5-20251001`) |
+| Runtime (Freqtrade) | Python, virtualenv at `/home/gallus23/freqtrade/.venv` |
+| Freqtrade version | 2026.5.1 |
 
 ---
 
-## Environment Variables
+## Environment Variables (cryptodash)
 
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
@@ -33,16 +50,31 @@ A self-hosted crypto watchlist, opportunity scanner, and backtesting tool runnin
 
 ---
 
-## Systemd Service
+## Systemd Services
 
-Service name: `crypto-dashboard`
+### crypto-dashboard.service
 
-```
+Node.js process serving the dashboard on port 3000.
+
+```bash
 sudo systemctl restart crypto-dashboard
 journalctl -u crypto-dashboard -f
 ```
 
-Runs as a persistent service. Restarts automatically on failure. Start it after any backend change.
+### freqtrade.service
+
+Python Freqtrade process on port 8080. Configured to start **after** `crypto-dashboard.service` (depends on `signals.json` being present).
+
+```bash
+sudo systemctl restart freqtrade
+journalctl -u freqtrade -f
+```
+
+### Combined log tail
+
+```bash
+journalctl -u crypto-dashboard -u freqtrade -f
+```
 
 ---
 
@@ -50,32 +82,40 @@ Runs as a persistent service. Restarts automatically on failure. Start it after 
 
 ```
 crypto-dashboard/
-├── server.js          — Express app, cron jobs, startup logic, all API routes
-├── db.js              — SQLite schema, candle CRUD, RSI calculation, prune
-├── binance.js         — Binance API: fetchTicker, backfillCandles, fetchNewCandles
-├── coingecko.js       — CoinGecko API: fetchMetadata (one-time), refreshMarketCaps
-├── indicators.js      — Pure indicator math: EMA, MACD, Bollinger, StochRSI, VolumeRatio
-├── feargreed.js       — Alternative.me Fear & Greed API: fetchFearGreed
-├── scanner.js         — Opportunity scanner: Tier 0 / Tier C detection, scoring
-├── backtest.js        — Backtesting: incremental indicators, signal scoring, simulation
+├── server.js               — Express app, cron jobs, startup logic, all API routes
+├── db.js                   — SQLite schema, candle CRUD, RSI calculation, prune
+├── binance.js              — Binance API: fetchTicker, backfillCandles, fetchNewCandles
+├── coingecko.js            — CoinGecko API: fetchMetadata (one-time), refreshMarketCaps
+├── indicators.js           — Pure indicator math: EMA, MACD, Bollinger, StochRSI, VolumeRatio, ATR
+├── feargreed.js            — Alternative.me Fear & Greed API: fetchFearGreed
+├── scanner.js              — Opportunity scanner: Tier 0 / Tier C detection, scoring
+├── backtest.js             — Backtesting: incremental indicators, signal scoring, simulation
+├── CryptodashStrategy.py   — Copy of Freqtrade strategy (canonical: /home/gallus23/freqtrade/user_data/strategies/)
 ├── public/
-│   └── index.html     — Full frontend (single file: Watchlist/Opportunities/Backtest/Portfolio tabs)
+│   └── index.html          — Full frontend (single file: Watchlist/Opportunities/Backtest/Portfolio tabs)
 ├── data/
-│   ├── crypto.db          — SQLite: candles + coin_meta
-│   ├── watchlist.json     — Persisted watchlist (CoinGecko IDs)
-│   ├── alerts.json        — Price alerts
-│   ├── triggered.json     — Auto-created: fired alert IDs
-│   ├── rsi.json           — RSI cache (refreshed every 15 min)
-│   ├── signals.json       — Anthropic signal cache per watchlist coin
-│   ├── indicators.json    — Technical indicators cache per watchlist coin
-│   ├── feargreed.json     — Fear & Greed index (refreshed hourly)
-│   ├── scanner.json       — Opportunity scanner results (last 24 scans)
-│   └── backtest.json      — Latest backtest results (written on each run)
+│   ├── crypto.db           — SQLite: candles + coin_meta
+│   ├── watchlist.json      — Persisted watchlist (CoinGecko IDs)
+│   ├── alerts.json         — Price alerts
+│   ├── triggered.json      — Auto-created: fired alert IDs
+│   ├── rsi.json            — RSI cache (refreshed every 15 min)
+│   ├── signals.json        — Anthropic signal cache per watchlist coin (READ by Freqtrade)
+│   ├── indicators.json     — Technical indicators cache per watchlist coin
+│   ├── feargreed.json      — Fear & Greed index (refreshed hourly)
+│   ├── scanner.json        — Opportunity scanner results (last 24 scans)
+│   └── backtest.json       — Latest backtest results (written on each run)
 └── test/
     ├── db.test.js
     ├── binance.test.js
     ├── indicators.test.js
     └── feargreed.test.js
+
+/home/gallus23/freqtrade/
+├── .venv/                              — Python virtualenv
+├── user_data/
+│   ├── config.json                     — Freqtrade config (exchange, pairs, risk params)
+│   └── strategies/
+│       └── CryptodashStrategy.py       — Canonical strategy file
 ```
 
 ---
@@ -93,13 +133,15 @@ CREATE TABLE candles (
   high     REAL    NOT NULL,
   low      REAL    NOT NULL,
   close    REAL    NOT NULL,
-  volume   REAL    NOT NULL,
+  volume   REAL    NOT NULL,   -- base asset volume (k[5] from Binance kline, NOT quote/USDT)
   UNIQUE (coin_id, interval, time)
 );
 CREATE INDEX idx_candles_cit ON candles(coin_id, interval, time DESC);
 ```
 
-Intervals stored: `1h` (90 days depth) and `1m` (7 days depth). Aggregated intervals (5m, 15m, 4h, 1d) are computed on-the-fly from stored candles.
+Intervals stored: `1h` (90 days depth) and `1m` (7 days depth). Aggregated intervals (5m, 15m, 4h, 1d) computed on-the-fly.
+
+**Volume note**: stored as base asset volume (BTC, ETH, etc.) from Binance kline index `k[5]`. `k[7]` (USDT quote volume) must NOT be used — it was a bug that was fixed.
 
 ### `coin_meta`
 
@@ -125,8 +167,10 @@ Base URL: `https://api.binance.com`
 
 - **Live prices**: `GET /api/v3/ticker/24hr?symbol=BTCUSDT` — price, 24h change, volume
 - **OHLCV candles**: `GET /api/v3/klines?symbol=BTCUSDT&interval=1h&limit=N`
-- **All tickers**: `GET /api/v3/ticker/24hr` (no symbol param) — used by scanner to rank top 100 USDT pairs by volume
-- Candle data returned as arrays: `[openTime, open, high, low, close, volume, ...]`
+- **All tickers**: `GET /api/v3/ticker/24hr` (no symbol param) — used by scanner
+- Kline format: `[openTime, open, high, low, close, baseVolume, closeTime, quoteVolume, ...]`
+  - `k[5]` = base asset volume (what we store) ✓
+  - `k[7]` = quote asset volume in USDT (do NOT use)
 
 ### CoinGecko (free tier, no key required)
 
@@ -162,7 +206,7 @@ Resolved Binance symbol stored in `coin_meta.symbol`.
 
 ## Technical Indicators (`indicators.js`)
 
-All functions are pure math (no I/O). Take arrays of close prices oldest-first.
+All functions are pure math (no I/O). Take arrays oldest-first.
 
 | Indicator | Function | Settings | Min data |
 |-----------|----------|----------|----------|
@@ -222,6 +266,8 @@ initDb()
 3. `updateIndicators()` — compute MACD, Bollinger, EMA50/200, golden/death cross, StochRSI, volume ratio, ATR-14; write `indicators.json`
 4. `updateSignals()` — for each watchlist coin: fetch live ticker, build prompt, call Claude API, write `signals.json`
 
+`signals.json` is the **signal bridge** — Freqtrade reads it on every candle close.
+
 ---
 
 ## Candle Aggregation
@@ -257,19 +303,19 @@ Called every 15 min for every watchlist coin. Uses a **system prompt** (`WATCHLI
 - EMA50, EMA200, price direction vs 200 EMA
 - Golden/death cross flag (if detected in last 3 candles)
 - StochRSI %K and %D
-- Volume ratio vs 20-period avg
+- Volume ratio vs 20-period avg (annotated with above/below 1.2× threshold)
 - ATR-14 (1h) in $ and as % of price
 - Fear & Greed index
 
 **Returns extended JSON** stored in `signals.json`:
 ```json
 {
-  "signal": "buy",
+  "signal": "strong_buy",
   "summary": "...",
   "entryQuality": {
-    "allCriteriaMet": false,
-    "marginalCriteria": ["StochRSI at 32 slightly above 30"],
-    "failingCriteria": ["Volume at 0.9x below 1.2x"]
+    "allCriteriaMet": true,
+    "marginalCriteria": [],
+    "failingCriteria": []
   },
   "riskAssessment": {
     "stopLossRisk": "low",
@@ -281,13 +327,13 @@ Called every 15 min for every watchlist coin. Uses a **system prompt** (`WATCHLI
   },
   "newsImpact": "none",
   "newsNote": null,
-  "updatedAt": "2026-06-05T..."
+  "updatedAt": "2026-06-05T12:00:00.000Z"
 }
 ```
 
-Signal must be one of: `strong_buy`, `buy`, `hold`, `sell`, `strong_sell`. If `entryQuality`/`riskAssessment` fields are absent (old cached entries or parse failure), they are stored as `null` — the UI degrades gracefully.
+Signal must be one of: `strong_buy`, `buy`, `hold`, `sell`, `strong_sell`. If `entryQuality`/`riskAssessment` fields are absent (old cached entries or parse failure), they are stored as `null` — the UI degrades gracefully, and Freqtrade will not act on the signal (allCriteriaMet is treated as false when absent).
 
-**IMPORTANT:** The system prompt must stay in sync with strategy parameters. If entry criteria, stop/target levels, or the signal scale change, update `WATCHLIST_SIGNAL_SYSTEM` in `server.js`.
+**IMPORTANT — keep in sync with Freqtrade:** The system prompt must stay in sync with `CryptodashStrategy.py` and `config.json`. If entry criteria, stop/target levels, or signal scale change, update `WATCHLIST_SIGNAL_SYSTEM` in `server.js` **and** the corresponding Freqtrade parameters.
 
 Stale entries (coins removed from watchlist) are evicted on each run.
 
@@ -300,6 +346,135 @@ Called once per scan, for the winner only. Same indicator fields plus:
   - **Tier 0**: "price has just crossed above the 200 EMA with volume confirmation and momentum alignment. Frame the signal as an early entry opportunity."
   - **Tier C**: "identified as a dip-in-uptrend candidate within a confirmed uptrend. Frame the signal as a measured re-entry opportunity."
 - For Tier 0: hours since 200 EMA crossover
+
+Scanner signals are **not read by Freqtrade** — they drive the Opportunities tab only.
+
+---
+
+## Freqtrade Integration
+
+### Overview
+
+Freqtrade runs as a separate Python service in **dry-run (paper trading) mode**. It executes the same Mean Reversion in Uptrend strategy as the Claude signal system, but applied to live Kraken GBP pairs. Cryptodash generates signals every 15 min; Freqtrade reads them on each 1h candle close.
+
+### Paths
+
+| Item | Path |
+|------|------|
+| Freqtrade root | `/home/gallus23/freqtrade` |
+| Virtualenv | `/home/gallus23/freqtrade/.venv` |
+| Config | `/home/gallus23/freqtrade/user_data/config.json` |
+| Strategy (canonical) | `/home/gallus23/freqtrade/user_data/strategies/CryptodashStrategy.py` |
+| Strategy (copy) | `/home/gallus23/crypto-dashboard/CryptodashStrategy.py` |
+| FreqUI | `http://localhost:8080` |
+| FreqUI credentials | username: `cryptodash` |
+
+### Freqtrade Configuration (`config.json`)
+
+| Parameter | Value |
+|-----------|-------|
+| `dry_run` | `true` (paper trading) |
+| `timeframe` | `1h` |
+| `stoploss` | `-0.05` (5%) |
+| `minimal_roi` | `{"0": 0.10}` (10% at any time) |
+| `max_open_trades` | `2` |
+| `stake_currency` | `GBP` |
+| `dry_run_wallet` | `1000` (£1,000) |
+| `exchange.name` | `kraken` |
+
+### Traded Pairs
+
+```
+BTC/GBP, ETH/GBP, SOL/GBP, XRP/GBP, ADA/GBP, BNB/GBP, LINK/GBP
+```
+
+### Signal Bridge (`signals.json`)
+
+Freqtrade reads `/home/gallus23/crypto-dashboard/data/signals.json` directly from disk on every candle close (every hour, at close of 1h candle).
+
+**Pair → CoinGecko ID mapping in `CryptodashStrategy.py`:**
+
+| Freqtrade pair | signals.json key |
+|----------------|------------------|
+| BTC/GBP | `bitcoin` |
+| ETH/GBP | `ethereum` |
+| SOL/GBP | `solana` |
+| XRP/GBP | `ripple` |
+| ADA/GBP | `cardano` |
+| BNB/GBP | `binancecoin` |
+| LINK/GBP | `chainlink` |
+
+**Entry conditions in `CryptodashStrategy.py` (all must be true):**
+
+1. Signal is `"strong_buy"` (not merely `"buy"`)
+2. `entryQuality.allCriteriaMet` is `true`
+3. Signal `updatedAt` is within 20 minutes (`MAX_SIGNAL_AGE_MINUTES = 20`)
+4. Belt-and-braces dataframe confirmation:
+   - `close > ema200`
+   - `rsi < 45`
+   - `macd > 0`
+   - `volume > 0`
+
+**Exit reasons:**
+
+| Reason | Mechanism |
+|--------|-----------|
+| `stoploss` | Freqtrade built-in, -5% |
+| `roi` | Freqtrade built-in, +10% at any time |
+| `time_stop_72h` | `custom_exit` callback: exit if trade open > 72h |
+| `signal_reversal` | `custom_exit` callback: exit if signal becomes `sell` or `strong_sell` |
+
+### Freqtrade Useful Commands
+
+```bash
+cd /home/gallus23/freqtrade
+source .venv/bin/activate
+
+# Verify strategy loads
+freqtrade list-strategies --userdir user_data
+
+# View open trades (dry-run)
+freqtrade show-trades --config user_data/config.json
+
+# FreqUI (web interface)
+http://localhost:8080
+```
+
+---
+
+## Parameters That Must Stay in Sync
+
+**Changing any of these in one place requires updating the other.** Drift between cryptodash and Freqtrade will cause the signal prompt to evaluate against different parameters than Freqtrade acts on.
+
+| Parameter | cryptodash location | Freqtrade location |
+|-----------|--------------------|--------------------|
+| Stop loss: **5%** | `WATCHLIST_SIGNAL_SYSTEM` in `server.js` | `stoploss: -0.05` in `config.json` |
+| Take profit: **10%** | `WATCHLIST_SIGNAL_SYSTEM` in `server.js` | `minimal_roi: {"0": 0.10}` in `config.json` |
+| Time stop: **72h** | `WATCHLIST_SIGNAL_SYSTEM` in `server.js` | `custom_exit` in `CryptodashStrategy.py` |
+| Max positions: **2** | (informational in prompt) | `max_open_trades: 2` in `config.json` |
+| Signal freshness: **20 min** | (implicit — signals refresh every 15 min) | `MAX_SIGNAL_AGE_MINUTES = 20` in `CryptodashStrategy.py` |
+| Entry criteria | `WATCHLIST_SIGNAL_SYSTEM` in `server.js` | dataframe guards in `CryptodashStrategy.py` `populate_entry_trend` |
+
+---
+
+## Going Live (when ready)
+
+Edit `/home/gallus23/freqtrade/user_data/config.json`:
+
+```json
+"dry_run": false,
+"exchange": {
+  "key": "YOUR_KRAKEN_API_KEY",
+  "secret": "YOUR_KRAKEN_API_SECRET"
+}
+```
+
+Then:
+```bash
+sudo systemctl restart freqtrade
+```
+
+**Complete all items in a go-live checklist first.** At minimum: backtest win rate satisfactory, strategy reviewed on paper for ≥30 days, API key scoped to trade-only (no withdrawal permissions), position sizing reviewed for real-money risk tolerance.
 
 ---
 
@@ -577,7 +752,7 @@ Placeholder card — "Portfolio Tracker — Coming soon."
 | GET | `/api/market` | Live market data for all watchlist coins (price, change, sparkline) |
 | GET | `/api/candles/:coinId?interval=` | OHLCV candles (1m/5m/15m/1h/4h/1d) |
 | GET | `/api/rsi` | RSI cache (`{ coinId: { rsi, updatedAt } }`) |
-| GET | `/api/signals` | Signal cache (`{ coinId: { signal, summary, updatedAt } }`) |
+| GET | `/api/signals` | Signal cache (`{ coinId: { signal, summary, entryQuality, riskAssessment, newsImpact, newsNote, updatedAt } }`) |
 | GET | `/api/indicators` | Full indicators cache per coin |
 | GET | `/api/feargreed` | Fear & Greed index (`{ value, classification, fetchedAt }`) |
 | GET | `/api/scanner` | Latest scanner result + 24-scan history |
@@ -598,11 +773,19 @@ Placeholder card — "Portfolio Tracker — Coming soon."
 ## Dev Workflow
 
 ```bash
-# After backend changes
+# After backend changes to cryptodash
 sudo systemctl restart crypto-dashboard
-
-# Follow logs
 journalctl -u crypto-dashboard -f
+
+# After changes to CryptodashStrategy.py
+# (copy to Freqtrade first)
+cp /home/gallus23/crypto-dashboard/CryptodashStrategy.py \
+   /home/gallus23/freqtrade/user_data/strategies/CryptodashStrategy.py
+sudo systemctl restart freqtrade
+journalctl -u freqtrade -f
+
+# Combined logs
+journalctl -u crypto-dashboard -u freqtrade -f
 
 # Inspect DB
 node -e "const db=require('./db');db.initDb();console.log(db.getAllMeta())"
@@ -610,8 +793,13 @@ node -e "const db=require('./db');db.initDb();console.log(db.getAllMeta())"
 # Run tests
 node --test test/
 
-# Dashboard URL
-http://localhost:3000
+# Verify Freqtrade strategy loads
+cd /home/gallus23/freqtrade && source .venv/bin/activate
+freqtrade list-strategies --userdir user_data
+
+# Dashboard URLs
+http://localhost:3000   # Cryptodash
+http://localhost:8080   # FreqUI
 ```
 
 ---
@@ -623,5 +811,8 @@ http://localhost:3000
 - No ORM — `better-sqlite3` with hand-written prepared statements in `db.js`
 - No unnecessary dependencies
 - Watchlist coin IDs are always CoinGecko IDs (lowercase)
-- All live price/volume data comes from Binance — never CoinGecko for live data
+- All live price/volume data comes from Binance (USDT pairs) — never CoinGecko for live data
+- Freqtrade trades GBP pairs on Kraken — different exchange, different denomination
 - JSON files in `data/` are the source of truth for ephemeral caches; SQLite is the source of truth for candle history
+- Volume stored as **base asset** (`k[5]`), not quote/USDT (`k[7]`) — do not change this
+- `signals.json` is the contract between cryptodash and Freqtrade — schema changes require updating both sides
