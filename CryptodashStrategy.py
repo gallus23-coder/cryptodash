@@ -33,8 +33,8 @@ class CryptodashStrategy(IStrategy):
     
     Parameters (must match cryptodash tradingConfig.json):
       Stop loss:    5%
-      Take profit:  10%
-      Time stop:    72 hours
+      Take profit:  15%
+      Time stop:    89 hours
       Max trades:   2 (set in config.json)
       Timeframe:    1h
     """
@@ -44,7 +44,7 @@ class CryptodashStrategy(IStrategy):
     # ── strategy parameters ───────────────────────────────────────────────────
     timeframe = '1h'
     stoploss = -0.05          # 5% stop loss
-    minimal_roi = {"0": 0.10} # 10% take profit
+    minimal_roi = {"0": 0.15} # 15% take profit
 
     trailing_stop = False
     process_only_new_candles = True
@@ -56,7 +56,7 @@ class CryptodashStrategy(IStrategy):
     MAX_SIGNAL_AGE_MINUTES = 20
 
     # Time stop — close after this many hours regardless
-    TIME_STOP_HOURS = 72
+    TIME_STOP_HOURS = 89 # was 72
 
     # ── indicator population ──────────────────────────────────────────────────
     def populate_indicators(self, dataframe: DataFrame,
@@ -183,8 +183,10 @@ class CryptodashStrategy(IStrategy):
         # These mirror the strategy entry criteria
         entry_conditions = (
             (dataframe['close'] > dataframe['ema200']) &  # uptrend confirmed
-            (dataframe['rsi'] < 45) &                     # not overbought
+            (dataframe['rsi'] > 34) &
+            (dataframe['rsi'] < 49) &                     # was 45 not overbought
             (dataframe['macd'] > 0) &                     # net bullish momentum
+            (dataframe['macd_hist'] > 0) &
             (dataframe['volume'] > 0)                     # valid candle
         )
 
