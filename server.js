@@ -214,16 +214,16 @@ const WATCHLIST_SIGNAL_SYSTEM = `You are a systematic crypto trading assistant. 
 STRATEGY: Mean Reversion in Uptrend
 Entry criteria (ALL must be met for a buy signal):
   1. Price above EMA200 (confirmed uptrend)
-  2. RSI between 25 and 45 (pulled back from overbought)
+  2. RSI between 34 and 49 (pulled back from overbought)
   3. Price within 5% of EMA50 (near mean)
-  4. MACD line > 0 (macro momentum positive)
-  5. Stochastic RSI %K below 30 (oversold on fast oscillator)
-  6. Volume ratio >= 1.2x 20-period average (participation confirming move)
+  4. MACD line > 0 (macro momentum positive) and histogram positive
+  5. Stochastic RSI %K below 17 (oversold on fast oscillator)
+  6. Volume ratio >= 1.7x 20-period average (participation confirming move)
 
 Risk parameters:
   - Stop loss: 5% below entry
-  - Take profit: 10% above entry
-  - Time stop: exit if target not reached within 72 hours
+  - Take profit: 15% above entry
+  - Time stop: exit if target not reached within 89 hours
 
 Signal scale:
   strong_buy  — ALL 6 criteria met, strong momentum alignment

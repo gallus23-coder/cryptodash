@@ -1,3 +1,9 @@
 {
-  "coins": ["bitcoin", "ethereum", "solana", "binancecoin", "ripple", "cardano"]
+  "coins": [
+    "bitcoin",
+    "ethereum",
+    "solana",
+    "cardano",
+    "xrp"
+  ]
 }

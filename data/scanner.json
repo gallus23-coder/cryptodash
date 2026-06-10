@@ -1,0 +1,510 @@
+{
+  "latest": {
+    "timestamp": 1781096733383,
+    "btcChange24h": -1.683,
+    "winnerTier": null,
+    "winner": null,
+    "otherTier0": [],
+    "otherTierC": []
+  },
+  "history": [
+    {
+      "timestamp": 1781096733383,
+      "btcChange24h": -1.683,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781096733383
+    },
+    {
+      "timestamp": 1781093131674,
+      "btcChange24h": -2.762,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781093131674
+    },
+    {
+      "timestamp": 1781089531911,
+      "btcChange24h": -2.549,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781089531912
+    },
+    {
+      "timestamp": 1781085931873,
+      "btcChange24h": -2.357,
+      "winnerTier": 0,
+      "winner": {
+        "symbol": "WLFIUSDT",
+        "price": 0.0596,
+        "change24h": 7.002,
+        "rsi": 80.54446007220304,
+        "macd": {
+          "macd": 0.0007421698430390006,
+          "signal": 0.00015612252472657024,
+          "histogram": 0.0005860473183124304
+        },
+        "ema50": 0.05597269857689045,
+        "ema200": 0.05741967181079435,
+        "volRatio": 0.12489827070332106,
+        "relStrength": 9.359,
+        "distFromEMA50Pct": 6.480483370167822,
+        "ema200CrossoverAgo": 4,
+        "crossoverVolRatio": 3.762227472131411,
+        "belowEMA200Count": 31,
+        "rsiCrossed50": true,
+        "macdCrossedZero": true,
+        "tier": 0,
+        "score": 77,
+        "scoreBreakdown": {
+          "recency": 10,
+          "volume": 17,
+          "macd": 25,
+          "relStrength": 25
+        }
+      },
+      "otherTier0": [
+        {
+          "symbol": "BFUSDUSDT",
+          "score": 44,
+          "scoreBreakdown": {
+            "recency": 5,
+            "volume": 25,
+            "macd": 2,
+            "relStrength": 12
+          },
+          "tier": 0
+        }
+      ],
+      "otherTierC": [],
+      "storedAt": 1781085932231
+    },
+    {
+      "timestamp": 1781082331882,
+      "btcChange24h": -2.573,
+      "winnerTier": 0,
+      "winner": {
+        "symbol": "WLFIUSDT",
+        "price": 0.0583,
+        "change24h": 5.036,
+        "rsi": 76.88425777587784,
+        "macd": {
+          "macd": 0.0004146334421048642,
+          "signal": -0.000012725488537033877,
+          "histogram": 0.00042735893064189804
+        },
+        "ema50": 0.05576974238889769,
+        "ema200": 0.057376998317192576,
+        "volRatio": 0.1363968486772859,
+        "relStrength": 7.609,
+        "distFromEMA50Pct": 4.536972025902736,
+        "ema200CrossoverAgo": 3,
+        "crossoverVolRatio": 3.762227472131411,
+        "belowEMA200Count": 32,
+        "rsiCrossed50": true,
+        "macdCrossedZero": true,
+        "tier": 0,
+        "score": 82,
+        "scoreBreakdown": {
+          "recency": 15,
+          "volume": 17,
+          "macd": 25,
+          "relStrength": 25
+        }
+      },
+      "otherTier0": [
+        {
+          "symbol": "BFUSDUSDT",
+          "score": 51,
+          "scoreBreakdown": {
+            "recency": 10,
+            "volume": 25,
+            "macd": 3,
+            "relStrength": 13
+          },
+          "tier": 0
+        }
+      ],
+      "otherTierC": [],
+      "storedAt": 1781082332221
+    },
+    {
+      "timestamp": 1781078731510,
+      "btcChange24h": -2.271,
+      "winnerTier": 0,
+      "winner": {
+        "symbol": "WLFIUSDT",
+        "price": 0.0576,
+        "change24h": 3.971,
+        "rsi": 71.45358767204043,
+        "macd": {
+          "macd": 0.00021701254173118328,
+          "signal": -0.0001227561048307898,
+          "histogram": 0.00033976864656197307
+        },
+        "ema50": 0.05565862237759462,
+        "ema200": 0.05736001404562159,
+        "volRatio": 0.2644852385430809,
+        "relStrength": 6.242,
+        "distFromEMA50Pct": 3.488008756729272,
+        "ema200CrossoverAgo": 2,
+        "crossoverVolRatio": 3.762227472131411,
+        "belowEMA200Count": 32,
+        "rsiCrossed50": true,
+        "macdCrossedZero": true,
+        "tier": 0,
+        "score": 87,
+        "scoreBreakdown": {
+          "recency": 20,
+          "volume": 17,
+          "macd": 25,
+          "relStrength": 25
+        }
+      },
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781078731963
+    },
+    {
+      "timestamp": 1781075131705,
+      "btcChange24h": -2.885,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781075131705
+    },
+    {
+      "timestamp": 1781071532910,
+      "btcChange24h": -3.085,
+      "winnerTier": "C",
+      "winner": {
+        "symbol": "SENTUSDT",
+        "price": 0.01484,
+        "change24h": 3.776,
+        "rsi": 44.452935952534624,
+        "macd": {
+          "macd": 0.00019482786011108984,
+          "signal": 0.000505305184567984,
+          "histogram": -0.00031047732445689416
+        },
+        "ema50": 0.01489490814677518,
+        "ema200": 0.014157512220167857,
+        "volRatio": 0.0192532909840674,
+        "relStrength": 6.861,
+        "distFromEMA50Pct": 0.368637028399989,
+        "ema200CrossoverAgo": -1,
+        "crossoverVolRatio": null,
+        "belowEMA200Count": 1,
+        "rsiCrossed50": false,
+        "macdCrossedZero": false,
+        "tier": "C",
+        "score": 66,
+        "scoreBreakdown": {
+          "rsi": 1,
+          "ema50": 35,
+          "macd": 30
+        }
+      },
+      "otherTier0": [],
+      "otherTierC": [
+        {
+          "symbol": "PARTIUSDT",
+          "score": 40,
+          "scoreBreakdown": {
+            "rsi": 13,
+            "ema50": 16,
+            "macd": 11
+          },
+          "tier": "C"
+        }
+      ],
+      "storedAt": 1781071533262
+    },
+    {
+      "timestamp": 1781067933606,
+      "btcChange24h": -3.162,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781067933606
+    },
+    {
+      "timestamp": 1781064335557,
+      "btcChange24h": -2.036,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781064335557
+    },
+    {
+      "timestamp": 1781060733172,
+      "btcChange24h": -2.366,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781060733172
+    },
+    {
+      "timestamp": 1781057134409,
+      "btcChange24h": -1.773,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781057134409
+    },
+    {
+      "timestamp": 1781053532764,
+      "btcChange24h": -1.069,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781053532764
+    },
+    {
+      "timestamp": 1781049935369,
+      "btcChange24h": -1.907,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781049935369
+    },
+    {
+      "timestamp": 1781046334247,
+      "btcChange24h": -2.614,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781046334247
+    },
+    {
+      "timestamp": 1781042733127,
+      "btcChange24h": -2.939,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781042733127
+    },
+    {
+      "timestamp": 1781039132372,
+      "btcChange24h": -2.443,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781039132372
+    },
+    {
+      "timestamp": 1781035535527,
+      "btcChange24h": -2.051,
+      "winnerTier": "C",
+      "winner": {
+        "symbol": "ALLOUSDT",
+        "price": 0.4172,
+        "change24h": 3.273,
+        "rsi": 43.347535790173005,
+        "macd": {
+          "macd": 0.0009474705389654337,
+          "signal": 0.00835436036399919,
+          "histogram": -0.007406889825033756
+        },
+        "ema50": 0.4205003768450286,
+        "ema200": 0.31027898924443403,
+        "volRatio": 0.05548722913423196,
+        "relStrength": 5.324,
+        "distFromEMA50Pct": 0.7848689387132032,
+        "ema200CrossoverAgo": -1,
+        "crossoverVolRatio": null,
+        "belowEMA200Count": 0,
+        "rsiCrossed50": false,
+        "macdCrossedZero": false,
+        "tier": "C",
+        "score": 66,
+        "scoreBreakdown": {
+          "rsi": 4,
+          "ema50": 32,
+          "macd": 30
+        }
+      },
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781035536044
+    },
+    {
+      "timestamp": 1781031931938,
+      "btcChange24h": -2.592,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781031931938
+    },
+    {
+      "timestamp": 1781028332171,
+      "btcChange24h": -2.943,
+      "winnerTier": null,
+      "winner": null,
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781028332171
+    },
+    {
+      "timestamp": 1781024732644,
+      "btcChange24h": -2.884,
+      "winnerTier": "C",
+      "winner": {
+        "symbol": "OPENUSDT",
+        "price": 0.2,
+        "change24h": 0.754,
+        "rsi": 42.242071807556144,
+        "macd": {
+          "macd": 0.0017896124436876382,
+          "signal": 0.0033784989003346863,
+          "histogram": -0.0015888864566470482
+        },
+        "ema50": 0.2037217524902588,
+        "ema200": 0.19742211722171854,
+        "volRatio": 0.014535788972540471,
+        "relStrength": 3.638,
+        "distFromEMA50Pct": 1.8268802642647404,
+        "ema200CrossoverAgo": -1,
+        "crossoverVolRatio": null,
+        "belowEMA200Count": 1,
+        "rsiCrossed50": false,
+        "macdCrossedZero": false,
+        "tier": "C",
+        "score": 61,
+        "scoreBreakdown": {
+          "rsi": 7,
+          "ema50": 24,
+          "macd": 30
+        }
+      },
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781024732985
+    },
+    {
+      "timestamp": 1781021133081,
+      "btcChange24h": -4.416,
+      "winnerTier": "C",
+      "winner": {
+        "symbol": "OPENUSDT",
+        "price": 0.1997,
+        "change24h": -0.15,
+        "rsi": 41.85915092927134,
+        "macd": {
+          "macd": 0.002881664882536772,
+          "signal": 0.0037773159658908728,
+          "histogram": -0.0008956510833541009
+        },
+        "ema50": 0.20387756484362868,
+        "ema200": 0.19739907984714167,
+        "volRatio": 0.9591948360692512,
+        "relStrength": 4.266,
+        "distFromEMA50Pct": 2.0490556902780477,
+        "ema200CrossoverAgo": -1,
+        "crossoverVolRatio": null,
+        "belowEMA200Count": 1,
+        "rsiCrossed50": false,
+        "macdCrossedZero": false,
+        "tier": "C",
+        "score": 61,
+        "scoreBreakdown": {
+          "rsi": 8,
+          "ema50": 22,
+          "macd": 30
+        }
+      },
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781021133564
+    },
+    {
+      "timestamp": 1781017534652,
+      "btcChange24h": -3.918,
+      "winnerTier": "C",
+      "winner": {
+        "symbol": "BANANAS31USDT",
+        "price": 0.010931,
+        "change24h": 1.448,
+        "rsi": 41.24326820563295,
+        "macd": {
+          "macd": 0.000028995408589511593,
+          "signal": 0.0001516573223630098,
+          "histogram": -0.0001226619137734982
+        },
+        "ema50": 0.011040634523701971,
+        "ema200": 0.01069115620514903,
+        "volRatio": 0.11304848114595455,
+        "relStrength": 5.366,
+        "distFromEMA50Pct": 0.9930092646994946,
+        "ema200CrossoverAgo": -1,
+        "crossoverVolRatio": null,
+        "belowEMA200Count": 3,
+        "rsiCrossed50": false,
+        "macdCrossedZero": false,
+        "tier": "C",
+        "score": 70,
+        "scoreBreakdown": {
+          "rsi": 10,
+          "ema50": 30,
+          "macd": 30
+        }
+      },
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781017534970
+    },
+    {
+      "timestamp": 1781013931818,
+      "btcChange24h": -2.258,
+      "winnerTier": "C",
+      "winner": {
+        "symbol": "BANANAS31USDT",
+        "price": 0.010939,
+        "change24h": 3.413,
+        "rsi": 40.65322224637346,
+        "macd": {
+          "macd": 0.0000711104313139109,
+          "signal": 0.00018347151882507488,
+          "histogram": -0.00011236108751116398
+        },
+        "ema50": 0.011047933827251331,
+        "ema200": 0.010692109125056984,
+        "volRatio": 0.15292718917453282,
+        "relStrength": 5.670999999999999,
+        "distFromEMA50Pct": 0.9860108591764838,
+        "ema200CrossoverAgo": -1,
+        "crossoverVolRatio": null,
+        "belowEMA200Count": 4,
+        "rsiCrossed50": false,
+        "macdCrossedZero": false,
+        "tier": "C",
+        "score": 72,
+        "scoreBreakdown": {
+          "rsi": 12,
+          "ema50": 30,
+          "macd": 30
+        }
+      },
+      "otherTier0": [],
+      "otherTierC": [],
+      "storedAt": 1781013932144
+    }
+  ],
+  "updatedAt": 1781096733383
+}

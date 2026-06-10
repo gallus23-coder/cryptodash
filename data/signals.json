@@ -1,0 +1,106 @@
+{
+  "bitcoin": {
+    "signal": "strong_sell",
+    "summary": "Bitcoin fails 4 of 6 entry criteria: price is below EMA200 (uptrend broken), MACD line is deeply negative at -4.09, volume ratio is critically low at 0.17x (only 14% of required threshold), and Fear & Greed at extreme 10/100 signals capitulation.",
+    "entryQuality": {
+      "allCriteriaMet": false,
+      "marginalCriteria": [
+        "RSI at 45.4 is at upper edge of 25-45 band but acceptable",
+        "Stochastic RSI %K at 33.1 meets oversold criterion"
+      ],
+      "failingCriteria": [
+        "Price $62861.34 is below EMA200 $65333.07 — uptrend not confirmed",
+        "MACD line -4.088819 is deeply negative — macro momentum is bearish",
+        "Volume ratio 0.17x is far below 1.2x requirement — participation absent",
+        "Price $62861.34 is 0.05% below EMA50 but broader structure deteriorating"
+      ]
+    },
+    "riskAssessment": {
+      "stopLossRisk": "high",
+      "stopLossNote": "ATR suggests $423.92 volatility; a 5% stop at $59717.27 could be easily tested given downside momentum and price already below key MA support.",
+      "takeProfitReachable": false,
+      "takeProfitNote": "Negative MACD, broken uptrend, and extreme fear sentiment make 10% upside target ($69147.47) unlikely within near term.",
+      "timeStopRisk": "high",
+      "timeStopNote": "Capitulation signals and structural breakdown suggest 72 hours is insufficient for mean reversion setup to resolve in buy direction."
+    },
+    "newsImpact": "major",
+    "newsNote": "Extreme Fear & Greed reading of 10/100 indicates market-wide capitulation; potential macro headwind or liquidation event driving volume collapse and bearish structure.",
+    "updatedAt": "2026-06-09T09:15:08.249Z"
+  },
+  "ethereum": {
+    "signal": "strong_sell",
+    "summary": "Ethereum fails multiple critical entry criteria: price is below EMA200 (downtrend confirmation), volume ratio is severely depressed at 0.06x vs 1.2x requirement, and MACD histogram is negative despite positive line value. Extreme Fear sentiment (10/100) reinforces downside risk.",
+    "entryQuality": {
+      "allCriteriaMet": false,
+      "marginalCriteria": [
+        "RSI at 50.5 is slightly above the 25-45 pullback range but acceptable"
+      ],
+      "failingCriteria": [
+        "Price $1677.09 is below EMA200 $1751.52 — no confirmed uptrend",
+        "Volume ratio 0.06x is critically below 1.2x threshold — no participation confirmation",
+        "MACD histogram negative at -2.39 — momentum deteriorating despite positive line"
+      ]
+    },
+    "riskAssessment": {
+      "stopLossRisk": "high",
+      "stopLossNote": "5% stop loss at $1593.24 is marginally wider than 1h ATR ($17.64), but downtrend structure makes any long entry high-risk.",
+      "takeProfitReachable": false,
+      "takeProfitNote": "With price below 200 EMA and extreme fear sentiment, 10% upside target ($1844.80) faces structural headwinds with minimal momentum support.",
+      "timeStopRisk": "high",
+      "timeStopNote": "Bearish alignment and volume collapse suggest this setup could deteriorate further within 72h rather than resolve upward."
+    },
+    "newsImpact": "major",
+    "newsNote": "Extreme Fear reading (10/100) indicates significant negative sentiment or macro headwinds likely driving price below moving averages and volume collapse.",
+    "updatedAt": "2026-06-09T09:15:15.342Z"
+  },
+  "solana": {
+    "signal": "strong_sell",
+    "summary": "Solana fails 4 of 6 entry criteria: price is below EMA200 (downtrend), RSI at 52 is overbought for mean reversion setup, Stochastic RSI %K at 53.6 is well above the 30 oversold threshold, and volume ratio of 0.09x is critically low at 7.5% of the 1.2x requirement. The setup is fundamentally broken.",
+    "entryQuality": {
+      "allCriteriaMet": false,
+      "marginalCriteria": [],
+      "failingCriteria": [
+        "Price below EMA200 ($66.71 vs $70.12) — downtrend, not uptrend",
+        "RSI at 52.0 — overbought territory, not the 25-45 pullback zone",
+        "Stochastic RSI %K at 53.6 — well above 30 threshold, not oversold",
+        "Volume ratio 0.09x — severely below 1.2x requirement, no participation"
+      ]
+    },
+    "riskAssessment": {
+      "stopLossRisk": "high",
+      "stopLossNote": "Price already below structural support (EMA200), making a 5% stop loss insufficient protection in weakening downtrend.",
+      "takeProfitReachable": false,
+      "takeProfitNote": "No uptrend momentum exists; MACD histogram is negative and price is below 200 EMA, making a 10% rally unlikely without reversal confirmation.",
+      "timeStopRisk": "high",
+      "timeStopNote": "Extreme fear sentiment (10/100) and downtrend structure suggest resolution away from entry target within 72h is probable."
+    },
+    "newsImpact": "minor",
+    "newsNote": "Extreme Fear & Greed reading suggests market-wide stress; Solana's underperformance may reflect sector weakness rather than coin-specific catalysts.",
+    "updatedAt": "2026-06-09T09:15:23.538Z"
+  },
+  "cardano": {
+    "signal": "strong_sell",
+    "summary": "Cardano fails 4 of 6 entry criteria: price is below EMA200 (downtrend, not uptrend), RSI at 53.4 is above the 25–45 pullback range, MACD line is marginally positive but histogram is negative (momentum deteriorating), and volume ratio is critically low at 0.12x versus required 1.2x. Extreme Fear sentiment (10/100) and price action below long-term MA confirm downtrend conditions.",
+    "entryQuality": {
+      "allCriteriaMet": false,
+      "marginalCriteria": [],
+      "failingCriteria": [
+        "Price below EMA200 ($0.1691 vs $0.1853) — downtrend, not uptrend",
+        "RSI at 53.4 — above 25–45 range, indicating strength without pullback",
+        "Volume ratio at 0.12x — far below 1.2x requirement, no participation",
+        "MACD histogram negative at -0.000246 — momentum rolling over despite positive line"
+      ]
+    },
+    "riskAssessment": {
+      "stopLossRisk": "high",
+      "stopLossNote": "ATR at 1.47% is tight; 5% stop loss would be $0.1605, but price is already in structural downtrend below 200 EMA with no uptrend foundation.",
+      "takeProfitReachable": false,
+      "takeProfitNote": "Negative MACD histogram, deteriorating RSI, and volume collapse make 10% upside target ($0.1860) highly unlikely without reversal confirmation.",
+      "timeStopRisk": "high",
+      "timeStopNote": "With downtrend intact and Extreme Fear sentiment, price is unlikely to resolve upward within 72 hours; time stop will likely trigger without profit."
+    },
+    "newsImpact": "none",
+    "newsNote": null,
+    "updatedAt": "2026-06-09T09:15:29.173Z"
+  }
+}

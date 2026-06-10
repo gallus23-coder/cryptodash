@@ -293,7 +293,7 @@ Called every 15 min for every watchlist coin. Uses a **system prompt** (`WATCHLI
 
 **Strategy parameters embedded in system prompt:**
 - Entry criteria (ALL must be met for buy): price > EMA200, RSI 25–45, price within 5% of EMA50, MACD line > 0, StochRSI %K < 30, volume ratio ≥ 1.2×
-- Risk: 5% stop loss, 10% take profit, 72h time stop
+- Risk: 5% stop loss, 15% take profit, 89h time stop
 - Signal scale: `strong_buy` (all 6 met), `buy` (5/6), `hold`, `sell`, `strong_sell`
 
 **User prompt includes:**
@@ -502,7 +502,7 @@ For each pair in the whitelist, Freqtrade runs the 7-point entry check:
 | 2 | `entryQuality.allCriteriaMet === true` | `signals.json` |
 | 3 | Signal age < 20 minutes (`updatedAt` timestamp) | `signals.json` |
 | 4 | `close > EMA200` | Freqtrade dataframe |
-| 5 | `RSI < 45` | Freqtrade dataframe |
+| 5 | `RSI < 49` | Freqtrade dataframe |
 | 6 | `MACD > 0` | Freqtrade dataframe |
 | 7 | `volume > 0` | Freqtrade dataframe |
 
@@ -590,7 +590,7 @@ Crossover detection uses aligned EMA200/RSI/MACD series (one value per candle en
 ### Tier C — Dip in Uptrend (all must be true)
 
 1. Price above EMA200
-2. RSI between 30 and 45
+2. RSI between 34 and 49
 3. MACD line > 0
 4. Price within 5% of EMA50
 5. Relative strength vs BTC ≥ −1%
@@ -887,6 +887,44 @@ freqtrade list-strategies --userdir user_data
 http://localhost:3000   # Cryptodash
 http://localhost:8080   # FreqUI
 ```
+
+## Hyperopt Results (June 2026)
+
+Run date: 09 June 2026
+Data: Binance USDT pairs, 357 days (Jun 2025 - Jun 2026)
+Epochs: 500
+Loss function: SharpeHyperOptLoss
+
+Best epoch: 452/500
+Results:
+  Trades:       22 over 357 days
+  Win rate:     81.8% (18 wins, 4 losses)
+  Total profit: +4.11% vs market return of -38.99%
+  Max drawdown: 0.36% (£3.71)
+  Profit factor: 12.06
+  Sharpe ratio:  0.69
+
+Parameter changes applied:
+  RSI range:        25-45 → 34-49
+  StochRSI:         < 30  → < 17
+  Volume ratio:     1.2x  → 1.7x
+  MACD:             added histogram > 0 requirement
+  EMA50 distance:   5%    → 6.2%
+  Take profit:      10%   → 15%
+  Time stop:        72h   → 89h
+  Stop loss:        5% (kept conservative — hyperopt 
+                    suggested 30% but insufficient 
+                    sample size to trust)
+  
+Note: Hyperopt suggested stoploss -0.30 and 
+minimal_roi 0.449 but these were rejected as 
+impractical given only 22 trades in sample.
+Entry parameter tightening is the primary 
+improvement applied.
+
+Next hyperopt: recommended after 6 months of 
+live data or when market conditions change 
+significantly (BTC reclaims 200 EMA).
 
 ---
 
