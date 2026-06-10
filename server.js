@@ -140,7 +140,7 @@ async function updateRSI() {
   for (const id of wl.coins) {
     const meta = metaById[id];
     if (!meta || !meta.symbol) continue;
-    const closes = db.getCloses(id, '1h', 300);
+    const closes = db.getCloses(id, '1h', 301).slice(0, -1); // drop incomplete forming candle
     rsiCache[id] = { rsi: db.calculateRSI(closes), updatedAt: new Date().toISOString() };
   }
   for (const id of Object.keys(rsiCache)) {
@@ -155,9 +155,10 @@ async function updateIndicators() {
   if (!wl.coins.length) return;
   const cache = {};
   for (const id of wl.coins) {
-    const closes  = db.getCloses(id, '1h', 300);
-    const volumes = db.getVolumes(id, '1h', 21);
-    const ohlc    = db.getOHLCLimit(id, '1h', 14);
+    // Fetch one extra for each array and strip the last (incomplete forming candle)
+    const closes  = db.getCloses(id, '1h', 301).slice(0, -1);
+    const volumes = db.getVolumes(id, '1h', 22).slice(0, -1);
+    const ohlc    = db.getOHLCLimit(id, '1h', 15).slice(0, -1);
     if (closes.length < 35) continue;
     const price       = closes[closes.length - 1];
     const macd        = ind.calcMACD(closes);
@@ -209,21 +210,31 @@ async function updateFearGreed() {
   }
 }
 
-const WATCHLIST_SIGNAL_SYSTEM = `You are a systematic crypto trading assistant. Your only job is to evaluate whether a coin currently meets the criteria for our exact trading strategy and report that evaluation as structured JSON.
+function buildSignalSystem(phase) {
+  const isBull = phase === 'bull';
+  const params = isBull
+    ? { rsiMin: 32, rsiMax: 53, stochRsi: 39, volume: 1.8, ema50Dist: 1.2, stopLoss: 7, takeProfit: 20, timeStop: 67 }
+    : { rsiMin: 34, rsiMax: 49, stochRsi: 17, volume: 1.7, ema50Dist: 6.2, stopLoss: 5, takeProfit: 15, timeStop: 89 };
+  const phaseLabel = isBull
+    ? 'BULL (BTC above 200 EMA) — Jun 2024 hyperopt (144 days)'
+    : 'BEAR (BTC below 200 EMA) — Jun 2026 hyperopt (357 days)';
+  return `You are a systematic crypto trading assistant. Your only job is to evaluate whether a coin currently meets the criteria for our exact trading strategy and report that evaluation as structured JSON.
 
-STRATEGY: Mean Reversion in Uptrend
+STRATEGY: Mean Reversion in Uptrend — Adaptive Market Phase
+Current market phase: ${phaseLabel}
+
 Entry criteria (ALL must be met for a buy signal):
   1. Price above EMA200 (confirmed uptrend)
-  2. RSI between 34 and 49 (pulled back from overbought)
-  3. Price within 5% of EMA50 (near mean)
+  2. RSI between ${params.rsiMin} and ${params.rsiMax} (pulled back from overbought)
+  3. Price within ${params.ema50Dist}% of EMA50 (near mean)
   4. MACD line > 0 (macro momentum positive) and histogram positive
-  5. Stochastic RSI %K below 17 (oversold on fast oscillator)
-  6. Volume ratio >= 1.7x 20-period average (participation confirming move)
+  5. Stochastic RSI %K below ${params.stochRsi} (oversold on fast oscillator)
+  6. Volume ratio >= ${params.volume}x 20-period average (participation confirming move)
 
 Risk parameters:
-  - Stop loss: 5% below entry
-  - Take profit: 15% above entry
-  - Time stop: exit if target not reached within 89 hours
+  - Stop loss: ${params.stopLoss}% below entry
+  - Take profit: ${params.takeProfit}% above entry
+  - Time stop: exit if target not reached within ${params.timeStop} hours
 
 Signal scale:
   strong_buy  — ALL 6 criteria met, strong momentum alignment
@@ -243,17 +254,19 @@ Respond ONLY with valid JSON, no markdown, no prose. Use exactly this shape:
   },
   "riskAssessment": {
     "stopLossRisk": "<low|medium|high>",
-    "stopLossNote": "<one sentence on ATR vs 5% stop>",
+    "stopLossNote": "<one sentence on ATR vs ${params.stopLoss}% stop>",
     "takeProfitReachable": <true|false>,
-    "takeProfitNote": "<one sentence on momentum towards 10% target>",
+    "takeProfitNote": "<one sentence on momentum towards ${params.takeProfit}% target>",
     "timeStopRisk": "<low|medium|high>",
-    "timeStopNote": "<one sentence on likelihood of resolving within 72h>"
+    "timeStopNote": "<one sentence on likelihood of resolving within ${params.timeStop}h>"
   },
   "newsImpact": "<none|minor|major>",
   "newsNote": "<one sentence if newsImpact is minor or major, else null>"
 }`;
+}
 
-function buildWatchlistSignalPrompt(meta, price, change24h, rsi, i, fngStr) {
+function buildWatchlistSignalPrompt(meta, price, change24h, rsi, i, fngStr, volumeThreshold) {
+  const volThreshold = volumeThreshold || 1.7;
   const lines = [
     `Coin: ${meta.name}`,
     `Price: $${price}`,
@@ -272,7 +285,9 @@ function buildWatchlistSignalPrompt(meta, price, change24h, rsi, i, fngStr) {
   if (i.deathCross)  lines.push('Death cross detected in last 3 candles.');
   if (i.stochRsi)    lines.push(`Stoch RSI: %K=${i.stochRsi.k.toFixed(1)} %D=${i.stochRsi.d.toFixed(1)}`);
   if (i.volumeRatio != null) {
-    const vrLabel = i.volumeRatio >= 1.2 ? 'above 1.2x — entry requirement met' : 'below 1.2x — entry requirement NOT met';
+    const vrLabel = i.volumeRatio >= volThreshold
+      ? `above ${volThreshold}x — entry requirement met`
+      : `below ${volThreshold}x — entry requirement NOT met`;
     lines.push(`Volume ratio vs 20-period avg: ${i.volumeRatio.toFixed(2)}x (${vrLabel})`);
   }
   if (i.atr14 != null) {
@@ -300,6 +315,13 @@ async function updateSignals() {
     ? `${fng.value}/100 (${fng.classification})`
     : 'unavailable';
 
+  // Detect market phase from BTC indicators
+  const btcInd = indCache['bitcoin'] || {};
+  const btcPhase = btcInd.emaAbovePrice ? 'bull' : 'bear';
+  const phaseVolumeThreshold = btcPhase === 'bull' ? 1.8 : 1.7;
+  const signalSystemPrompt = buildSignalSystem(btcPhase);
+  console.log(`[signals] market phase: ${btcPhase} (BTC ${btcInd.emaAbovePrice ? 'above' : 'below'} EMA200)`);
+
   for (const id of wl.coins) {
     const meta = db.getMeta(id);
     if (!meta || !meta.symbol) continue;
@@ -316,7 +338,7 @@ async function updateSignals() {
     const change24h = parseFloat(ticker.priceChangePercent);
     const i = indCache[id] || {};
     try {
-      const prompt = buildWatchlistSignalPrompt(meta, price, change24h, rsi, i, fngStr);
+      const prompt = buildWatchlistSignalPrompt(meta, price, change24h, rsi, i, fngStr, phaseVolumeThreshold);
 
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -328,7 +350,7 @@ async function updateSignals() {
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 800,
-          system: WATCHLIST_SIGNAL_SYSTEM,
+          system: signalSystemPrompt,
           messages: [{ role: 'user', content: prompt }],
         }),
       });

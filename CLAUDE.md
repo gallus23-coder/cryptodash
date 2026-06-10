@@ -219,6 +219,8 @@ All functions are pure math (no I/O). Take arrays oldest-first.
 
 `calcATR` takes `{high, low, close}` objects — use `db.getOHLCLimit(coin_id, interval, 14)` to fetch.
 
+**Completed-candle rule**: All indicators in `updateIndicators` and `updateRSI` use the last **completed** candle, not the currently forming one. The forming candle has partial volume (typically much lower than average) and would skew `volumeRatio` significantly. Implementation: fetch N+1 candles and call `.slice(0, -1)` before any calculation. The same rule applies in `scanner.js` `buildCandidate` — `candles.slice(0, -1)` strips the forming candle from the Binance klines response before all indicator math.
+
 **EMA**: seeded from SMA of first `period` values, `k = 2/(period+1)`.
 
 **MACD**: walks full array once building EMA12 and EMA26 series. Critical: EMA26 smoothing starts at `i >= 26` (not 25) to avoid double-counting index 25 in the seed. Returns `{ macd, signal, histogram }`.
@@ -227,7 +229,7 @@ All functions are pure math (no I/O). Take arrays oldest-first.
 
 **StochRSI**: builds full RSI series → 14-period sliding window stochastic → SMA-3 for %K → SMA-3 for %D. Returns `{ k, d }`.
 
-**Volume Ratio**: `volumes[volumes.length - 1] / avg(volumes[0..19])`.
+**Volume Ratio**: `volumes[volumes.length - 1] / avg(volumes[0..19])`. Caller must pass 21 completed candles (strip forming candle first).
 
 `scanner.js` also implements `calcRSI14` (Wilder RSI-14, same logic) and `calcEMAAligned` (returns array aligned with closes for crossover detection) locally, since the scanner needs series-level EMA values rather than just the current value.
 
@@ -291,9 +293,21 @@ initDb()
 
 Called every 15 min for every watchlist coin. Uses a **system prompt** (`WATCHLIST_SIGNAL_SYSTEM` in `server.js`) defining the **Mean Reversion in Uptrend** strategy, and a per-coin **user prompt** built by `buildWatchlistSignalPrompt()`.
 
-**Strategy parameters embedded in system prompt:**
-- Entry criteria (ALL must be met for buy): price > EMA200, RSI 25–45, price within 5% of EMA50, MACD line > 0, StochRSI %K < 30, volume ratio ≥ 1.2×
-- Risk: 5% stop loss, 15% take profit, 89h time stop
+**Strategy parameters embedded in system prompt (phase-adaptive):**
+
+System prompt built by `buildSignalSystem(btcPhase)` in `server.js`. Phase detected
+from `indCache['bitcoin'].emaAbovePrice` before the coin loop.
+
+| Parameter | Bear phase (BTC < EMA200) | Bull phase (BTC > EMA200) |
+|-----------|--------------------------|--------------------------|
+| RSI range | 34–49 | 32–53 |
+| StochRSI %K | < 17 | < 39 |
+| Volume ratio | ≥ 1.7× | ≥ 1.8× |
+| EMA50 distance | ≤ 6.2% | ≤ 1.2% |
+| Stop loss | 5% | 7% |
+| Take profit | 15% | 20% |
+| Time stop | 89h | 67h |
+
 - Signal scale: `strong_buy` (all 6 met), `buy` (5/6), `hold`, `sell`, `strong_sell`
 
 **User prompt includes:**
@@ -303,7 +317,7 @@ Called every 15 min for every watchlist coin. Uses a **system prompt** (`WATCHLI
 - EMA50, EMA200, price direction vs 200 EMA
 - Golden/death cross flag (if detected in last 3 candles)
 - StochRSI %K and %D
-- Volume ratio vs 20-period avg (annotated with above/below 1.2× threshold)
+- Volume ratio vs 20-period avg (annotated with above/below phase threshold: 1.7× bear, 1.8× bull)
 - ATR-14 (1h) in $ and as % of price
 - Fear & Greed index
 
@@ -375,8 +389,8 @@ Freqtrade runs as a separate Python service in **dry-run (paper trading) mode**.
 |-----------|-------|
 | `dry_run` | `true` (paper trading) |
 | `timeframe` | `1h` |
-| `stoploss` | `-0.05` (5%) |
-| `minimal_roi` | `{"0": 0.10}` (10% at any time) |
+| `stoploss` | `-0.07` (compromise; bear 5%, bull 7%) |
+| `minimal_roi` | `{"0": 0.20}` (bull default 20%; bear 15% via signal reversal) |
 | `max_open_trades` | `2` |
 | `stake_currency` | `GBP` |
 | `dry_run_wallet` | `1000` (£1,000) |
@@ -409,20 +423,29 @@ Freqtrade reads `/home/gallus23/crypto-dashboard/data/signals.json` directly fro
 1. Signal is `"strong_buy"` (not merely `"buy"`)
 2. `entryQuality.allCriteriaMet` is `true`
 3. Signal `updatedAt` is within 20 minutes (`MAX_SIGNAL_AGE_MINUTES = 20`)
-4. Belt-and-braces dataframe confirmation:
+4. Phase detected via `get_market_phase(dataframe)` → `get_phase_params(phase)`
+5. Belt-and-braces dataframe confirmation (phase-adaptive):
    - `close > ema200`
-   - `rsi < 45`
-   - `macd > 0`
+   - `rsi >= rsi_min AND rsi <= rsi_max` (bear: 34–49; bull: 32–53)
+   - `fastk < stochrsi` (bear: <17; bull: <39)
+   - `volume_ratio >= volume` (bear: ≥1.7×; bull: ≥1.8×)
+   - `ema50_dist_pct <= ema50_dist` (bear: ≤6.2%; bull: ≤1.2%)
+   - `macd > 0 AND macd_hist > 0`
    - `volume > 0`
+
+Entry tag: `cryptodash_bull_strong_buy` or `cryptodash_bear_strong_buy`
 
 **Exit reasons:**
 
 | Reason | Mechanism |
 |--------|-----------|
-| `stoploss` | Freqtrade built-in, -5% |
-| `roi` | Freqtrade built-in, +10% at any time |
-| `time_stop_72h` | `custom_exit` callback: exit if trade open > 72h |
-| `signal_reversal` | `custom_exit` callback: exit if signal becomes `sell` or `strong_sell` |
+| `stoploss` | Freqtrade built-in, -7% (compromise) |
+| `roi` | Freqtrade built-in, +20% at any time (bull default) |
+| `time_stop_67h` | `custom_exit`: bull phase, trade open > 67h |
+| `time_stop_89h` | `custom_exit`: bear phase, trade open > 89h |
+| `signal_reversal` | `custom_exit`: signal becomes `sell` or `strong_sell` |
+
+Phase for exit always read from `trade.enter_tag`, not re-evaluated at exit time.
 
 ### Freqtrade Useful Commands
 
@@ -448,12 +471,18 @@ http://localhost:8080
 
 | Parameter | cryptodash location | Freqtrade location |
 |-----------|--------------------|--------------------|
-| Stop loss: **5%** | `WATCHLIST_SIGNAL_SYSTEM` in `server.js` | `stoploss: -0.05` in `config.json` |
-| Take profit: **10%** | `WATCHLIST_SIGNAL_SYSTEM` in `server.js` | `minimal_roi: {"0": 0.10}` in `config.json` |
-| Time stop: **72h** | `WATCHLIST_SIGNAL_SYSTEM` in `server.js` | `custom_exit` in `CryptodashStrategy.py` |
+| Phase detection | `buildSignalSystem(btcPhase)` in `server.js` | `get_market_phase()` in `CryptodashStrategy.py` |
+| Bear stop loss: **5%** | `buildSignalSystem('bear')` in `server.js` | `get_phase_params('bear')` in `CryptodashStrategy.py` |
+| Bull stop loss: **7%** | `buildSignalSystem('bull')` in `server.js` | `get_phase_params('bull')` in `CryptodashStrategy.py` |
+| Bear take profit: **15%** | `buildSignalSystem('bear')` in `server.js` | signal reversal exit (no per-trade ROI in Freqtrade) |
+| Bull take profit: **20%** | `buildSignalSystem('bull')` in `server.js` | `minimal_roi: {"0": 0.20}` in `config.json` |
+| Bear time stop: **89h** | `buildSignalSystem('bear')` in `server.js` | `get_phase_params('bear').time_stop` in `CryptodashStrategy.py` |
+| Bull time stop: **67h** | `buildSignalSystem('bull')` in `server.js` | `get_phase_params('bull').time_stop` in `CryptodashStrategy.py` |
 | Max positions: **2** | (informational in prompt) | `max_open_trades: 2` in `config.json` |
 | Signal freshness: **20 min** | (implicit — signals refresh every 15 min) | `MAX_SIGNAL_AGE_MINUTES = 20` in `CryptodashStrategy.py` |
-| Entry criteria | `WATCHLIST_SIGNAL_SYSTEM` in `server.js` | dataframe guards in `CryptodashStrategy.py` `populate_entry_trend` |
+| Bear entry criteria | `buildSignalSystem('bear')` in `server.js` | `get_phase_params('bear')` in `populate_entry_trend` |
+| Bull entry criteria | `buildSignalSystem('bull')` in `server.js` | `get_phase_params('bull')` in `populate_entry_trend` |
+| Both param sets | `tradingConfig.json` `marketPhase` section | `get_phase_params()` in `CryptodashStrategy.py` |
 
 ---
 
@@ -888,10 +917,12 @@ http://localhost:3000   # Cryptodash
 http://localhost:8080   # FreqUI
 ```
 
-## Hyperopt Results (June 2026)
+## Hyperopt Results
+
+### Bear Market Hyperopt — June 2026
 
 Run date: 09 June 2026
-Data: Binance USDT pairs, 357 days (Jun 2025 - Jun 2026)
+Data: Binance USDT pairs, 357 days (Jun 2025 - Jun 2026) — bear market conditions
 Epochs: 500
 Loss function: SharpeHyperOptLoss
 
@@ -904,27 +935,39 @@ Results:
   Profit factor: 12.06
   Sharpe ratio:  0.69
 
-Parameter changes applied:
-  RSI range:        25-45 → 34-49
-  StochRSI:         < 30  → < 17
-  Volume ratio:     1.2x  → 1.7x
-  MACD:             added histogram > 0 requirement
-  EMA50 distance:   5%    → 6.2%
-  Take profit:      10%   → 15%
-  Time stop:        72h   → 89h
-  Stop loss:        5% (kept conservative — hyperopt 
-                    suggested 30% but insufficient 
-                    sample size to trust)
-  
-Note: Hyperopt suggested stoploss -0.30 and 
-minimal_roi 0.449 but these were rejected as 
-impractical given only 22 trades in sample.
-Entry parameter tightening is the primary 
-improvement applied.
+Parameters applied (bear phase):
+  RSI range:      34-49    StochRSI: < 17
+  Volume ratio:   > 1.7x   EMA50 dist: < 6.2%
+  Take profit:    15%      Time stop: 89h
+  Stop loss:      5% (hyperopt suggested 30% — rejected, insufficient sample)
 
-Next hyperopt: recommended after 6 months of 
-live data or when market conditions change 
-significantly (BTC reclaims 200 EMA).
+### Bull Market Hyperopt — June 2024
+
+Run date: June 2024
+Data: Binance USDT pairs, 144 days (Jun 2024 - Nov 2024) — bull market conditions
+
+Parameters applied (bull phase):
+  RSI range:      32-53    StochRSI: < 39
+  Volume ratio:   > 1.8x   EMA50 dist: < 1.2%
+  Take profit:    20%      Time stop: 67h
+  Stop loss:      7% (hyperopt suggested -0.084 — rounded conservatively)
+
+### Adaptive Switching Logic
+
+Phase detected from BTC 200 EMA position at signal generation time (server.js) and
+at entry/exit time (CryptodashStrategy.py). Phase is NOT re-evaluated on exit —
+`custom_exit` reads phase from `trade.enter_tag` so exit parameters always match
+the conditions that were active when the position was opened.
+
+Entry tag format: `cryptodash_bull_strong_buy` or `cryptodash_bear_strong_buy`
+
+Class-level `stoploss = -0.07`: compromise between bear -0.05 and bull -0.084.
+Freqtrade requires a single static value; per-phase profit targets are embedded
+in `minimal_roi = {"0": 0.20}` (bull default). Bear 15% TP enforced via signal
+reversal logic rather than a lower ROI, since ROI cannot vary per trade.
+
+Next hyperopt: recommended after 6 months of live data or when market conditions
+change significantly (BTC reclaims or loses 200 EMA for sustained period).
 
 ---
 

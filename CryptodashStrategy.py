@@ -28,23 +28,36 @@ PAIR_TO_COIN = {
 
 class CryptodashStrategy(IStrategy):
     """
-    Mean Reversion in Uptrend strategy.
+    Mean Reversion in Uptrend — Adaptive Market Phase strategy.
     Entries driven by cryptodash Claude AI signals.
-    
-    Parameters (must match cryptodash tradingConfig.json):
-      Stop loss:    5%
-      Take profit:  15%
-      Time stop:    89 hours
-      Max trades:   2 (set in config.json)
-      Timeframe:    1h
+    Parameters adapt automatically based on BTC 200 EMA position.
+
+    BEAR MARKET (BTC below 200 EMA) — Jun 2026 hyperopt:
+      Data: Jun 2025 - Jun 2026 (357 days bear market)
+      Stop loss: 5%   Take profit: 15%   Time stop: 89h
+      RSI: 34-49      StochRSI: <17      Volume: >1.7x   EMA50 dist: <6.2%
+
+    BULL MARKET (BTC above 200 EMA) — Jun 2024 hyperopt:
+      Data: Jun 2024 - Nov 2024 (144 days bull market)
+      Stop loss: 7%   Take profit: 20%   Time stop: 67h
+      RSI: 32-53      StochRSI: <39      Volume: >1.8x   EMA50 dist: <1.2%
+
+    Class-level stoploss -0.07: compromise between bear -0.05 and bull -0.084.
+    Freqtrade requires a single static value; actual phase stop tracked via
+    tradingConfig.json. Entry tag encodes phase: cryptodash_{bull|bear}_strong_buy.
+    Exit uses phase from entry tag so parameters always match entry conditions.
+
+    Hyperopt run: June 2026
+    Max trades: 2 (set in config.json)
+    Timeframe:  1h
     """
 
     INTERFACE_VERSION = 3
 
     # ── strategy parameters ───────────────────────────────────────────────────
     timeframe = '1h'
-    stoploss = -0.05          # 5% stop loss
-    minimal_roi = {"0": 0.15} # 15% take profit
+    stoploss = -0.07          # compromise between bear -0.05 and bull -0.084
+    minimal_roi = {"0": 0.20} # bull take profit as default; bear overridden via custom_stoploss
 
     trailing_stop = False
     process_only_new_candles = True
@@ -55,14 +68,14 @@ class CryptodashStrategy(IStrategy):
     # How stale a signal can be before we ignore it (minutes)
     MAX_SIGNAL_AGE_MINUTES = 20
 
-    # Time stop — close after this many hours regardless
-    TIME_STOP_HOURS = 89 # was 72
+    # Default time stop — overridden per phase in custom_exit
+    TIME_STOP_HOURS = 89
 
     # ── indicator population ──────────────────────────────────────────────────
     def populate_indicators(self, dataframe: DataFrame,
                             metadata: dict) -> DataFrame:
         """
-        Calculate indicators used for belt-and-braces 
+        Calculate indicators used for belt-and-braces
         entry confirmation alongside cryptodash signals.
         """
         # EMA 200 — primary trend filter
@@ -81,6 +94,21 @@ class CryptodashStrategy(IStrategy):
         dataframe['macd']        = macd
         dataframe['macd_signal'] = macd_signal
         dataframe['macd_hist']   = macd_hist
+
+        # StochRSI — used in phase-adaptive entry criteria
+        dataframe['fastk'], dataframe['fastd'] = ta.STOCHRSI(
+            dataframe['close'],
+            timeperiod=14, fastk_period=3, fastd_period=3)
+
+        # Volume ratio vs 20-period average
+        dataframe['volume_mean'] = dataframe['volume'].rolling(20).mean()
+        dataframe['volume_ratio'] = (
+            dataframe['volume'] / dataframe['volume_mean'])
+
+        # EMA50 distance as percentage
+        dataframe['ema50_dist_pct'] = (
+            abs(dataframe['close'] - dataframe['ema50'])
+            / dataframe['ema50'] * 100)
 
         return dataframe
 
@@ -151,12 +179,57 @@ class CryptodashStrategy(IStrategy):
         """Check if signal is a sell/strong sell."""
         return signal.get('signal') in ['sell', 'strong_sell']
 
+    def get_market_phase(self, dataframe: DataFrame) -> str:
+        """
+        Detect bull or bear market phase based on
+        BTC 200 EMA position using last candle.
+        Returns 'bull' or 'bear'
+        """
+        last = dataframe.iloc[-1]
+        if last['close'] > last['ema200']:
+            return 'bull'
+        return 'bear'
+
+    def get_phase_params(self, phase: str) -> dict:
+        """
+        Return optimised entry and exit parameters
+        for current market phase.
+
+        Bear params: from Jun 2026 hyperopt (357 days bear market)
+        Bull params: from Jun 2024 hyperopt (144 days bull market)
+        """
+        if phase == 'bull':
+            return {
+                'rsi_min':     32,
+                'rsi_max':     53,
+                'stochrsi':    39,
+                'volume':      1.8,
+                'ema50_dist':  1.2,
+                'stop_loss':   -0.07,
+                'take_profit': 0.20,
+                'time_stop':   67,
+            }
+        else:  # bear
+            return {
+                'rsi_min':     34,
+                'rsi_max':     49,
+                'stochrsi':    17,
+                'volume':      1.7,
+                'ema50_dist':  6.2,
+                'stop_loss':   -0.05,
+                'take_profit': 0.15,
+                'time_stop':   89,
+            }
+
     # ── entry logic ───────────────────────────────────────────────────────────
     def populate_entry_trend(self, dataframe: DataFrame,
                              metadata: dict) -> DataFrame:
         """
         Entry logic — STRONG BUY signal from cryptodash
-        with belt-and-braces indicator confirmation.
+        with phase-adaptive belt-and-braces confirmation.
+
+        Parameters adapt automatically based on whether BTC
+        is above or below its 200 EMA (bull vs bear market).
         """
         pair = metadata['pair']
         coin_id = self.pair_to_coin_id(pair)
@@ -169,7 +242,6 @@ class CryptodashStrategy(IStrategy):
             return dataframe
 
         signal = self.read_signal(coin_id)
-
         if signal is None:
             return dataframe
 
@@ -179,33 +251,44 @@ class CryptodashStrategy(IStrategy):
                 f'{signal.get("signal")} — no entry')
             return dataframe
 
-        # Belt-and-braces confirmation on the dataframe
-        # These mirror the strategy entry criteria
+        # Detect market phase and get appropriate parameters
+        phase = self.get_market_phase(dataframe)
+        params = self.get_phase_params(phase)
+
+        # Belt-and-braces confirmation using phase parameters
         entry_conditions = (
-            (dataframe['close'] > dataframe['ema200']) &  # uptrend confirmed
-            (dataframe['rsi'] > 34) &
-            (dataframe['rsi'] < 49) &                     # was 45 not overbought
-            (dataframe['macd'] > 0) &                     # net bullish momentum
+            (dataframe['close'] > dataframe['ema200']) &
+            (dataframe['rsi'] >= params['rsi_min']) &
+            (dataframe['rsi'] <= params['rsi_max']) &
+            (dataframe['fastk'] < params['stochrsi']) &
+            (dataframe['volume_ratio'] >= params['volume']) &
+            (dataframe['ema50_dist_pct'] <= params['ema50_dist']) &
+            (dataframe['macd'] > 0) &
             (dataframe['macd_hist'] > 0) &
-            (dataframe['volume'] > 0)                     # valid candle
+            (dataframe['volume'] > 0)
         )
 
         dataframe.loc[entry_conditions, 'enter_long'] = 1
-        dataframe.loc[entry_conditions, 'enter_tag'] = (
-            f'cryptodash_strong_buy_'
-            f'rsi{signal.get("entryQuality", {}).get("rsi", "")}'
-        )
+        dataframe.loc[entry_conditions, 'enter_tag'] = \
+            f'cryptodash_{phase}_strong_buy'
 
         if entry_conditions.any():
             logger.info(
                 f'[cryptodash] ENTRY SIGNAL: {pair} | '
+                f'Phase: {phase} | '
+                f'RSI: {params["rsi_min"]}-{params["rsi_max"]} | '
+                f'StochRSI: <{params["stochrsi"]} | '
                 f'Signal: {signal.get("signal")} | '
                 f'Summary: {signal.get("summary", "")[:80]}')
         else:
             logger.info(
-                f'[cryptodash] {pair} cryptodash signal is STRONG BUY '
-                f'but dataframe confirmation failed '
-                f'(EMA200/RSI/MACD check) — no entry')
+                f'[cryptodash] {pair} STRONG BUY signal but '
+                f'dataframe confirmation failed | '
+                f'Phase: {phase} | '
+                f'Params: RSI {params["rsi_min"]}-{params["rsi_max"]} '
+                f'StochRSI <{params["stochrsi"]} '
+                f'Volume >{params["volume"]}x '
+                f'EMA50 dist <{params["ema50_dist"]}%')
 
         return dataframe
 
@@ -213,7 +296,7 @@ class CryptodashStrategy(IStrategy):
     def populate_exit_trend(self, dataframe: DataFrame,
                             metadata: dict) -> DataFrame:
         """
-        Exit via minimal_roi (10%) and stoploss (5%).
+        Exit via minimal_roi and stoploss.
         Signal reversal and time stop handled in custom_exit.
         """
         dataframe['exit_long'] = 0
@@ -224,28 +307,38 @@ class CryptodashStrategy(IStrategy):
                     **kwargs) -> Optional[str]:
         """
         Custom exit conditions:
-        1. Time stop — close after 72h regardless of P&L
+        1. Time stop — phase-appropriate duration
         2. Signal reversal — close if cryptodash flips to sell
+
+        Phase is determined from the entry tag set at open
+        so exit parameters always match entry conditions.
         """
-        # ── time stop ─────────────────────────────────────────────────────────
+        # Determine phase from entry tag
+        phase = 'bull' if 'bull' in (trade.enter_tag or '') else 'bear'
+        params = self.get_phase_params(phase)
+
+        # Time stop — use phase-appropriate duration
         trade_duration_hours = (
             current_time - trade.open_date_utc
         ).total_seconds() / 3600
 
-        if trade_duration_hours >= self.TIME_STOP_HOURS:
+        if trade_duration_hours >= params['time_stop']:
             logger.info(
                 f'[cryptodash] TIME STOP: {pair} | '
+                f'Phase: {phase} | '
                 f'Duration: {trade_duration_hours:.1f}h | '
+                f'Time stop: {params["time_stop"]}h | '
                 f'P&L: {current_profit:.2%}')
-            return 'time_stop_72h'
+            return f'time_stop_{params["time_stop"]}h'
 
-        # ── signal reversal ───────────────────────────────────────────────────
+        # Signal reversal exit
         coin_id = self.pair_to_coin_id(pair)
         if coin_id:
             signal = self.read_signal(coin_id)
             if signal and self.signal_is_sell(signal):
                 logger.info(
                     f'[cryptodash] SIGNAL REVERSAL EXIT: {pair} | '
+                    f'Phase: {phase} | '
                     f'New signal: {signal.get("signal")} | '
                     f'P&L: {current_profit:.2%}')
                 return 'signal_reversal'
@@ -287,6 +380,16 @@ class CryptodashStrategy(IStrategy):
                     'macd_hist': {
                         'color': '#6B7280',
                         'type': 'bar',
+                    },
+                },
+                'StochRSI': {
+                    'fastk': {
+                        'color': '#7C3AED',
+                        'width': 1,
+                    },
+                    'fastd': {
+                        'color': '#DB2777',
+                        'width': 1,
                     },
                 },
             },

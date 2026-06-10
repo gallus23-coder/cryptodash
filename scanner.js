@@ -82,8 +82,10 @@ async function fetchKlines(symbol) {
 // ── candidate builder ─────────────────────────────────────────────────────────
 
 function buildCandidate(candles, ticker, btcChange24h) {
-  const closes  = candles.map(c => c.close);
-  const volumes = candles.map(c => c.volume);
+  // Strip the incomplete forming candle (last entry from Binance klines)
+  const completed = candles.slice(0, -1);
+  const closes  = completed.map(c => c.close);
+  const volumes = completed.map(c => c.volume);
   const n = closes.length;
 
   const ema200 = calcEMAAligned(closes, 200);

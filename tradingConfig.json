@@ -1,0 +1,59 @@
+{
+  "paperMode": true,
+  "autoExecute": false,
+  "strategy": "mean_reversion_adaptive",
+  "marketPhase": {
+    "bull": {
+      "rsiMin": 32,
+      "rsiMax": 53,
+      "stochRsi": 39,
+      "volumeRatio": 1.8,
+      "ema50DistPct": 1.2,
+      "stopLossPct": 7,
+      "takeProfitPct": 20,
+      "timeStopHours": 67
+    },
+    "bear": {
+      "rsiMin": 34,
+      "rsiMax": 49,
+      "stochRsi": 17,
+      "volumeRatio": 1.7,
+      "ema50DistPct": 6.2,
+      "stopLossPct": 5,
+      "takeProfitPct": 15,
+      "timeStopHours": 89
+    }
+  },
+  "positionSizing": {
+    "strongBuyPct": 8,
+    "buyPct": 5,
+    "riskPerTradePct": 1,
+    "maxPositions": 2,
+    "maxPortfolioHeatPct": 3,
+    "maxPerCoinPct": 20,
+    "minBalanceGBP": 50
+  },
+  "riskManagement": {
+    "stopLossPct": 5,
+    "takeProfitPct": 15,
+    "timeStopHours": 89,
+    "dailyLossLimitGBP": 50,
+    "cooldownMinutes": 240,
+    "minSignalStrength": "strong_buy",
+    "closeOnSignalReversal": false
+  },
+  "fees": {
+    "takerPct": 0.40,
+    "makerPct": 0.25,
+    "defaultOrderType": "taker"
+  },
+  "notifications": {
+    "onTrade": true,
+    "onStopLoss": true,
+    "onTakeProfit": true,
+    "onTimeStop": true,
+    "onDailyLimitHit": true,
+    "onAutoSkip": false,
+    "onLearningAnalysis": true
+  }
+}
