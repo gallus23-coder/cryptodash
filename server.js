@@ -518,10 +518,10 @@ async function autoRemoveStaleCoins(autoAdded) {
   const kept      = [];
 
   for (const entry of autoAdded) {
-    const { coinId, gbpPair, addedAt } = entry;
+    const { coinId, ftPair, addedAt } = entry;
 
     // Always keep if Freqtrade has an open trade for this pair
-    if (gbpPair && openPairs.has(gbpPair)) { kept.push(entry); continue; }
+    if (ftPair && openPairs.has(ftPair)) { kept.push(entry); continue; }
 
     const sig     = (signals[coinId] || {}).signal;
     const expired = now - addedAt >= 24 * 60 * 60 * 1000;
@@ -540,8 +540,8 @@ async function autoRemoveStaleCoins(autoAdded) {
       console.error(`[scanner] watchlist remove failed for ${coinId}:`, e.message);
     }
 
-    // Remove from Freqtrade whitelist
-    if (gbpPair) await ftRemovePair(gbpPair);
+    // Remove from Freqtrade whitelist (only if a GBP pair was added)
+    if (ftPair) await ftRemovePair(ftPair);
 
     const reason = expired ? '24h no trade' : 'signal: strong_sell';
     console.log(`[scanner] Auto-removed ${coinId} from watchlist (${reason})`);
@@ -561,9 +561,9 @@ async function updateScanner() {
   // Auto-remove stale coins before scan (watchlist affects scanner scope)
   let autoAdded = await autoRemoveStaleCoins(existing.autoAdded || []);
 
-  // Re-add surviving auto-added pairs to Freqtrade whitelist (handles FT restarts)
-  for (const { gbpPair } of autoAdded) {
-    if (gbpPair) ftAddPair(gbpPair).catch(() => {});
+  // Re-add surviving auto-added GBP pairs to Freqtrade whitelist (handles FT restarts)
+  for (const { ftPair } of autoAdded) {
+    if (ftPair) ftAddPair(ftPair).catch(() => {});
   }
 
   const watchlistSymbols = new Set(db.getAllMeta().map(m => m.symbol).filter(Boolean));
@@ -607,55 +607,67 @@ async function updateScanner() {
       console.error('[scanner] Claude failed:', e.message);
     }
 
-    // Auto-add winner to watchlist + Freqtrade
+    // Auto-add winner to watchlist + Freqtrade (GBP pairs only)
+    const sym = result.winner.symbol;
+    const baseSymbol = sym.replace(/USDT$/, '');
+    console.log(`[scanner] Winner: ${sym} tier${result.winnerTier} score=${result.winner.score}`);
+    console.log(`[scanner] Resolving CoinGecko ID for ${baseSymbol}...`);
+
     let watchlistStatus = 'unknown';
     try {
-      const coinId = await resolveCoinId(result.winner.symbol);
+      const coinId = await resolveCoinId(sym);
       if (!coinId) {
         watchlistStatus = 'resolve_failed';
-        console.warn(`[scanner] Could not resolve CoinGecko ID for ${result.winner.symbol}`);
+        console.warn(`[scanner] Could not resolve CoinGecko ID for ${sym} — skipping auto-add`);
       } else {
         result.winner.coinId = coinId;
-        const gbpPair = toGBPPair(coinId, result.winner.symbol);
-        const wl      = readJson(WATCHLIST_FILE, { coins: [] });
+        console.log(`[scanner] Resolved ${baseSymbol} → CoinGecko ID: ${coinId}`);
+        const wl = readJson(WATCHLIST_FILE, { coins: [] });
 
         if (wl.coins.includes(coinId)) {
           watchlistStatus = 'already_watched';
+          console.log(`[scanner] ${coinId} already on watchlist`);
         } else {
           const tierLabel = result.winnerTier === 0 ? 'Tier 0' : 'Tier C';
-          const pairOk    = await ftPairAvailable(gbpPair);
+          const gbpPair   = toGBPPair(coinId, sym);
 
-          // Add to cryptodash watchlist regardless of Freqtrade availability
+          // Always add to cryptodash watchlist — signals use Binance USDT data
           wl.coins.push(coinId);
           writeJson(WATCHLIST_FILE, wl);
           seedCoin(coinId).catch(e => console.error(`[seed] ${coinId}:`, e.message));
+          console.log(`[scanner] Auto-added ${coinId} to watchlist`);
 
-          if (!pairOk) {
-            watchlistStatus = 'no_kraken_pair';
-            autoAdded.push({ coinId, gbpPair: null, addedAt: Date.now() });
-            console.log(`[scanner] Auto-added ${coinId} to watchlist only — ${gbpPair} not on Kraken`);
-            notifier.notify({
-              title: 'Scanner',
-              message: `${coinId} added to watchlist — ${gbpPair} not on Kraken GBP`,
-            });
-          } else {
+          // Only add GBP pair to Freqtrade — USDT pairs need USDT wallet, we trade GBP
+          console.log(`[scanner] Checking Kraken GBP pair for ${baseSymbol}...`);
+          const gbpOk = await ftPairAvailable(gbpPair);
+
+          if (gbpOk) {
+            console.log(`[scanner] ${gbpPair} found — adding to Freqtrade whitelist`);
             try {
               await ftAddPair(gbpPair);
+              console.log(`[scanner] Added ${gbpPair} to Freqtrade whitelist`);
             } catch (e) {
               console.error(`[scanner] Freqtrade whitelist add ${gbpPair} failed:`, e.message);
             }
-            autoAdded.push({ coinId, gbpPair, addedAt: Date.now() });
+            autoAdded.push({ coinId, ftPair: gbpPair, addedAt: Date.now() });
             watchlistStatus = 'auto_added';
-            console.log(`[scanner] Auto-added ${coinId} to watchlist and Freqtrade whitelist`);
             notifier.notify({
               title: 'Scanner',
-              message: `${coinId} added to watchlist — ${tierLabel} opportunity detected`,
+              message: `${coinId} added to watchlist + Freqtrade — ${tierLabel} opportunity`,
+            });
+          } else {
+            console.log(`[scanner] ${gbpPair} not on Kraken — ${coinId} watchlist only (signal generation only)`);
+            autoAdded.push({ coinId, ftPair: null, addedAt: Date.now() });
+            watchlistStatus = 'watchlist_only';
+            notifier.notify({
+              title: 'Scanner',
+              message: `${coinId} added to watchlist (signal only — ${gbpPair} not on Kraken)`,
             });
           }
         }
       }
     } catch (e) {
-      console.error(`[scanner] auto-add failed for ${result.winner.symbol}:`, e.message);
+      console.error(`[scanner] auto-add failed for ${sym}:`, e.message);
     }
     result.winner.watchlistStatus = watchlistStatus;
   }

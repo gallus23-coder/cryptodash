@@ -1186,9 +1186,10 @@ function renderOpportunities() {
     <div class="hero-watchlist-status">
       ${(() => {
         const s = w.watchlistStatus;
-        if (s === 'auto_added')      return `<span class="wl-badge wl-green">&#10003; Added to watchlist automatically</span>`;
+        if (s === 'auto_added')      return `<span class="wl-badge wl-green">&#10003; Added to watchlist + Freqtrade</span>`;
+        if (s === 'watchlist_only')  return `<span class="wl-badge wl-green">&#10003; Added to watchlist (signal only — no Kraken GBP pair)</span>`;
         if (s === 'already_watched') return `<span class="wl-badge wl-grey">Already on watchlist</span>`;
-        if (s === 'no_kraken_pair')  return `<span class="wl-badge wl-amber">&#9888; Not available on Kraken GBP — watchlist only</span>`;
+        if (s === 'resolve_failed')  return `<span class="wl-badge wl-amber">&#9888; Could not resolve coin ID — not added</span>`;
         return '';
       })()}
       <p class="hero-auto-note">Coins are automatically added to your watchlist when found and removed after 24h if no trade fires.</p>
