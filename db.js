@@ -185,6 +185,11 @@ function calculateRSI(closes, period = 14) {
   return parseFloat((100 - 100 / (1 + avgGain / avgLoss)).toFixed(2));
 }
 
+// Look up coin_meta by Binance symbol (e.g. "DOTUSDT"). Used by scanner auto-add.
+function getMetaBySymbol(symbol) {
+  return prepare('SELECT * FROM coin_meta WHERE symbol = ?').get(symbol) || null;
+}
+
 // Prune candles older than keepMs for a given interval. Called daily.
 function pruneCandles(interval, keepMs) {
   const cutoff = Date.now() - keepMs;
@@ -197,7 +202,7 @@ function pruneCandles(interval, keepMs) {
 }
 
 module.exports = {
-  initDb, upsertMeta, getMeta, getAllMeta, updateMarketCap,
+  initDb, upsertMeta, getMeta, getAllMeta, updateMarketCap, getMetaBySymbol,
   insertCandles, getLastCandleTime, getCloses, getVolumes, getOHLCLimit, getCandles, getAggCandles,
   calculateRSI, pruneCandles,
 };

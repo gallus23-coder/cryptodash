@@ -199,9 +199,12 @@ tr.row-hover td { background: #F0F9FF; }
 .hero-summary { font-size: 13px; color: #4B5563; line-height: 1.5; }
 .hero-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); font-family: var(--mono); }
 .hero-stats span strong { color: var(--text); }
-.hero-add { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
-.hero-add input { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg2); color: var(--text); font-family: var(--mono); outline: none; width: 180px; }
-.hero-add input:focus { border-color: var(--accent2); }
+.hero-watchlist-status { padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.wl-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+.wl-green { background: #DCFCE7; color: #16A34A; }
+.wl-grey  { background: #F3F4F6; color: #6B7280; }
+.wl-amber { background: #FEF3C7; color: #D97706; }
+.hero-auto-note { font-size: 11px; color: var(--muted); margin: 0; line-height: 1.5; }
 .also-section details { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); }
 .also-section summary { padding: 10px 16px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; justify-content: space-between; font-family: var(--mono); }
 .also-section summary::-webkit-details-marker { display: none; }
@@ -1180,9 +1183,15 @@ function renderOpportunities() {
       ${w.signalSummary ? `<span class="hero-summary">${esc(w.signalSummary)}</span>` : ''}
     </div>
     <div class="hero-stats">${statsItems}</div>
-    <div class="hero-add">
-      <input id="opp-add-input" value="${esc(sym.toLowerCase())}" placeholder="CoinGecko ID" />
-      <button class="btn primary" onclick="addFromScanner()">Add to Watchlist</button>
+    <div class="hero-watchlist-status">
+      ${(() => {
+        const s = w.watchlistStatus;
+        if (s === 'auto_added')      return `<span class="wl-badge wl-green">&#10003; Added to watchlist automatically</span>`;
+        if (s === 'already_watched') return `<span class="wl-badge wl-grey">Already on watchlist</span>`;
+        if (s === 'no_kraken_pair')  return `<span class="wl-badge wl-amber">&#9888; Not available on Kraken GBP — watchlist only</span>`;
+        return '';
+      })()}
+      <p class="hero-auto-note">Coins are automatically added to your watchlist when found and removed after 24h if no trade fires.</p>
     </div>
   </div>
   ${alsoSection}

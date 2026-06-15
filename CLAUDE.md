@@ -392,9 +392,12 @@ Freqtrade runs as a separate Python service in **dry-run (paper trading) mode**.
 | `stoploss` | `-0.07` (compromise; bear 5%, bull 7%) |
 | `minimal_roi` | `{"0": 0.20}` (bull default 20%; bear 15% via signal reversal) |
 | `max_open_trades` | `2` |
+| `stake_amount` | `200` (£200 per trade) |
 | `stake_currency` | `GBP` |
 | `dry_run_wallet` | `1000` (£1,000) |
 | `exchange.name` | `kraken` |
+| `api_server.listen_ip_address` | `0.0.0.0` (LAN accessible) |
+| `telegram.enabled` | `true` (notifications via Telegram) |
 
 ### Traded Pairs
 
@@ -653,12 +656,16 @@ Crossover detection uses aligned EMA200/RSI/MACD series (one value per candle en
 
 ```json
 {
+  "autoAdded": [
+    { "coinId": "polkadot", "gbpPair": "DOT/GBP", "addedAt": 1234567890 }
+  ],
   "latest": {
     "timestamp": 1234567890,
     "btcChange24h": -2.3,
     "winnerTier": 0,
     "winner": {
       "symbol": "FILUSDT",
+      "coinId": "filecoin",
       "price": 3.45,
       "change24h": 5.6,
       "rsi": 52.3,
@@ -673,7 +680,8 @@ Crossover detection uses aligned EMA200/RSI/MACD series (one value per candle en
       "score": 86,
       "scoreBreakdown": { "recency": 20, "volume": 22, "macd": 25, "relStrength": 19 },
       "signal": "buy",
-      "signalSummary": "..."
+      "signalSummary": "...",
+      "watchlistStatus": "auto_added"
     },
     "otherTier0": [ { "symbol": "...", "score": 72, "scoreBreakdown": {...}, "tier": 0 } ],
     "otherTierC":  [ { "symbol": "...", "score": 68, "scoreBreakdown": {...}, "tier": "C" } ]
@@ -682,6 +690,40 @@ Crossover detection uses aligned EMA200/RSI/MACD series (one value per candle en
   "updatedAt": 1234567890
 }
 ```
+
+`winner.watchlistStatus` values:
+- `auto_added` — just auto-added to watchlist + Freqtrade whitelist
+- `already_watched` — was already on watchlist before this scan
+- `no_kraken_pair` — GBP pair not available on Kraken; added to cryptodash watchlist only
+- `resolve_failed` — could not resolve CoinGecko ID from Binance symbol; not added
+- `unknown` — error during auto-add (check logs)
+
+`autoAdded` array persists at top level of `scanner.json`. `gbpPair` is `null` for coins where Kraken pair was unavailable.
+
+### Auto-add / Auto-remove logic
+
+**Auto-add** runs at the end of every scanner run when a winner is found:
+
+1. `resolveCoinId(binanceSymbol)` — checks `coin_meta` table first (fast), then calls `coingecko.searchCoinId()` to search by ticker symbol (e.g. "DOT" → "polkadot")
+2. If coin already on watchlist → `watchlistStatus = "already_watched"`, no action
+3. Check Kraken pair availability: `GET /api/v1/pair_candles?pair=DOT/GBP&timeframe=1h&limit=1`
+4. Add to cryptodash watchlist (`watchlist.json`) + call `seedCoin()` regardless
+5. If pair available on Kraken: `POST /api/v1/whitelist { whitelist: ["DOT/GBP"] }` → add to Freqtrade in-memory whitelist
+6. Track in `scanner.json` `autoAdded`: `{ coinId, gbpPair, addedAt }`
+7. Desktop notification fires
+
+**Auto-remove** runs at the START of each scanner run (before scanning, so scope is correct):
+
+Check each entry in `autoAdded`:
+- **Keep** if Freqtrade has open trade for `gbpPair` (checked via `GET /api/v1/status`)
+- **Keep** if `addedAt` < 24h ago AND signal is not `strong_sell`
+- **Remove** if: no open trade AND (`addedAt` ≥ 24h OR signal = `strong_sell`)
+
+Removal deletes the coin from `watchlist.json` + `signals.json`, calls `DELETE /api/v1/whitelist { pairs_to_delete: ["DOT/GBP"] }`, logs the reason, sends desktop notification.
+
+**Freqtrade restart resilience**: at the start of each scan, surviving `autoAdded` entries are re-added to the Freqtrade in-memory whitelist (idempotent `POST /api/v1/whitelist`).
+
+**Freqtrade API auth**: `POST /api/v1/token/login` with username/password → JWT access token cached in `_ftToken`. 401 responses trigger re-login automatically.
 
 ---
 

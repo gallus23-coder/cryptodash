@@ -30,4 +30,19 @@ async function refreshMarketCaps(ids) {
   return Object.fromEntries(data.map(d => [d.id, d.market_cap]));
 }
 
-module.exports = { fetchMetadata, refreshMarketCaps };
+// Search for a coin's CoinGecko ID by its ticker symbol (e.g. "DOT" → "polkadot").
+// Returns the highest market-cap-ranked exact symbol match, or null if not found.
+async function searchCoinId(symbol) {
+  const res = await fetch(
+    `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(symbol)}`
+  );
+  if (!res.ok) throw new Error(`CoinGecko search ${res.status} for ${symbol}`);
+  const data = await res.json();
+  const sym = symbol.toLowerCase();
+  const exact = (data.coins || []).filter(c => c.symbol.toLowerCase() === sym);
+  if (!exact.length) return null;
+  exact.sort((a, b) => (a.market_cap_rank || 999999) - (b.market_cap_rank || 999999));
+  return exact[0].id;
+}
+
+module.exports = { fetchMetadata, refreshMarketCaps, searchCoinId };
