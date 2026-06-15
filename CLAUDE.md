@@ -703,15 +703,21 @@ Crossover detection uses aligned EMA200/RSI/MACD series (one value per candle en
 
 ### Auto-add / Auto-remove logic
 
-**Auto-add** runs at the end of every scanner run when a winner is found:
+**Auto-add** runs when a winner is found. Two writes to scanner.json ensure the winner is persisted even if Claude or Kraken checks hang/fail:
 
+**Write 1 (immediate):** Winner saved to scanner.json right after scan completes, before any async enrichment. `signal` and `signalSummary` are absent at this point. This guarantees the winner is never lost.
+
+**Enrichment steps (in order):**
 1. `resolveCoinId(binanceSymbol)` — checks `coin_meta` table first (fast path), then calls `coingecko.searchCoinId()` to search by ticker (e.g. "HBAR" → "hedera-hashgraph")
-2. If coin already on watchlist → `watchlistStatus = "already_watched"`, no action
-3. Add to cryptodash watchlist (`watchlist.json`) + call `seedCoin()` — **always, regardless of Freqtrade availability**. The watchlist drives signal generation using Binance USDT data; Kraken availability is irrelevant for this.
-4. Check Kraken GBP pair availability: `GET /api/v1/pair_candles?pair=HBAR/GBP&timeframe=1h&limit=1`
-5. If GBP pair available: `POST /api/v1/whitelist { whitelist: ["HBAR/GBP"] }` → add to Freqtrade. `watchlistStatus = "auto_added"`. Track `{ coinId, ftPair: "HBAR/GBP", addedAt }`.
-6. If GBP pair NOT available: `watchlistStatus = "watchlist_only"`. Track `{ coinId, ftPair: null, addedAt }`. **USDT pairs are never added to Freqtrade** — the bot uses a GBP wallet and cannot trade USDT pairs.
-7. Desktop notification fires in both cases.
+2. If coin already on watchlist → `watchlistStatus = "already_watched"`, no further action
+3. Add to cryptodash watchlist (`watchlist.json`) + call `seedCoin()` immediately — **always, regardless of Freqtrade availability**. The watchlist drives signal generation using Binance USDT data.
+4. Check Kraken GBP pair: `GET /api/v1/pair_candles?pair=HBAR/GBP&timeframe=1h&limit=1`
+5. If GBP pair available: add to Freqtrade whitelist. `watchlistStatus = "auto_added"`. Track `{ coinId, ftPair: "HBAR/GBP", addedAt }`.
+6. If GBP pair NOT available: `watchlistStatus = "watchlist_only"`. Track `{ coinId, ftPair: null, addedAt }`. **USDT pairs are never added to Freqtrade** — GBP wallet only.
+7. Call Claude for signal analysis. On failure: `signal: null, signalSummary: null` (never blocks the save).
+8. Desktop notification fires.
+
+**Write 2 (final):** scanner.json updated with `watchlistStatus`, `signal`, `signalSummary`.
 
 **Auto-remove** runs at the START of each scanner run (before scanning, so watchlist scope is up-to-date):
 

@@ -576,8 +576,80 @@ async function updateScanner() {
   }
 
   if (result.winner) {
-    // Generate Claude signal
-    const fng = readJson(FEARGREED_FILE, {});
+    console.log(`[scanner] Winner selected: ${result.winner.symbol} tier${result.winnerTier} score=${result.winner.score}`);
+  } else {
+    console.log('[scanner] No candidates found this run');
+  }
+
+  // ── WRITE #1: save winner immediately before any async enrichment ─────────
+  // Ensures winner is in scanner.json even if Claude/Kraken calls fail or hang.
+  const history1 = [{ ...result, storedAt: Date.now() }, ...(existing.history || [])].slice(0, 24);
+  writeJson(SCANNER_FILE, { autoAdded, latest: result, history: history1, updatedAt: Date.now() });
+  console.log('[scanner] Saving winner to scanner.json (pre-enrichment)');
+
+  if (result.winner) {
+    const sym        = result.winner.symbol;
+    const baseSymbol = sym.replace(/USDT$/, '');
+
+    // ── Step 1: auto-add to watchlist immediately ─────────────────────────
+    console.log(`[scanner] Auto-adding ${baseSymbol} to watchlist...`);
+    let watchlistStatus = 'unknown';
+    try {
+      const coinId = await resolveCoinId(sym);
+      if (!coinId) {
+        watchlistStatus = 'resolve_failed';
+        console.warn(`[scanner] Could not resolve CoinGecko ID for ${sym}`);
+      } else {
+        result.winner.coinId = coinId;
+        const wl = readJson(WATCHLIST_FILE, { coins: [] });
+        if (wl.coins.includes(coinId)) {
+          watchlistStatus = 'already_watched';
+          console.log(`[scanner] ${coinId} already on watchlist`);
+        } else {
+          wl.coins.push(coinId);
+          writeJson(WATCHLIST_FILE, wl);
+          seedCoin(coinId).catch(e => console.error(`[seed] ${coinId}:`, e.message));
+          console.log(`[scanner] Auto-added ${coinId} to watchlist`);
+
+          // ── Step 2: Kraken GBP pair check ────────────────────────────────
+          const gbpPair   = toGBPPair(coinId, sym);
+          const tierLabel = result.winnerTier === 0 ? 'Tier 0' : 'Tier C';
+          console.log(`[scanner] Checking Kraken pair for ${baseSymbol}...`);
+          const gbpOk = await ftPairAvailable(gbpPair);
+
+          if (gbpOk) {
+            console.log(`[scanner] ${gbpPair} found — adding to Freqtrade whitelist`);
+            try {
+              await ftAddPair(gbpPair);
+              console.log(`[scanner] Added ${gbpPair} to Freqtrade whitelist`);
+            } catch (e) {
+              console.error(`[scanner] Freqtrade whitelist add ${gbpPair} failed:`, e.message);
+            }
+            autoAdded.push({ coinId, ftPair: gbpPair, addedAt: Date.now() });
+            watchlistStatus = 'auto_added';
+            notifier.notify({
+              title: 'Scanner',
+              message: `${coinId} added to watchlist + Freqtrade — ${tierLabel} opportunity`,
+            });
+          } else {
+            console.log(`[scanner] ${gbpPair} not on Kraken — ${coinId} watchlist only`);
+            autoAdded.push({ coinId, ftPair: null, addedAt: Date.now() });
+            watchlistStatus = 'watchlist_only';
+            notifier.notify({
+              title: 'Scanner',
+              message: `${coinId} added to watchlist (signal only — ${gbpPair} not on Kraken)`,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`[scanner] auto-add failed for ${sym}:`, e.message);
+    }
+    result.winner.watchlistStatus = watchlistStatus;
+
+    // ── Step 3: Claude signal ─────────────────────────────────────────────
+    console.log('[scanner] Calling Claude for signal analysis...');
+    const fng    = readJson(FEARGREED_FILE, {});
     const prompt = buildScannerPrompt(result.winner, result.winnerTier, fng);
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -605,80 +677,19 @@ async function updateScanner() {
       result.winner.signalSummary = parsed.summary;
     } catch (e) {
       console.error('[scanner] Claude failed:', e.message);
+      result.winner.signal        = null;
+      result.winner.signalSummary = null;
     }
-
-    // Auto-add winner to watchlist + Freqtrade (GBP pairs only)
-    const sym = result.winner.symbol;
-    const baseSymbol = sym.replace(/USDT$/, '');
-    console.log(`[scanner] Winner: ${sym} tier${result.winnerTier} score=${result.winner.score}`);
-    console.log(`[scanner] Resolving CoinGecko ID for ${baseSymbol}...`);
-
-    let watchlistStatus = 'unknown';
-    try {
-      const coinId = await resolveCoinId(sym);
-      if (!coinId) {
-        watchlistStatus = 'resolve_failed';
-        console.warn(`[scanner] Could not resolve CoinGecko ID for ${sym} — skipping auto-add`);
-      } else {
-        result.winner.coinId = coinId;
-        console.log(`[scanner] Resolved ${baseSymbol} → CoinGecko ID: ${coinId}`);
-        const wl = readJson(WATCHLIST_FILE, { coins: [] });
-
-        if (wl.coins.includes(coinId)) {
-          watchlistStatus = 'already_watched';
-          console.log(`[scanner] ${coinId} already on watchlist`);
-        } else {
-          const tierLabel = result.winnerTier === 0 ? 'Tier 0' : 'Tier C';
-          const gbpPair   = toGBPPair(coinId, sym);
-
-          // Always add to cryptodash watchlist — signals use Binance USDT data
-          wl.coins.push(coinId);
-          writeJson(WATCHLIST_FILE, wl);
-          seedCoin(coinId).catch(e => console.error(`[seed] ${coinId}:`, e.message));
-          console.log(`[scanner] Auto-added ${coinId} to watchlist`);
-
-          // Only add GBP pair to Freqtrade — USDT pairs need USDT wallet, we trade GBP
-          console.log(`[scanner] Checking Kraken GBP pair for ${baseSymbol}...`);
-          const gbpOk = await ftPairAvailable(gbpPair);
-
-          if (gbpOk) {
-            console.log(`[scanner] ${gbpPair} found — adding to Freqtrade whitelist`);
-            try {
-              await ftAddPair(gbpPair);
-              console.log(`[scanner] Added ${gbpPair} to Freqtrade whitelist`);
-            } catch (e) {
-              console.error(`[scanner] Freqtrade whitelist add ${gbpPair} failed:`, e.message);
-            }
-            autoAdded.push({ coinId, ftPair: gbpPair, addedAt: Date.now() });
-            watchlistStatus = 'auto_added';
-            notifier.notify({
-              title: 'Scanner',
-              message: `${coinId} added to watchlist + Freqtrade — ${tierLabel} opportunity`,
-            });
-          } else {
-            console.log(`[scanner] ${gbpPair} not on Kraken — ${coinId} watchlist only (signal generation only)`);
-            autoAdded.push({ coinId, ftPair: null, addedAt: Date.now() });
-            watchlistStatus = 'watchlist_only';
-            notifier.notify({
-              title: 'Scanner',
-              message: `${coinId} added to watchlist (signal only — ${gbpPair} not on Kraken)`,
-            });
-          }
-        }
-      }
-    } catch (e) {
-      console.error(`[scanner] auto-add failed for ${sym}:`, e.message);
-    }
-    result.winner.watchlistStatus = watchlistStatus;
   }
 
-  const history = [{ ...result, storedAt: Date.now() }, ...(existing.history || [])].slice(0, 24);
-  writeJson(SCANNER_FILE, { autoAdded, latest: result, history, updatedAt: Date.now() });
+  // ── WRITE #2: final write with signal + watchlistStatus ──────────────────
+  const history2 = [{ ...result, storedAt: Date.now() }, ...(existing.history || [])].slice(0, 24);
+  writeJson(SCANNER_FILE, { autoAdded, latest: result, history: history2, updatedAt: Date.now() });
 
   const winStr = result.winner
     ? `${result.winner.symbol} tier${result.winnerTier} score=${result.winner.score} status=${result.winner.watchlistStatus}`
     : 'no candidates';
-  console.log(`[scanner] ${winStr}`);
+  console.log(`[scanner] Complete — ${winStr}`);
 }
 
 async function refreshAllMarketCaps() {
