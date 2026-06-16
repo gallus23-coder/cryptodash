@@ -64,6 +64,33 @@ function crossedAbove(series, threshold, window) {
   return false;
 }
 
+// ── Kraken helpers ────────────────────────────────────────────────────────────
+
+// Kraken legacy base symbols that map to standard tickers
+const KRAKEN_BASE_MAP = { XXBT: 'BTC', XETH: 'ETH', XXRP: 'XRP', XXDG: 'DOGE',
+                          XLTC: 'LTC', XXLM: 'XLM', XREP: 'REP', ZEUR: 'EUR',
+                          ZUSD: 'USD', ZGBP: 'GBP' };
+const NON_CRYPTO_BASES = new Set(['EUR', 'USD', 'GBP', 'TGBP', 'USDC', 'USDT']);
+
+// Returns Map<binanceUSDTSymbol, freqtradePair>
+// e.g. "SOLUSDT" → "SOL/GBP", "BTCUSDT" → "BTC/GBP"
+async function fetchKrakenGBPPairs() {
+  const res = await fetch('https://api.kraken.com/0/public/AssetPairs');
+  if (!res.ok) throw new Error(`Kraken AssetPairs ${res.status}`);
+  const data = await res.json();
+  const map = new Map();
+  for (const pair of Object.values(data.result || {})) {
+    if (!pair.wsname || !pair.wsname.endsWith('/GBP')) continue;
+    const [rawBase] = pair.wsname.split('/');
+    const base = KRAKEN_BASE_MAP[rawBase] || rawBase;
+    if (NON_CRYPTO_BASES.has(base)) continue;
+    const ftPair      = `${base}/GBP`;
+    const binanceSymbol = `${base}USDT`;
+    map.set(binanceSymbol, ftPair);
+  }
+  return map;
+}
+
 // ── Binance helpers ───────────────────────────────────────────────────────────
 
 async function fetchAllTickers() {
@@ -142,6 +169,7 @@ function buildCandidate(candles, ticker, btcChange24h) {
 
   return {
     symbol: ticker.symbol,
+    krakenPair: ticker.krakenPair ?? null,
     price: currentPrice,
     change24h: ticker.change24h,
     rsi,
@@ -241,21 +269,26 @@ function applyTierCScores(candidates) {
 
 // ── main entry point ──────────────────────────────────────────────────────────
 
-async function runScanner(watchlistSymbols) {
+async function runScanner(watchlistSymbols, krakenGBPMap) {
   const allTickers = await fetchAllTickers();
 
   const btcTicker = allTickers.find(t => t.symbol === 'BTCUSDT');
   const btcChange24h = btcTicker ? parseFloat(btcTicker.priceChangePercent) : 0;
 
   const top100 = allTickers
-    .filter(t => t.symbol.endsWith('USDT') && !watchlistSymbols.has(t.symbol))
+    .filter(t => t.symbol.endsWith('USDT') &&
+                 !watchlistSymbols.has(t.symbol) &&
+                 (krakenGBPMap ? krakenGBPMap.has(t.symbol) : true))
     .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
     .slice(0, 100)
     .map(t => ({
-      symbol:    t.symbol,
-      price:     parseFloat(t.lastPrice),
-      change24h: parseFloat(t.priceChangePercent),
+      symbol:     t.symbol,
+      krakenPair: krakenGBPMap ? krakenGBPMap.get(t.symbol) : null,
+      price:      parseFloat(t.lastPrice),
+      change24h:  parseFloat(t.priceChangePercent),
     }));
+
+  console.log(`[scanner] Scanning ${top100.length} coins tradeable on Kraken GBP`);
 
   const candidates = [];
   for (const ticker of top100) {
@@ -297,4 +330,4 @@ async function runScanner(watchlistSymbols) {
   };
 }
 
-module.exports = { runScanner };
+module.exports = { runScanner, fetchKrakenGBPPairs };

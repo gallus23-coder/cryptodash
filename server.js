@@ -23,8 +23,10 @@ const RSI_FILE       = path.join(DATA_DIR, 'rsi.json');
 const SIGNALS_FILE   = path.join(DATA_DIR, 'signals.json');
 const INDICATORS_FILE = path.join(DATA_DIR, 'indicators.json');
 const FEARGREED_FILE  = path.join(DATA_DIR, 'feargreed.json');
-const SCANNER_FILE    = path.join(DATA_DIR, 'scanner.json');
-const BACKTEST_FILE   = path.join(DATA_DIR, 'backtest.json');
+const SCANNER_FILE      = path.join(DATA_DIR, 'scanner.json');
+const BACKTEST_FILE     = path.join(DATA_DIR, 'backtest.json');
+const KRAKEN_PAIRS_FILE = path.join(DATA_DIR, 'kraken_pairs.json');
+const FT_CONFIG_FILE    = '/home/gallus23/freqtrade/user_data/config.json';
 
 // ── Freqtrade API client ──────────────────────────────────────────────────────
 
@@ -111,6 +113,81 @@ async function resolveCoinId(binanceSymbol) {
   const existing = db.getMetaBySymbol(binanceSymbol);
   if (existing) return existing.id;
   return coingecko.searchCoinId(binanceSymbol.replace(/USDT$/, ''));
+}
+
+// ── Kraken pairs cache (24h TTL) ──────────────────────────────────────────────
+
+async function getKrakenGBPMap() {
+  const cached = readJson(KRAKEN_PAIRS_FILE, null);
+  if (cached && cached.fetchedAt && Date.now() - cached.fetchedAt < 24 * 60 * 60 * 1000) {
+    return new Map(Object.entries(cached.pairs));
+  }
+  try {
+    const map = await scanner.fetchKrakenGBPPairs();
+    writeJson(KRAKEN_PAIRS_FILE, { fetchedAt: Date.now(), pairs: Object.fromEntries(map) });
+    console.log(`[scanner] Kraken GBP pairs refreshed (${map.size} pairs)`);
+    return map;
+  } catch (e) {
+    console.error('[scanner] Kraken AssetPairs fetch failed:', e.message);
+    if (cached && cached.pairs) return new Map(Object.entries(cached.pairs));
+    return new Map();
+  }
+}
+
+// ── Freqtrade config.json helpers ─────────────────────────────────────────────
+
+function ftConfigAddPair(pair) {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(FT_CONFIG_FILE, 'utf8'));
+    const wl = cfg.exchange?.pair_whitelist || [];
+    if (!wl.includes(pair)) {
+      wl.push(pair);
+      cfg.exchange.pair_whitelist = wl;
+      fs.writeFileSync(FT_CONFIG_FILE, JSON.stringify(cfg, null, 2));
+      console.log(`[scanner] Added ${pair} to config.json whitelist`);
+    }
+  } catch (e) {
+    throw new Error(`ftConfigAddPair ${pair}: ${e.message}`);
+  }
+}
+
+function ftConfigRemovePair(pair) {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(FT_CONFIG_FILE, 'utf8'));
+    const wl = cfg.exchange?.pair_whitelist || [];
+    const updated = wl.filter(p => p !== pair);
+    if (updated.length !== wl.length) {
+      cfg.exchange.pair_whitelist = updated;
+      fs.writeFileSync(FT_CONFIG_FILE, JSON.stringify(cfg, null, 2));
+      console.log(`[scanner] Removed ${pair} from config.json whitelist`);
+    }
+  } catch (e) {
+    console.error(`[scanner] ftConfigRemovePair ${pair} failed:`, e.message);
+  }
+}
+
+async function ftReloadConfig() {
+  try {
+    const res = await ftRequest('POST', '/reload_config');
+    if (!res.ok) console.warn(`[scanner] reload_config: ${res.status}`);
+    else console.log('[scanner] Freqtrade config reloaded');
+  } catch (e) {
+    console.warn('[scanner] reload_config failed:', e.message);
+  }
+}
+
+// Set of GBP pairs that were in config.json at startup — never auto-remove these.
+let _manualCoins = null;
+
+function initManualCoins() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(FT_CONFIG_FILE, 'utf8'));
+    _manualCoins = new Set(cfg.exchange?.pair_whitelist || []);
+    console.log(`[scanner] Manual coins: ${[..._manualCoins].join(', ')}`);
+  } catch (e) {
+    console.warn('[scanner] Could not read config.json for manual coins:', e.message);
+    _manualCoins = new Set();
+  }
 }
 
 app.use(express.json());
@@ -510,6 +587,7 @@ function buildScannerPrompt(winner, winnerTier, fng) {
 
 // Remove auto-added coins that are stale (24h+ with no trade, or strong_sell).
 // Returns the updated autoAdded list (entries kept).
+// Supports both old schema (ftPair) and new schema (krakenPair).
 async function autoRemoveStaleCoins(autoAdded) {
   if (!autoAdded || !autoAdded.length) return [];
   const openPairs = await ftGetOpenPairs();
@@ -518,10 +596,12 @@ async function autoRemoveStaleCoins(autoAdded) {
   const kept      = [];
 
   for (const entry of autoAdded) {
-    const { coinId, ftPair, addedAt } = entry;
+    const { coinId, addedAt } = entry;
+    // Normalize: support both old `ftPair` field and new `krakenPair` field
+    const krakenPair = entry.krakenPair ?? entry.ftPair ?? null;
 
     // Always keep if Freqtrade has an open trade for this pair
-    if (ftPair && openPairs.has(ftPair)) { kept.push(entry); continue; }
+    if (krakenPair && openPairs.has(krakenPair)) { kept.push(entry); continue; }
 
     const sig     = (signals[coinId] || {}).signal;
     const expired = now - addedAt >= 24 * 60 * 60 * 1000;
@@ -540,8 +620,11 @@ async function autoRemoveStaleCoins(autoAdded) {
       console.error(`[scanner] watchlist remove failed for ${coinId}:`, e.message);
     }
 
-    // Remove from Freqtrade whitelist (only if a GBP pair was added)
-    if (ftPair) await ftRemovePair(ftPair);
+    // Remove from config.json + reload (only if not a manual coin)
+    if (krakenPair && _manualCoins && !_manualCoins.has(krakenPair)) {
+      ftConfigRemovePair(krakenPair);
+      await ftReloadConfig();
+    }
 
     const reason = expired ? '24h no trade' : 'signal: strong_sell';
     console.log(`[scanner] Auto-removed ${coinId} from watchlist (${reason})`);
@@ -561,15 +644,21 @@ async function updateScanner() {
   // Auto-remove stale coins before scan (watchlist affects scanner scope)
   let autoAdded = await autoRemoveStaleCoins(existing.autoAdded || []);
 
-  // Re-add surviving auto-added GBP pairs to Freqtrade whitelist (handles FT restarts)
-  for (const { ftPair } of autoAdded) {
-    if (ftPair) ftAddPair(ftPair).catch(() => {});
+  // Re-add surviving auto-added GBP pairs to config.json (handles FT restarts)
+  for (const entry of autoAdded) {
+    const krakenPair = entry.krakenPair ?? entry.ftPair ?? null;
+    if (krakenPair && _manualCoins && !_manualCoins.has(krakenPair)) {
+      ftConfigAddPair(krakenPair);
+    }
   }
+
+  // Fetch Kraken GBP pairs (cached 24h) — pre-filter scan universe
+  const krakenGBPMap = await getKrakenGBPMap();
 
   const watchlistSymbols = new Set(db.getAllMeta().map(m => m.symbol).filter(Boolean));
   let result;
   try {
-    result = await scanner.runScanner(watchlistSymbols);
+    result = await scanner.runScanner(watchlistSymbols, krakenGBPMap);
   } catch (e) {
     console.error('[scanner] scan failed:', e.message);
     return;
@@ -582,20 +671,21 @@ async function updateScanner() {
   }
 
   // ── WRITE #1: save winner immediately before any async enrichment ─────────
-  // Ensures winner is in scanner.json even if Claude/Kraken calls fail or hang.
+  // Ensures winner is in scanner.json even if Claude calls fail or hang.
   const history1 = [{ ...result, storedAt: Date.now() }, ...(existing.history || [])].slice(0, 24);
   writeJson(SCANNER_FILE, { autoAdded, latest: result, history: history1, updatedAt: Date.now() });
   console.log('[scanner] Saving winner to scanner.json (pre-enrichment)');
 
   if (result.winner) {
     const sym        = result.winner.symbol;
+    const krakenPair = result.winner.krakenPair; // guaranteed: scan pre-filtered to Kraken GBP pairs
     const baseSymbol = sym.replace(/USDT$/, '');
 
-    // ── Step 1: auto-add to watchlist immediately ─────────────────────────
-    console.log(`[scanner] Auto-adding ${baseSymbol} to watchlist...`);
+    // ── Step 1: auto-add to watchlist ─────────────────────────────────────
     let watchlistStatus = 'unknown';
+    let coinId = null;
     try {
-      const coinId = await resolveCoinId(sym);
+      coinId = await resolveCoinId(sym);
       if (!coinId) {
         watchlistStatus = 'resolve_failed';
         console.warn(`[scanner] Could not resolve CoinGecko ID for ${sym}`);
@@ -611,34 +701,45 @@ async function updateScanner() {
           seedCoin(coinId).catch(e => console.error(`[seed] ${coinId}:`, e.message));
           console.log(`[scanner] Auto-added ${coinId} to watchlist`);
 
-          // ── Step 2: Kraken GBP pair check ────────────────────────────────
-          const gbpPair   = toGBPPair(coinId, sym);
+          // ── Step 2: add GBP pair to config.json ──────────────────────────
           const tierLabel = result.winnerTier === 0 ? 'Tier 0' : 'Tier C';
-          console.log(`[scanner] Checking Kraken pair for ${baseSymbol}...`);
-          const gbpOk = await ftPairAvailable(gbpPair);
+          const isManual  = _manualCoins && _manualCoins.has(krakenPair);
 
-          if (gbpOk) {
-            console.log(`[scanner] ${gbpPair} found — adding to Freqtrade whitelist`);
+          if (krakenPair && !isManual) {
             try {
-              await ftAddPair(gbpPair);
-              console.log(`[scanner] Added ${gbpPair} to Freqtrade whitelist`);
+              ftConfigAddPair(krakenPair);
+              await ftReloadConfig();
+              console.log(`[scanner] Added ${krakenPair} to Freqtrade config + reloaded`);
+              watchlistStatus = 'auto_added';
+              autoAdded.push({
+                coinId, symbol: sym, krakenPair,
+                addedAt: Date.now(), tier: result.winnerTier, score: result.winner.score,
+              });
+              notifier.notify({
+                title:   'Scanner',
+                message: `${baseSymbol} added to watchlist + Freqtrade — ${tierLabel}`,
+              });
             } catch (e) {
-              console.error(`[scanner] Freqtrade whitelist add ${gbpPair} failed:`, e.message);
+              console.error(`[scanner] config add ${krakenPair} failed:`, e.message);
+              watchlistStatus = 'watchlist_only';
+              autoAdded.push({
+                coinId, symbol: sym, krakenPair: null,
+                addedAt: Date.now(), tier: result.winnerTier, score: result.winner.score,
+              });
+              notifier.notify({
+                title:   'Scanner',
+                message: `${baseSymbol} added to watchlist (Freqtrade config update failed)`,
+              });
             }
-            autoAdded.push({ coinId, ftPair: gbpPair, addedAt: Date.now() });
-            watchlistStatus = 'auto_added';
-            notifier.notify({
-              title: 'Scanner',
-              message: `${coinId} added to watchlist + Freqtrade — ${tierLabel} opportunity`,
-            });
           } else {
-            console.log(`[scanner] ${gbpPair} not on Kraken — ${coinId} watchlist only`);
-            autoAdded.push({ coinId, ftPair: null, addedAt: Date.now() });
-            watchlistStatus = 'watchlist_only';
-            notifier.notify({
-              title: 'Scanner',
-              message: `${coinId} added to watchlist (signal only — ${gbpPair} not on Kraken)`,
+            // krakenPair is a manual coin — don't touch config
+            watchlistStatus = 'auto_added';
+            autoAdded.push({
+              coinId, symbol: sym, krakenPair: null,
+              addedAt: Date.now(), tier: result.winnerTier, score: result.winner.score,
             });
+            console.log(`[scanner] ${krakenPair} is manual — added ${coinId} to watchlist only`);
+            notifier.notify({ title: 'Scanner', message: `${baseSymbol} added to watchlist — ${tierLabel}` });
           }
         }
       }
@@ -1025,6 +1126,7 @@ cron.schedule('0 0 * * *', () => {
 // ── start ─────────────────────────────────────────────────────────────────────
 
 db.initDb();
+initManualCoins();
 app.listen(PORT, () => {
   console.log(`\n  Crypto Dashboard running at http://localhost:${PORT}\n`);
   // seed metadata + backfill candles; start background jobs after
