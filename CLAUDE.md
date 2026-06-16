@@ -102,6 +102,7 @@ crypto-dashboard/
 │   ├── signals.json        — Anthropic signal cache per watchlist coin (READ by Freqtrade)
 │   ├── indicators.json     — Technical indicators cache per watchlist coin
 │   ├── feargreed.json      — Fear & Greed index (refreshed hourly)
+│   ├── kraken_pairs.json   — Kraken GBP pairs cache (refreshed every 24h)
 │   ├── scanner.json        — Opportunity scanner results (last 24 scans)
 │   └── backtest.json       — Latest backtest results (written on each run)
 └── test/
@@ -657,8 +658,7 @@ Crossover detection uses aligned EMA200/RSI/MACD series (one value per candle en
 ```json
 {
   "autoAdded": [
-    { "coinId": "polkadot", "ftPair": "DOT/GBP", "addedAt": 1234567890 },
-    { "coinId": "hedera-hashgraph", "ftPair": null, "addedAt": 1234567890 }
+    { "coinId": "polkadot", "symbol": "DOTUSDT", "krakenPair": "DOT/GBP", "addedAt": 1234567890, "tier": 0, "score": 74 }
   ],
   "latest": {
     "timestamp": 1234567890,
@@ -666,6 +666,7 @@ Crossover detection uses aligned EMA200/RSI/MACD series (one value per candle en
     "winnerTier": 0,
     "winner": {
       "symbol": "FILUSDT",
+      "krakenPair": "FIL/GBP",
       "coinId": "filecoin",
       "price": 3.45,
       "change24h": 5.6,
@@ -693,42 +694,50 @@ Crossover detection uses aligned EMA200/RSI/MACD series (one value per candle en
 ```
 
 `winner.watchlistStatus` values:
-- `auto_added` — added to watchlist + Freqtrade GBP whitelist
-- `watchlist_only` — added to watchlist only; GBP pair not available on Kraken (signals still generated via Binance USDT data)
+- `auto_added` — added to watchlist + Freqtrade config.json (GBP pair written directly)
 - `already_watched` — already on watchlist before this scan
 - `resolve_failed` — could not resolve CoinGecko ID from Binance symbol; not added anywhere
 - `unknown` — error during auto-add (check logs)
 
-`autoAdded` array persists at top level of `scanner.json`. `ftPair` is `null` for watchlist-only coins (no Kraken GBP pair). The cryptodash watchlist always uses CoinGecko IDs; Freqtrade whitelist only receives GBP pairs that Kraken can execute against the GBP wallet.
+`autoAdded` schema: `{ coinId, symbol, krakenPair, addedAt, tier, score }`. `krakenPair` is `null` if config.json write failed (coin still added to watchlist). The cryptodash watchlist always uses CoinGecko IDs; Freqtrade config only receives GBP pairs.
+
+### Scan universe
+
+The scanner pre-filters the Binance top-100 USDT coins to **only those with a matching Kraken GBP pair**. Kraken AssetPairs fetched from `https://api.kraken.com/0/public/AssetPairs` and cached 24h in `data/kraken_pairs.json`. Legacy Kraken base names normalised (XXBT→BTC, XETH→ETH, XXRP→XRP, XXDG→DOGE, XLTC→LTC, XXLM→XLM). ~23 usable crypto GBP pairs after filtering fiat/stablecoins (EUR, USD, GBP, TGBP, USDC, USDT).
+
+Every scanner winner is guaranteed to have a Kraken GBP pair — no post-scan availability check needed. `runScanner(watchlistSymbols, krakenGBPMap)` in `scanner.js` accepts the map and attaches `krakenPair` to each candidate/winner object.
 
 ### Auto-add / Auto-remove logic
 
-**Auto-add** runs when a winner is found. Two writes to scanner.json ensure the winner is persisted even if Claude or Kraken checks hang/fail:
+**Auto-add** runs when a winner is found. Two writes to scanner.json ensure the winner is persisted even if Claude calls fail or hang:
 
 **Write 1 (immediate):** Winner saved to scanner.json right after scan completes, before any async enrichment. `signal` and `signalSummary` are absent at this point. This guarantees the winner is never lost.
 
 **Enrichment steps (in order):**
-1. `resolveCoinId(binanceSymbol)` — checks `coin_meta` table first (fast path), then calls `coingecko.searchCoinId()` to search by ticker (e.g. "HBAR" → "hedera-hashgraph")
+1. `resolveCoinId(binanceSymbol)` — checks `coin_meta` table first (fast path), then calls `coingecko.searchCoinId()` to search by ticker (e.g. "DOT" → "polkadot")
 2. If coin already on watchlist → `watchlistStatus = "already_watched"`, no further action
-3. Add to cryptodash watchlist (`watchlist.json`) + call `seedCoin()` immediately — **always, regardless of Freqtrade availability**. The watchlist drives signal generation using Binance USDT data.
-4. Check Kraken GBP pair: `GET /api/v1/pair_candles?pair=HBAR/GBP&timeframe=1h&limit=1`
-5. If GBP pair available: add to Freqtrade whitelist. `watchlistStatus = "auto_added"`. Track `{ coinId, ftPair: "HBAR/GBP", addedAt }`.
-6. If GBP pair NOT available: `watchlistStatus = "watchlist_only"`. Track `{ coinId, ftPair: null, addedAt }`. **USDT pairs are never added to Freqtrade** — GBP wallet only.
-7. Call Claude for signal analysis. On failure: `signal: null, signalSummary: null` (never blocks the save).
-8. Desktop notification fires.
+3. Add to cryptodash watchlist (`watchlist.json`) + call `seedCoin()` async
+4. Write `krakenPair` to `config.json` (`exchange.pair_whitelist`) and call `POST /api/v1/reload_config` — **skipped if pair is in `_manualCoins` set**
+5. `watchlistStatus = "auto_added"`. Track `{ coinId, symbol, krakenPair, addedAt, tier, score }`.
+6. Call Claude for signal analysis. On failure: `signal: null, signalSummary: null` (never blocks the save).
+7. Desktop notification fires.
 
 **Write 2 (final):** scanner.json updated with `watchlistStatus`, `signal`, `signalSummary`.
 
 **Auto-remove** runs at the START of each scanner run (before scanning, so watchlist scope is up-to-date):
 
 Check each entry in `autoAdded`:
-- **Keep** if Freqtrade has open trade for `ftPair` (checked via `GET /api/v1/status`)
+- **Keep** if Freqtrade has open trade for `krakenPair` (checked via `GET /api/v1/status`)
 - **Keep** if `addedAt` < 24h ago AND signal is not `strong_sell`
 - **Remove** if: no open trade AND (`addedAt` ≥ 24h OR signal = `strong_sell`)
 
-Removal deletes from `watchlist.json` + `signals.json`, calls `DELETE /api/v1/whitelist { pairs_to_delete: ["HBAR/GBP"] }` (skipped if `ftPair` is null), logs reason, sends notification.
+Removal deletes from `watchlist.json` + `signals.json`, removes `krakenPair` from `config.json` and calls `reload_config` (skipped if pair is in `_manualCoins`), logs reason, sends notification.
 
-**Freqtrade restart resilience**: surviving `autoAdded` entries with non-null `ftPair` are re-added to Freqtrade whitelist at scan start (idempotent `POST /api/v1/whitelist`).
+**Manual coin protection**: `initManualCoins()` runs at startup, reads `config.json` whitelist into `_manualCoins` Set. Pairs present at startup are never auto-removed — protects BTC/ETH/SOL etc. from accidental removal.
+
+**Freqtrade restart resilience**: surviving `autoAdded` entries with non-null `krakenPair` are re-added to `config.json` at scan start (idempotent write).
+
+**Old schema migration**: `autoRemoveStaleCoins` reads `entry.krakenPair ?? entry.ftPair` — handles any persisted entries with the old `ftPair` field.
 
 **Freqtrade API auth**: `POST /api/v1/token/login` with HTTP Basic Auth (username:password) → JWT bearer token cached in `_ftToken`. 401 responses trigger automatic re-login.
 
