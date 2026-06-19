@@ -1036,6 +1036,96 @@ app.patch('/api/alerts/:id/reset', (req, res) => {
   res.json(alert);
 });
 
+// ── Freqtrade portfolio routes ────────────────────────────────────────────────
+
+const { meanReversionClient, trendClient } = require('./lib/freqtradeClient');
+
+// Helper: fetch standard portfolio bundle from one FT instance
+async function ftPortfolioBundle(client) {
+  const [profit, status, trades, balance] = await Promise.all([
+    client.safeGet('/profit'),
+    client.safeGet('/status'),
+    client.safeGet('/trades?limit=20'),
+    client.safeGet('/balance'),
+  ]);
+  return { profit, openTrades: status, recentTrades: trades?.trades ?? null, balance };
+}
+
+// Mean reversion routes (existing instance, port 8080)
+app.get('/api/freqtrade/portfolio', async (req, res) => {
+  try { res.json(await ftPortfolioBundle(meanReversionClient)); }
+  catch (e) { res.status(503).json({ error: e.message }); }
+});
+app.get('/api/freqtrade/positions', async (req, res) => {
+  try { res.json(await meanReversionClient.safeGet('/status') ?? []); }
+  catch (e) { res.status(503).json({ error: e.message }); }
+});
+app.get('/api/freqtrade/trades', async (req, res) => {
+  try { res.json(await meanReversionClient.safeGet('/trades?limit=20') ?? {}); }
+  catch (e) { res.status(503).json({ error: e.message }); }
+});
+app.get('/api/freqtrade/profit', async (req, res) => {
+  try { res.json(await meanReversionClient.safeGet('/profit') ?? {}); }
+  catch (e) { res.status(503).json({ error: e.message }); }
+});
+app.get('/api/freqtrade/health', async (req, res) => {
+  try {
+    const data = await meanReversionClient.safeGet('/ping');
+    res.json({ ok: data !== null, instance: 'mean_reversion', port: 8080 });
+  } catch (e) { res.json({ ok: false, instance: 'mean_reversion', port: 8080 }); }
+});
+
+// Trend following routes (new instance, port 8081)
+app.get('/api/freqtrade/trend/portfolio', async (req, res) => {
+  try { res.json(await ftPortfolioBundle(trendClient)); }
+  catch (e) { res.status(503).json({ error: e.message }); }
+});
+app.get('/api/freqtrade/trend/positions', async (req, res) => {
+  try { res.json(await trendClient.safeGet('/status') ?? []); }
+  catch (e) { res.status(503).json({ error: e.message }); }
+});
+app.get('/api/freqtrade/trend/trades', async (req, res) => {
+  try { res.json(await trendClient.safeGet('/trades?limit=20') ?? {}); }
+  catch (e) { res.status(503).json({ error: e.message }); }
+});
+app.get('/api/freqtrade/trend/profit', async (req, res) => {
+  try { res.json(await trendClient.safeGet('/profit') ?? {}); }
+  catch (e) { res.status(503).json({ error: e.message }); }
+});
+app.get('/api/freqtrade/trend/health', async (req, res) => {
+  try {
+    const data = await trendClient.safeGet('/ping');
+    res.json({ ok: data !== null, instance: 'trend', port: 8081 });
+  } catch (e) { res.json({ ok: false, instance: 'trend', port: 8081 }); }
+});
+
+// Combined view — both instances merged
+app.get('/api/freqtrade/combined', async (req, res) => {
+  const [mr, tf] = await Promise.all([
+    ftPortfolioBundle(meanReversionClient).catch(() => null),
+    ftPortfolioBundle(trendClient).catch(() => null),
+  ]);
+
+  const totalBalance = (
+    (mr?.balance?.total ?? 0) + (tf?.balance?.total ?? 0)
+  );
+
+  const mrPL  = mr?.profit?.profit_all_coin ?? null;
+  const tfPL  = tf?.profit?.profit_all_coin ?? null;
+  const totalPL = mrPL != null && tfPL != null ? mrPL + tfPL : (mrPL ?? tfPL ?? null);
+
+  const mrTrades  = mr?.profit?.trade_count ?? 0;
+  const tfTrades  = tf?.profit?.trade_count ?? 0;
+  const mrWinRate = mr?.profit?.winrate ?? null;
+  const tfWinRate = tf?.profit?.winrate ?? null;
+
+  res.json({
+    combined: { totalBalance, totalPL, mrTrades, tfTrades, mrWinRate, tfWinRate },
+    meanReversion: mr,
+    trend: tf,
+  });
+});
+
 // ── alert checker ──────────────────────────────────────────────────────────────
 
 async function checkAlerts() {

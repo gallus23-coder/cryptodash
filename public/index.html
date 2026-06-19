@@ -292,11 +292,49 @@ select.form-input { cursor: pointer; }
 .gloss-term { font-size: 13px; font-weight: 600; color: var(--text); font-family: var(--mono); }
 .gloss-def { font-size: 12px; color: #4B5563; line-height: 1.5; }
 
-/* ── portfolio placeholder ── */
-.portfolio-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 80px 24px; text-align: center; }
-.portfolio-placeholder-icon { font-size: 40px; opacity: 0.25; }
-.portfolio-placeholder h2 { font-size: 18px; font-weight: 600; color: var(--text); }
-.portfolio-placeholder p { font-size: 13px; color: var(--muted); max-width: 400px; line-height: 1.6; }
+/* ── strategy indicator badges (MR / TF) ── */
+.strat-badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 600; font-family: var(--mono); white-space: nowrap; margin-left: 4px; }
+.strat-mr-yes { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; }
+.strat-mr-no  { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+.strat-tf-yes { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+.strat-tf-no  { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+
+/* ── portfolio tab ── */
+.portfolio-tab { padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+.portfolio-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.portfolio-summary-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; }
+.portfolio-summary-card .ps-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--mono); margin-bottom: 4px; }
+.portfolio-summary-card .ps-val { font-size: 22px; font-weight: 600; font-family: var(--mono); }
+.portfolio-summary-card .ps-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.portfolio-instances { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .portfolio-instances { grid-template-columns: 1fr; } }
+.portfolio-instance { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.portfolio-instance-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.portfolio-instance-title { font-size: 13px; font-weight: 600; }
+.portfolio-instance-badge { font-size: 10px; font-family: var(--mono); padding: 2px 8px; border-radius: 10px; }
+.pi-badge-mr { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; }
+.pi-badge-tf { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+.pi-badge-offline { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+.portfolio-instance-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.pi-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pi-stat { display: flex; flex-direction: column; gap: 2px; }
+.pi-stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--mono); }
+.pi-stat-val { font-size: 15px; font-weight: 600; font-family: var(--mono); }
+.pi-section-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--mono); margin-top: 4px; }
+.pi-trade-list { display: flex; flex-direction: column; gap: 4px; }
+.pi-trade { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.pi-trade:last-child { border-bottom: none; }
+.pi-trade-pair { font-family: var(--mono); font-weight: 600; }
+.pi-trade-pl { font-family: var(--mono); }
+.pi-frequi-link { display: inline-block; font-size: 11px; color: var(--accent2); text-decoration: none; margin-top: 4px; }
+.pi-frequi-link:hover { text-decoration: underline; }
+.pi-offline { padding: 32px 0; text-align: center; color: var(--muted); font-size: 13px; }
+.portfolio-compare { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.portfolio-compare-title { padding: 12px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border); }
+.portfolio-compare table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.portfolio-compare th { padding: 8px 14px; text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; background: var(--bg3); font-family: var(--mono); }
+.portfolio-compare td { padding: 8px 14px; border-top: 1px solid var(--border); font-family: var(--mono); }
+.portfolio-loading { padding: 60px 0; text-align: center; color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -408,10 +446,8 @@ select.form-input { cursor: pointer; }
 
 <!-- Portfolio tab -->
 <div id="tab-portfolio" class="tab-content">
-  <div class="portfolio-placeholder">
-    <div class="portfolio-placeholder-icon">💼</div>
-    <h2>Portfolio Tracker</h2>
-    <p>Track your holdings, cost basis, and P&amp;L across all your coins. Coming soon.</p>
+  <div class="portfolio-tab" id="portfolio-content">
+    <div class="portfolio-loading" id="portfolio-loading">Loading portfolio data…</div>
   </div>
 </div>
 
@@ -867,12 +903,43 @@ function buildSignalBadgeHtml(id) {
     : `<span class="signal-badge signal-pending">Pending</span>`;
 }
 
+function calcStratBadges(id) {
+  const ind = indicatorData[id] || {};
+  const rsiEntry = rsiData[id];
+  const rsi = rsiEntry ? rsiEntry.rsi : null;
+  const price = (marketData.find(c => c.id === id) || {}).current_price;
+
+  // MR (Mean Reversion): price > EMA200, RSI 30–55, MACD > 0, EMA50 dist < 7%
+  const mrOk = (
+    ind.ema200 != null && price != null && price > ind.ema200 &&
+    rsi != null && rsi >= 30 && rsi <= 55 &&
+    ind.macd?.macd != null && ind.macd.macd > 0 &&
+    ind.ema50 != null && Math.abs(price - ind.ema50) / ind.ema50 * 100 < 7
+  );
+
+  // TF (Trend Following): price > EMA200 AND EMA50, RSI 45–70, MACD > 0 and hist > 0, volRatio > 1.2x
+  const tfOk = (
+    ind.ema200 != null && price != null && price > ind.ema200 &&
+    ind.ema50  != null && price > ind.ema50 &&
+    rsi != null && rsi >= 45 && rsi <= 70 &&
+    ind.macd?.macd != null && ind.macd.macd > 0 &&
+    ind.macd?.histogram != null && ind.macd.histogram > 0 &&
+    ind.volumeRatio != null && ind.volumeRatio >= 1.2
+  );
+
+  return { mrOk, tfOk };
+}
+
 function buildSignalRowInner(id) {
   const sigEntry = signalData[id];
   const validSignal = sigEntry && VALID_SIGNALS.includes(sigEntry.signal) ? sigEntry.signal : null;
   const safeSummary = esc(sigEntry?.summary || '');
+  const { mrOk, tfOk } = calcStratBadges(id);
+  const mrBadge = `<span class="strat-badge ${mrOk ? 'strat-mr-yes' : 'strat-mr-no'}" title="Mean Reversion entry conditions ${mrOk ? 'aligned' : 'not met'}">MR</span>`;
+  const tfBadge = `<span class="strat-badge ${tfOk ? 'strat-tf-yes' : 'strat-tf-no'}" title="Trend Following entry conditions ${tfOk ? 'aligned' : 'not met'}">TF</span>`;
   return `<div class="signal-inner">
     ${validSignal ? `<span class="signal-badge signal-${validSignal}" style="font-size:10px">${SIGNAL_LABELS[validSignal]}</span>` : ''}
+    ${mrBadge}${tfBadge}
     ${safeSummary ? `<span class="signal-summary-text">${safeSummary}</span>` : '<span style="font-size:11px;color:var(--muted)">Signal pending…</span>'}
   </div>`;
 }
@@ -1032,6 +1099,7 @@ function switchTab(name) {
   document.getElementById('tab-' + name).classList.add('active');
   if (name === 'opportunities' && !scannerData) loadScanner();
   if (name === 'backtest') { populateBtCoinDropdown(); if (!backtestData) loadBacktest(); }
+  if (name === 'portfolio') loadPortfolio();
 }
 
 // ── signals refresh ────────────────────────────────────────────────────────────
@@ -1486,6 +1554,173 @@ function renderBacktest() {
     if (e.target.closest('.ind-has-tip')) tip.classList.remove('visible');
   });
 })();
+
+// ── portfolio ─────────────────────────────────────────────────────────────────
+let _portfolioFetching = false;
+
+async function loadPortfolio() {
+  if (_portfolioFetching) return;
+  _portfolioFetching = true;
+  try {
+    const res = await fetch('/api/freqtrade/combined');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    renderPortfolio(d);
+  } catch (e) {
+    document.getElementById('portfolio-loading').textContent =
+      'Could not load portfolio data. Check that Freqtrade instances are running.';
+  } finally {
+    _portfolioFetching = false;
+  }
+}
+
+function fmtGBP(v) {
+  if (v == null) return '—';
+  return `£${(+v).toFixed(2)}`;
+}
+function fmtPct2(v) {
+  if (v == null) return '—';
+  const n = +v;
+  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+}
+function fmtWR(v) {
+  if (v == null) return '—';
+  return `${(+v * 100).toFixed(0)}%`;
+}
+
+function renderPortfolio(d) {
+  const el = document.getElementById('portfolio-content');
+  const mr = d.meanReversion;
+  const tf = d.trend;
+  const cb = d.combined;
+
+  const mrOnline = mr !== null;
+  const tfOnline = tf !== null;
+
+  // ── combined summary cards
+  const mrPLval  = mr?.profit?.profit_all_coin ?? null;
+  const tfPLval  = tf?.profit?.profit_all_coin ?? null;
+  const mrBal    = mr?.balance?.total ?? null;
+  const tfBal    = tf?.balance?.total ?? null;
+  const totalBal = mrBal != null && tfBal != null ? mrBal + tfBal
+                 : mrBal ?? tfBal ?? null;
+  const totalPL  = mrPLval != null && tfPLval != null ? mrPLval + tfPLval
+                 : mrPLval ?? tfPLval ?? null;
+  const totalTrades = (mr?.profit?.trade_count ?? 0) + (tf?.profit?.trade_count ?? 0);
+
+  const summaryCards = `
+    <div class="portfolio-summary-grid">
+      <div class="portfolio-summary-card">
+        <div class="ps-label">Combined Balance</div>
+        <div class="ps-val">${fmtGBP(totalBal)}</div>
+        <div class="ps-sub">Both instances</div>
+      </div>
+      <div class="portfolio-summary-card">
+        <div class="ps-label">Combined P&L</div>
+        <div class="ps-val ${totalPL != null ? (totalPL >= 0 ? 'up' : 'dn') : ''}">${fmtGBP(totalPL)}</div>
+        <div class="ps-sub">All closed trades</div>
+      </div>
+      <div class="portfolio-summary-card">
+        <div class="ps-label">Total Trades</div>
+        <div class="ps-val">${totalTrades}</div>
+        <div class="ps-sub">MR: ${mr?.profit?.trade_count ?? 0} · TF: ${tf?.profit?.trade_count ?? 0}</div>
+      </div>
+      <div class="portfolio-summary-card">
+        <div class="ps-label">Win Rate</div>
+        <div class="ps-val">${fmtWR(cb.mrWinRate ?? cb.tfWinRate)}</div>
+        <div class="ps-sub">MR: ${fmtWR(cb.mrWinRate)} · TF: ${fmtWR(cb.tfWinRate)}</div>
+      </div>
+    </div>`;
+
+  // ── instance panel builder
+  function instancePanel(data, label, badgeCls, port, freqUiPort) {
+    if (!data) return `
+      <div class="portfolio-instance">
+        <div class="portfolio-instance-header">
+          <span class="portfolio-instance-title">${label}</span>
+          <span class="portfolio-instance-badge pi-badge-offline">Offline</span>
+        </div>
+        <div class="portfolio-instance-body">
+          <div class="pi-offline">Instance not reachable (port ${port})</div>
+        </div>
+      </div>`;
+
+    const openTrades   = Array.isArray(data.openTrades) ? data.openTrades : [];
+    const recentTrades = Array.isArray(data.recentTrades) ? data.recentTrades.slice(0, 5) : [];
+    const bal  = data.balance?.total ?? null;
+    const pl   = data.profit?.profit_all_coin ?? null;
+    const tc   = data.profit?.trade_count ?? 0;
+    const wr   = data.profit?.winrate ?? null;
+
+    const openRows = openTrades.length
+      ? openTrades.map(t => `
+          <div class="pi-trade">
+            <span class="pi-trade-pair">${esc(t.pair)}</span>
+            <span class="pi-trade-pl ${(t.profit_pct ?? 0) >= 0 ? 'up' : 'dn'}">${((t.profit_pct ?? 0) * 100).toFixed(2)}%</span>
+          </div>`).join('')
+      : `<div style="font-size:12px;color:var(--muted);padding:6px 0">No open positions</div>`;
+
+    const closedRows = recentTrades.length
+      ? recentTrades.map(t => `
+          <div class="pi-trade">
+            <span class="pi-trade-pair">${esc(t.pair)}</span>
+            <span class="pi-trade-pl ${(t.profit_abs ?? 0) >= 0 ? 'up' : 'dn'}">${fmtGBP(t.profit_abs)}</span>
+          </div>`).join('')
+      : `<div style="font-size:12px;color:var(--muted);padding:6px 0">No closed trades yet</div>`;
+
+    return `
+      <div class="portfolio-instance">
+        <div class="portfolio-instance-header">
+          <span class="portfolio-instance-title">${label}</span>
+          <span class="portfolio-instance-badge ${badgeCls}">Live (dry-run)</span>
+        </div>
+        <div class="portfolio-instance-body">
+          <div class="pi-stats">
+            <div class="pi-stat"><div class="pi-stat-label">Balance</div><div class="pi-stat-val">${fmtGBP(bal)}</div></div>
+            <div class="pi-stat"><div class="pi-stat-label">P&L</div><div class="pi-stat-val ${pl != null ? (pl >= 0 ? 'up' : 'dn') : ''}">${fmtGBP(pl)}</div></div>
+            <div class="pi-stat"><div class="pi-stat-label">Trades</div><div class="pi-stat-val">${tc}</div></div>
+            <div class="pi-stat"><div class="pi-stat-label">Win Rate</div><div class="pi-stat-val">${fmtWR(wr)}</div></div>
+          </div>
+          <div class="pi-section-title">Open Positions (${openTrades.length})</div>
+          <div class="pi-trade-list">${openRows}</div>
+          <div class="pi-section-title">Recent Trades</div>
+          <div class="pi-trade-list">${closedRows}</div>
+          <a class="pi-frequi-link" href="http://localhost:${freqUiPort}" target="_blank">Open FreqUI →</a>
+        </div>
+      </div>`;
+  }
+
+  const instances = `
+    <div class="portfolio-instances">
+      ${instancePanel(mr, 'Mean Reversion', 'pi-badge-mr', 8080, 8080)}
+      ${instancePanel(tf, 'Trend Following', 'pi-badge-tf', 8081, 8081)}
+    </div>`;
+
+  // ── comparison table (show when ≥5 trades in either)
+  const mrTrades = mr?.profit?.trade_count ?? 0;
+  const tfTrades = tf?.profit?.trade_count ?? 0;
+  let compareHtml = '';
+  if (mrTrades >= 5 || tfTrades >= 5) {
+    const row = (label, mrVal, tfVal) =>
+      `<tr><td>${esc(label)}</td><td>${mrVal}</td><td>${tfVal}</td></tr>`;
+    compareHtml = `
+      <div class="portfolio-compare">
+        <div class="portfolio-compare-title">Strategy Comparison</div>
+        <table>
+          <thead><tr><th>Metric</th><th>Mean Reversion</th><th>Trend Following</th></tr></thead>
+          <tbody>
+            ${row('Total Trades',  mrTrades, tfTrades)}
+            ${row('Total P&L',     fmtGBP(mr?.profit?.profit_all_coin), fmtGBP(tf?.profit?.profit_all_coin))}
+            ${row('Win Rate',      fmtWR(mr?.profit?.winrate),  fmtWR(tf?.profit?.winrate))}
+            ${row('Avg Win',       fmtGBP(mr?.profit?.profit_factor), fmtGBP(tf?.profit?.profit_factor))}
+            ${row('Balance',       fmtGBP(mrBal), fmtGBP(tfBal))}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  el.innerHTML = summaryCards + instances + compareHtml;
+}
 
 // ── init ───────────────────────────────────────────────────────────────────────
 loadMarket();

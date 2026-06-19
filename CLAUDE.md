@@ -41,6 +41,10 @@ Two systemd services running on a Raspberry Pi. **Cryptodash** (Node.js) fetches
 | `ANTHROPIC_API_KEY` | Yes | — | Claude API for signal generation |
 | `PORT` | No | 3000 | HTTP server port |
 | `DB_PATH` | No | `data/crypto.db` | Override SQLite path |
+| `FREQTRADE_USERNAME` | No | `cryptodash` | Mean Reversion FT API username |
+| `FREQTRADE_PASSWORD` | No | `Swagger23!` | Mean Reversion FT API password |
+| `FREQTRADE_TREND_USERNAME` | No | same as `FREQTRADE_USERNAME` | Trend Following FT API username |
+| `FREQTRADE_TREND_PASSWORD` | No | same as `FREQTRADE_PASSWORD` | Trend Following FT API password |
 
 ---
 
@@ -63,17 +67,28 @@ journalctl -u crypto-dashboard -f
 
 ### freqtrade.service
 
-Python Freqtrade process on port 8080. Configured to start **after** `crypto-dashboard.service` (depends on `signals.json` being present).
+Mean Reversion strategy on port 8080. Starts after `crypto-dashboard.service`.
 
 ```bash
 sudo systemctl restart freqtrade
 journalctl -u freqtrade -f
 ```
 
+### freqtrade-trend.service
+
+Trend Following strategy on port 8081. Starts after `crypto-dashboard.service`.
+
+```bash
+sudo systemctl start freqtrade-trend
+sudo systemctl enable freqtrade-trend
+sudo systemctl restart freqtrade-trend
+journalctl -u freqtrade-trend -f
+```
+
 ### Combined log tail
 
 ```bash
-journalctl -u crypto-dashboard -u freqtrade -f
+journalctl -u crypto-dashboard -u freqtrade -u freqtrade-trend -f
 ```
 
 ---
@@ -90,7 +105,10 @@ crypto-dashboard/
 ├── feargreed.js            — Alternative.me Fear & Greed API: fetchFearGreed
 ├── scanner.js              — Opportunity scanner: Tier 0 / Tier C detection, scoring
 ├── backtest.js             — Backtesting: incremental indicators, signal scoring, simulation
-├── CryptodashStrategy.py   — Copy of Freqtrade strategy (canonical: /home/gallus23/freqtrade/user_data/strategies/)
+├── lib/
+│   └── freqtradeClient.js  — Factory for authenticated FT API clients (meanReversionClient / trendClient, 30s cache)
+├── CryptodashStrategy.py   — Copy of MR strategy (canonical: /home/gallus23/freqtrade/user_data/strategies/)
+├── CryptodashTrendStrategy.py — Copy of Trend strategy (canonical: /home/gallus23/freqtrade/user_data/strategies/)
 ├── public/
 │   └── index.html          — Full frontend (single file: Watchlist/Opportunities/Backtest/Portfolio tabs)
 ├── data/
@@ -370,7 +388,12 @@ Scanner signals are **not read by Freqtrade** — they drive the Opportunities t
 
 ### Overview
 
-Freqtrade runs as a separate Python service in **dry-run (paper trading) mode**. It executes the same Mean Reversion in Uptrend strategy as the Claude signal system, but applied to live Kraken GBP pairs. Cryptodash generates signals every 15 min; Freqtrade reads them on each 1h candle close.
+Two Freqtrade instances run in **dry-run (paper trading) mode** on the same Raspberry Pi, both reading `signals.json` from cryptodash. Each runs a different strategy targeting different market conditions.
+
+| Instance | Strategy | Port | Config | Service |
+|----------|----------|------|--------|---------|
+| Mean Reversion | `CryptodashStrategy` | 8080 | `config.json` | `freqtrade.service` |
+| Trend Following | `CryptodashTrendStrategy` | 8081 | `config_trend.json` | `freqtrade-trend.service` |
 
 ### Paths
 
@@ -378,29 +401,43 @@ Freqtrade runs as a separate Python service in **dry-run (paper trading) mode**.
 |------|------|
 | Freqtrade root | `/home/gallus23/freqtrade` |
 | Virtualenv | `/home/gallus23/freqtrade/.venv` |
-| Config | `/home/gallus23/freqtrade/user_data/config.json` |
-| Strategy (canonical) | `/home/gallus23/freqtrade/user_data/strategies/CryptodashStrategy.py` |
-| Strategy (copy) | `/home/gallus23/crypto-dashboard/CryptodashStrategy.py` |
-| FreqUI | `http://localhost:8080` |
-| FreqUI credentials | username: `cryptodash` |
+| MR config | `/home/gallus23/freqtrade/user_data/config.json` |
+| TF config | `/home/gallus23/freqtrade/user_data/config_trend.json` |
+| MR strategy (canonical) | `/home/gallus23/freqtrade/user_data/strategies/CryptodashStrategy.py` |
+| TF strategy (canonical) | `/home/gallus23/freqtrade/user_data/strategies/CryptodashTrendStrategy.py` |
+| MR strategy (copy) | `/home/gallus23/crypto-dashboard/CryptodashStrategy.py` |
+| TF strategy (copy) | `/home/gallus23/crypto-dashboard/CryptodashTrendStrategy.py` |
+| MR log | `/home/gallus23/freqtrade/user_data/logs/freqtrade.log` |
+| TF log | `/home/gallus23/freqtrade/user_data/logs/freqtrade_trend.log` |
+| MR FreqUI | `http://localhost:8080` |
+| TF FreqUI | `http://localhost:8081` |
+| Both credentials | username: `cryptodash` |
 
-### Freqtrade Configuration (`config.json`)
+### Mean Reversion Instance (`config.json`)
 
 | Parameter | Value |
 |-----------|-------|
-| `dry_run` | `true` (paper trading) |
-| `timeframe` | `1h` |
+| `dry_run` | `true` |
 | `stoploss` | `-0.07` (compromise; bear 5%, bull 7%) |
-| `minimal_roi` | `{"0": 0.20}` (bull default 20%; bear 15% via signal reversal) |
+| `minimal_roi` | `{"0": 0.20}` (bull; bear 15% via signal reversal) |
 | `max_open_trades` | `2` |
-| `stake_amount` | `200` (£200 per trade) |
-| `stake_currency` | `GBP` |
-| `dry_run_wallet` | `1000` (£1,000) |
-| `exchange.name` | `kraken` |
-| `api_server.listen_ip_address` | `0.0.0.0` (LAN accessible) |
-| `telegram.enabled` | `true` (notifications via Telegram) |
+| `stake_amount` | `200` (£200) |
+| `dry_run_wallet` | `1000` |
 
-### Traded Pairs
+### Trend Following Instance (`config_trend.json`)
+
+| Parameter | Value |
+|-----------|-------|
+| `dry_run` | `true` |
+| `stoploss` | `-0.05` |
+| `minimal_roi` | `{"0": 0.15, "48": 0.05, "72": 0.00}` |
+| `max_open_trades` | `2` |
+| `stake_amount` | `200` (£200) |
+| `dry_run_wallet` | `1000` |
+| `api_server.listen_port` | `8081` |
+| `jwt_secret_key` | fresh (different from MR) |
+
+### Traded Pairs (both instances)
 
 ```
 BTC/GBP, ETH/GBP, SOL/GBP, XRP/GBP, ADA/GBP, BNB/GBP, LINK/GBP
@@ -422,7 +459,7 @@ Freqtrade reads `/home/gallus23/crypto-dashboard/data/signals.json` directly fro
 | BNB/GBP | `binancecoin` |
 | LINK/GBP | `chainlink` |
 
-**Entry conditions in `CryptodashStrategy.py` (all must be true):**
+**Entry conditions in `CryptodashStrategy.py` — Mean Reversion (all must be true):**
 
 1. Signal is `"strong_buy"` (not merely `"buy"`)
 2. `entryQuality.allCriteriaMet` is `true`
@@ -439,7 +476,7 @@ Freqtrade reads `/home/gallus23/crypto-dashboard/data/signals.json` directly fro
 
 Entry tag: `cryptodash_bull_strong_buy` or `cryptodash_bear_strong_buy`
 
-**Exit reasons:**
+**MR exit reasons:**
 
 | Reason | Mechanism |
 |--------|-----------|
@@ -451,20 +488,68 @@ Entry tag: `cryptodash_bull_strong_buy` or `cryptodash_bear_strong_buy`
 
 Phase for exit always read from `trade.enter_tag`, not re-evaluated at exit time.
 
+**Entry conditions in `CryptodashTrendStrategy.py` — Trend Following (all must be true):**
+
+1. `signal_allows_trend_entry(signal)` — signal is NOT `sell` or `strong_sell`, and is fresh
+   - Does **NOT** require `allCriteriaMet: true` or `signal == strong_buy`
+   - `hold`, `buy`, `strong_buy` all qualify
+2. Signal `updatedAt` is within 20 minutes
+3. `close > ema200` (uptrend confirmed)
+4. `close > ema50` (medium-term trend up)
+5. `rsi >= 45 AND rsi <= 70`
+6. `macd > 0 AND macd_hist > 0`
+7. `volume_ratio >= 1.2`
+
+Entry tag: `cryptodash_trend_entry`
+
+**TF exit reasons:**
+
+| Reason | Mechanism |
+|--------|-----------|
+| `stoploss` | Freqtrade built-in, -5% |
+| `roi` | Freqtrade built-in: +15% at 0h, +5% at 48h, +0% at 72h |
+| `trend_time_stop_48h` | `custom_exit`: trade open > 48h |
+| `trend_signal_reversal` | `custom_exit`: signal becomes `strong_sell` only |
+
+### Strategy Comparison
+
+| | Mean Reversion | Trend Following |
+|---|---|---|
+| Signal required | `strong_buy` + `allCriteriaMet` | Any non-sell |
+| Price vs EMA200 | Above | Above |
+| Price vs EMA50 | Within 6.2% (bear) / 1.2% (bull) | Above |
+| RSI | 34–49 (bear) / 32–53 (bull) | 45–70 |
+| MACD | Positive | Positive + histogram positive |
+| StochRSI | < 17 (bear) / < 39 (bull) | Not checked |
+| Volume | ≥ 1.7× (bear) / ≥ 1.8× (bull) | ≥ 1.2× |
+| Stop loss | 7% (compromise) | 5% |
+| Take profit | 20% (bull) / 15% (bear) | 15% (scales down at 48h) |
+| Time stop | 89h (bear) / 67h (bull) | 48h |
+| Signal reversal | sell or strong_sell | strong_sell only |
+| Phase adaptive | Yes | No |
+
 ### Freqtrade Useful Commands
 
 ```bash
 cd /home/gallus23/freqtrade
 source .venv/bin/activate
 
-# Verify strategy loads
+# Verify both strategies load
 freqtrade list-strategies --userdir user_data
 
-# View open trades (dry-run)
+# Mean Reversion
 freqtrade show-trades --config user_data/config.json
 
-# FreqUI (web interface)
-http://localhost:8080
+# Trend Following
+freqtrade show-trades --config user_data/config_trend.json
+
+# Start Trend Following service
+sudo systemctl start freqtrade-trend
+sudo systemctl enable freqtrade-trend
+
+# FreqUI
+http://localhost:8080   # Mean Reversion
+http://localhost:8081   # Trend Following
 ```
 
 ---
@@ -940,6 +1025,17 @@ Placeholder card — "Portfolio Tracker — Coming soon."
 | POST | `/api/alerts` | Create alert `{ coin, condition, price, label }` |
 | DELETE | `/api/alerts/:id` | Delete alert |
 | PATCH | `/api/alerts/:id/reset` | Re-arm a triggered alert |
+| GET | `/api/freqtrade/portfolio` | MR instance: profit, open trades, recent trades, balance |
+| GET | `/api/freqtrade/positions` | MR instance open trades |
+| GET | `/api/freqtrade/trades` | MR instance recent 20 trades |
+| GET | `/api/freqtrade/profit` | MR instance profit summary |
+| GET | `/api/freqtrade/health` | MR instance liveness |
+| GET | `/api/freqtrade/trend/portfolio` | TF instance: profit, open trades, recent trades, balance |
+| GET | `/api/freqtrade/trend/positions` | TF instance open trades |
+| GET | `/api/freqtrade/trend/trades` | TF instance recent 20 trades |
+| GET | `/api/freqtrade/trend/profit` | TF instance profit summary |
+| GET | `/api/freqtrade/trend/health` | TF instance liveness |
+| GET | `/api/freqtrade/combined` | Both instances merged: combined balance, P&L, win rates |
 
 ---
 
@@ -950,15 +1046,20 @@ Placeholder card — "Portfolio Tracker — Coming soon."
 sudo systemctl restart crypto-dashboard
 journalctl -u crypto-dashboard -f
 
-# After changes to CryptodashStrategy.py
-# (copy to Freqtrade first)
+# After changes to CryptodashStrategy.py (copy to Freqtrade first)
 cp /home/gallus23/crypto-dashboard/CryptodashStrategy.py \
    /home/gallus23/freqtrade/user_data/strategies/CryptodashStrategy.py
 sudo systemctl restart freqtrade
 journalctl -u freqtrade -f
 
+# After changes to CryptodashTrendStrategy.py
+cp /home/gallus23/crypto-dashboard/CryptodashTrendStrategy.py \
+   /home/gallus23/freqtrade/user_data/strategies/CryptodashTrendStrategy.py
+sudo systemctl restart freqtrade-trend
+journalctl -u freqtrade-trend -f
+
 # Combined logs
-journalctl -u crypto-dashboard -u freqtrade -f
+journalctl -u crypto-dashboard -u freqtrade -u freqtrade-trend -f
 
 # Inspect DB
 node -e "const db=require('./db');db.initDb();console.log(db.getAllMeta())"
