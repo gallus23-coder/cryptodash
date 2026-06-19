@@ -957,7 +957,7 @@ Fear & Greed badge + 5 stat items: Tracked, Gainers, Losers, Best 24h, Worst 24h
 - **Watchlist table**: 10 columns — Asset, Price, 1h%, 24h%, 7d%, Mkt Cap, Vol 24h, RSI, Signal, `?` (glossary button)
 - **4-row-per-coin structure** (all rows carry `data-coin` attribute for hover grouping):
   1. **coin-row**: main data row
-  2. **signal-row**: full-width `colspan="10"` — signal badge + Claude summary text
+  2. **signal-row**: full-width `colspan="10"` — signal badge + `[MR]` / `[TF]` strategy badges + Claude summary text
   3. **gauge-row**: full-width — RSI progress bar, MACD ▲/▼/◆ icon, BB position (Near Lower/Mid-Band/Near Upper), EMA50 + EMA200 coloured circles (green = above, red = below), StochRSI bar, F&G value, Funding (static "—"), "▼ explain" toggle button
   4. **indicator-row**: hidden by default, `max-height` CSS transition; contains breakdown table + Strategy Alignment section + Claude AI box
 - **Indicator explanation panel**: 5-column breakdown table (Indicator / Value / Reading / Impact badge / How it's used). Indicator names have `cursor:help` dashed underline; hovering shows a custom dark tooltip (220px max-width, `#111827` bg, downward arrow, 0.15s fade) via event delegation on `document`. Single `#ind-tip` div shared across all tooltips. Only one panel open at a time (`openPanelCoin` global).
@@ -969,6 +969,7 @@ Fear & Greed badge + 5 stat items: Tracked, Gainers, Losers, Best 24h, Worst 24h
 - **Add coin**: input field (CoinGecko ID), Enter or button to confirm
 - **Polling**: full market refresh every 60s (`loadMarket()` fetches `/api/market`, `/api/rsi`, `/api/signals`, `/api/indicators` in parallel); signal+indicator refresh every 30s (`loadSignals()`)
   - `loadSignals()` does **targeted in-place DOM updates** (not `renderTable()`): updates `.sig-td`, signal-row TD, and gauge-row TD per coin via `querySelector`. If an indicator panel is open, its content is updated in-place without collapsing — `panel.classList.contains('open')` guards the update, no class change fires
+- **MR / TF strategy badges**: computed client-side by `calcStratBadges(id)` from `indicatorData` + `rsiData` on every signal refresh. Green `MR` badge when approximate MR conditions align (price > EMA200, RSI 30–55, MACD > 0, EMA50 dist < 7%). Blue `TF` badge when TF conditions align (price > EMA200 and EMA50, RSI 45–70, MACD > 0 and histogram > 0, volume ratio ≥ 1.2×). These are informational — actual entry decisions are made by the strategy code.
 
 ### Opportunities tab
 
@@ -1000,7 +1001,13 @@ Fear & Greed badge + 5 stat items: Tracked, Gainers, Losers, Best 24h, Worst 24h
 
 ### Portfolio tab
 
-Placeholder card — "Portfolio Tracker — Coming soon."
+Polls `/api/freqtrade/combined` on tab open. Renders:
+
+- **Combined summary cards**: total balance, total P&L, trade counts (MR / TF), win rates
+- **Side-by-side instance panels** (Mean Reversion | Trend Following): balance, P&L, trade count, win rate, open positions with live P&L%, recent 5 closed trades, link to FreqUI. Shows "Offline" state if instance unreachable.
+- **Strategy comparison table**: shown once either instance has ≥5 closed trades; compares trades, P&L, win rate, avg win, balance side by side.
+
+`loadPortfolio()` called on tab switch; results not auto-polled (manual refresh by switching away and back). Instance data fetched in parallel; one instance being down does not block the other.
 
 ---
 
@@ -1074,7 +1081,8 @@ freqtrade list-strategies --userdir user_data
 
 # Dashboard URLs
 http://localhost:3000   # Cryptodash
-http://localhost:8080   # FreqUI
+http://localhost:8080   # FreqUI — Mean Reversion
+http://localhost:8081   # FreqUI — Trend Following
 ```
 
 ## Hyperopt Results
