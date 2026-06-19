@@ -802,10 +802,11 @@ Every scanner winner is guaranteed to have a Kraken GBP pair — no post-scan av
 1. `resolveCoinId(binanceSymbol)` — checks `coin_meta` table first (fast path), then calls `coingecko.searchCoinId()` to search by ticker (e.g. "DOT" → "polkadot")
 2. If coin already on watchlist → `watchlistStatus = "already_watched"`, no further action
 3. Add to cryptodash watchlist (`watchlist.json`) + call `seedCoin()` async
-4. Write `krakenPair` to `config.json` (`exchange.pair_whitelist`) and call `POST /api/v1/reload_config` — **skipped if pair is in `_manualCoins` set**
-5. `watchlistStatus = "auto_added"`. Track `{ coinId, symbol, krakenPair, addedAt, tier, score }`.
-6. Call Claude for signal analysis. On failure: `signal: null, signalSummary: null` (never blocks the save).
-7. Desktop notification fires.
+4. Write `krakenPair` to **both** `config.json` and `config_trend.json` (`exchange.pair_whitelist`) — **skipped if pair is in `_manualCoins` set**
+5. Call `ftReloadBoth()`: reloads Mean Reversion (port 8080) then Trend Following (port 8081). TF reload failure is non-fatal — logged as warning, MR continues independently.
+6. `watchlistStatus = "auto_added"`. Track `{ coinId, symbol, krakenPair, addedAt, tier, score }`.
+7. Call Claude for signal analysis. On failure: `signal: null, signalSummary: null` (never blocks the save).
+8. Desktop notification fires.
 
 **Write 2 (final):** scanner.json updated with `watchlistStatus`, `signal`, `signalSummary`.
 
@@ -816,15 +817,15 @@ Check each entry in `autoAdded`:
 - **Keep** if `addedAt` < 24h ago AND signal is not `strong_sell`
 - **Remove** if: no open trade AND (`addedAt` ≥ 24h OR signal = `strong_sell`)
 
-Removal deletes from `watchlist.json` + `signals.json`, removes `krakenPair` from `config.json` and calls `reload_config` (skipped if pair is in `_manualCoins`), logs reason, sends notification.
+Removal deletes from `watchlist.json` + `signals.json`, removes `krakenPair` from **both** `config.json` and `config_trend.json`, calls `ftReloadBoth()` (skipped if pair is in `_manualCoins`), logs reason, sends notification.
 
-**Manual coin protection**: `initManualCoins()` runs at startup, reads `config.json` whitelist into `_manualCoins` Set. Pairs present at startup are never auto-removed — protects BTC/ETH/SOL etc. from accidental removal.
+**Manual coin protection**: `initManualCoins()` runs at startup, reads both `config.json` and `config_trend.json` whitelists into `_manualCoins` Set. A pair present in **either** config is protected from auto-removal — protects BTC/ETH/SOL etc. from accidental removal.
 
-**Freqtrade restart resilience**: surviving `autoAdded` entries with non-null `krakenPair` are re-added to `config.json` at scan start (idempotent write).
+**Freqtrade restart resilience**: surviving `autoAdded` entries with non-null `krakenPair` are re-added to **both** config files at scan start (idempotent writes).
 
 **Old schema migration**: `autoRemoveStaleCoins` reads `entry.krakenPair ?? entry.ftPair` — handles any persisted entries with the old `ftPair` field.
 
-**Freqtrade API auth**: `POST /api/v1/token/login` with HTTP Basic Auth (username:password) → JWT bearer token cached in `_ftToken`. 401 responses trigger automatic re-login.
+**Freqtrade API auth**: uses `meanReversionClient` and `trendClient` from `lib/freqtradeClient.js`. JWT tokens cached per instance, auto-refreshed on 401. Credentials default to `FREQTRADE_USERNAME/PASSWORD`; trend instance overridable via `FREQTRADE_TREND_USERNAME/PASSWORD`.
 
 ---
 

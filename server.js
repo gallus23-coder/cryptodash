@@ -26,7 +26,8 @@ const FEARGREED_FILE  = path.join(DATA_DIR, 'feargreed.json');
 const SCANNER_FILE      = path.join(DATA_DIR, 'scanner.json');
 const BACKTEST_FILE     = path.join(DATA_DIR, 'backtest.json');
 const KRAKEN_PAIRS_FILE = path.join(DATA_DIR, 'kraken_pairs.json');
-const FT_CONFIG_FILE    = '/home/gallus23/freqtrade/user_data/config.json';
+const FT_CONFIG_FILE       = '/home/gallus23/freqtrade/user_data/config.json';
+const FT_TREND_CONFIG_FILE = '/home/gallus23/freqtrade/user_data/config_trend.json';
 
 // ── Freqtrade API client ──────────────────────────────────────────────────────
 
@@ -134,60 +135,75 @@ async function getKrakenGBPMap() {
   }
 }
 
-// ── Freqtrade config.json helpers ─────────────────────────────────────────────
+// ── Freqtrade config file helpers ─────────────────────────────────────────────
 
-function ftConfigAddPair(pair) {
+function ftConfigAddPair(pair, configFile, label) {
   try {
-    const cfg = JSON.parse(fs.readFileSync(FT_CONFIG_FILE, 'utf8'));
+    const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
     const wl = cfg.exchange?.pair_whitelist || [];
     if (!wl.includes(pair)) {
       wl.push(pair);
       cfg.exchange.pair_whitelist = wl;
-      fs.writeFileSync(FT_CONFIG_FILE, JSON.stringify(cfg, null, 2));
-      console.log(`[scanner] Added ${pair} to config.json whitelist`);
+      fs.writeFileSync(configFile, JSON.stringify(cfg, null, 2));
+      console.log(`[scanner] Added ${pair} to ${label} whitelist`);
     }
   } catch (e) {
-    throw new Error(`ftConfigAddPair ${pair}: ${e.message}`);
+    throw new Error(`ftConfigAddPair ${pair} (${label}): ${e.message}`);
   }
 }
 
-function ftConfigRemovePair(pair) {
+function ftConfigRemovePair(pair, configFile, label) {
   try {
-    const cfg = JSON.parse(fs.readFileSync(FT_CONFIG_FILE, 'utf8'));
+    const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
     const wl = cfg.exchange?.pair_whitelist || [];
     const updated = wl.filter(p => p !== pair);
     if (updated.length !== wl.length) {
       cfg.exchange.pair_whitelist = updated;
-      fs.writeFileSync(FT_CONFIG_FILE, JSON.stringify(cfg, null, 2));
-      console.log(`[scanner] Removed ${pair} from config.json whitelist`);
+      fs.writeFileSync(configFile, JSON.stringify(cfg, null, 2));
+      console.log(`[scanner] Removed ${pair} from ${label} whitelist`);
     }
   } catch (e) {
-    console.error(`[scanner] ftConfigRemovePair ${pair} failed:`, e.message);
+    console.error(`[scanner] ftConfigRemovePair ${pair} (${label}) failed:`, e.message);
   }
 }
 
-async function ftReloadConfig() {
+// Reload both FT instances. TF failure is non-fatal.
+async function ftReloadBoth() {
+  const { meanReversionClient, trendClient } = require('./lib/freqtradeClient');
   try {
-    const res = await ftRequest('POST', '/reload_config');
-    if (!res.ok) console.warn(`[scanner] reload_config: ${res.status}`);
-    else console.log('[scanner] Freqtrade config reloaded');
+    const res = await meanReversionClient.request('POST', '/reload_config');
+    if (!res.ok) console.warn(`[scanner] Mean Reversion reload_config: ${res.status}`);
+    else console.log('[scanner] Mean Reversion config reloaded');
   } catch (e) {
-    console.warn('[scanner] reload_config failed:', e.message);
+    console.warn('[scanner] Mean Reversion reload_config failed:', e.message);
+  }
+  try {
+    const res = await trendClient.request('POST', '/reload_config');
+    if (!res.ok) console.warn(`[scanner] Trend Following reload_config: ${res.status}`);
+    else console.log('[scanner] Trend Following config reloaded');
+  } catch (e) {
+    console.warn('[scanner] Reload failed for Trend Following (service may be down) — continuing');
   }
 }
 
-// Set of GBP pairs that were in config.json at startup — never auto-remove these.
+// Set of GBP pairs present in EITHER config at startup — never auto-remove these.
 let _manualCoins = null;
 
 function initManualCoins() {
-  try {
-    const cfg = JSON.parse(fs.readFileSync(FT_CONFIG_FILE, 'utf8'));
-    _manualCoins = new Set(cfg.exchange?.pair_whitelist || []);
-    console.log(`[scanner] Manual coins: ${[..._manualCoins].join(', ')}`);
-  } catch (e) {
-    console.warn('[scanner] Could not read config.json for manual coins:', e.message);
-    _manualCoins = new Set();
+  const pairs = new Set();
+  for (const [file, label] of [
+    [FT_CONFIG_FILE, 'Mean Reversion'],
+    [FT_TREND_CONFIG_FILE, 'Trend Following'],
+  ]) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const p of (cfg.exchange?.pair_whitelist || [])) pairs.add(p);
+    } catch (e) {
+      console.warn(`[scanner] Could not read ${label} config for manual coins:`, e.message);
+    }
   }
+  _manualCoins = pairs;
+  console.log(`[scanner] Manual coins: ${[..._manualCoins].join(', ')}`);
 }
 
 app.use(express.json());
@@ -620,10 +636,11 @@ async function autoRemoveStaleCoins(autoAdded) {
       console.error(`[scanner] watchlist remove failed for ${coinId}:`, e.message);
     }
 
-    // Remove from config.json + reload (only if not a manual coin)
+    // Remove from both config files + reload (only if not a manual coin)
     if (krakenPair && _manualCoins && !_manualCoins.has(krakenPair)) {
-      ftConfigRemovePair(krakenPair);
-      await ftReloadConfig();
+      ftConfigRemovePair(krakenPair, FT_CONFIG_FILE, 'Mean Reversion');
+      ftConfigRemovePair(krakenPair, FT_TREND_CONFIG_FILE, 'Trend Following');
+      await ftReloadBoth();
     }
 
     const reason = expired ? '24h no trade' : 'signal: strong_sell';
@@ -644,11 +661,12 @@ async function updateScanner() {
   // Auto-remove stale coins before scan (watchlist affects scanner scope)
   let autoAdded = await autoRemoveStaleCoins(existing.autoAdded || []);
 
-  // Re-add surviving auto-added GBP pairs to config.json (handles FT restarts)
+  // Re-add surviving auto-added GBP pairs to both configs (handles FT restarts)
   for (const entry of autoAdded) {
     const krakenPair = entry.krakenPair ?? entry.ftPair ?? null;
     if (krakenPair && _manualCoins && !_manualCoins.has(krakenPair)) {
-      ftConfigAddPair(krakenPair);
+      ftConfigAddPair(krakenPair, FT_CONFIG_FILE, 'Mean Reversion');
+      ftConfigAddPair(krakenPair, FT_TREND_CONFIG_FILE, 'Trend Following');
     }
   }
 
@@ -707,9 +725,10 @@ async function updateScanner() {
 
           if (krakenPair && !isManual) {
             try {
-              ftConfigAddPair(krakenPair);
-              await ftReloadConfig();
-              console.log(`[scanner] Added ${krakenPair} to Freqtrade config + reloaded`);
+              ftConfigAddPair(krakenPair, FT_CONFIG_FILE, 'Mean Reversion');
+              ftConfigAddPair(krakenPair, FT_TREND_CONFIG_FILE, 'Trend Following');
+              await ftReloadBoth();
+              console.log(`[scanner] Added ${krakenPair} to both Freqtrade configs + reloaded`);
               watchlistStatus = 'auto_added';
               autoAdded.push({
                 coinId, symbol: sym, krakenPair,
