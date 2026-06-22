@@ -118,8 +118,9 @@ crypto-dashboard/
 │   ├── triggered.json      — Auto-created: fired alert IDs
 │   ├── rsi.json            — RSI cache (refreshed every 15 min)
 │   ├── signals.json        — Anthropic signal cache per watchlist coin (READ by Freqtrade)
-│   ├── indicators.json     — Technical indicators cache per watchlist coin
+│   ├── indicators.json     — Technical indicators cache per watchlist coin (includes priceGBP, gbpUsdRate, gbpUsdRateUpdatedAt)
 │   ├── feargreed.json      — Fear & Greed index (refreshed hourly)
+│   ├── fxrate.json         — GBP/USD exchange rate cache (refreshed hourly, used for priceGBP conversion)
 │   ├── kraken_pairs.json   — Kraken GBP pairs cache (refreshed every 24h)
 │   ├── scanner.json        — Opportunity scanner results (last 24 scans)
 │   └── backtest.json       — Latest backtest results (written on each run)
@@ -284,7 +285,7 @@ initDb()
 
 1. `updateCandles()` — fetch new 1h candles from Binance for each watchlist coin
 2. `updateRSI()` — read closes from SQLite, recalculate RSI-14, write `rsi.json`
-3. `updateIndicators()` — compute MACD, Bollinger, EMA50/200, golden/death cross, StochRSI, volume ratio, ATR-14; write `indicators.json`
+3. `updateIndicators()` — compute MACD, Bollinger, EMA50/200, golden/death cross, StochRSI, volume ratio, ATR-14; fetch GBP/USD rate (1h cache via `fetchFxRate`); write `indicators.json` with `priceGBP`, `gbpUsdRate`, `gbpUsdRateUpdatedAt` fields added per coin
 4. `updateSignals()` — for each watchlist coin: fetch live ticker, build prompt, call Claude API, write `signals.json`
 
 `signals.json` is the **signal bridge** — Freqtrade reads it on every candle close.
@@ -572,6 +573,37 @@ http://localhost:8081   # Trend Following
 | Bear entry criteria | `buildSignalSystem('bear')` in `server.js` | `get_phase_params('bear')` in `populate_entry_trend` |
 | Bull entry criteria | `buildSignalSystem('bull')` in `server.js` | `get_phase_params('bull')` in `populate_entry_trend` |
 | Both param sets | `tradingConfig.json` `marketPhase` section | `get_phase_params()` in `CryptodashStrategy.py` |
+
+---
+
+## Currency Mismatch — Important Gotcha (June 2026)
+
+**cryptodash indicator/candle data is in USD.**
+**Freqtrade trade execution is in GBP.**
+
+cryptodash fetches all OHLCV candles and calculates all indicators (RSI, MACD, EMA, StochRSI, volume ratio, close price etc) from Binance USDT pairs (e.g. ETHUSDT, BTCUSDT). Every price value in `data/crypto.db`, `indicators.json`, and `signals.json` is in USD.
+
+Freqtrade trades GBP pairs on Kraken (e.g. ETH/GBP, BTC/GBP). Every `open_rate`, `close_rate`, `current_rate` in Freqtrade's database and API responses is in GBP.
+
+### Why this matters
+
+When comparing a Freqtrade trade's entry/exit price against "current price" to judge whether an exit was good or bad, never pull the comparison price from cryptodash's `crypto.db` or `indicators.json`'s raw price field directly without converting — it will be in USD and can produce a wildly misleading result (e.g. appearing to show a 30%+ move that is actually just the GBP/USD exchange rate, roughly 1.27–1.30×).
+
+### Real example of this mistake (22 June 2026)
+
+A `trend_signal_reversal` exit on ETH/GBP at £1,321.85 was compared against cryptodash's stored ETH close price of $1,763.67 (USD). This wrongly suggested ETH had risen ~34% since the exit, implying the exit was premature. After checking ETH/GBP directly (live rate £1,303.22), the real picture showed price had actually drifted down slightly since the exit — the opposite conclusion. The signal_reversal exit was correct.
+
+### The fix
+
+`indicators.json` now includes a `priceGBP` field per coin, converted using a periodically-fetched GBP/USD exchange rate (see `fetchFxRate` / `data/fxrate.json` in `server.js`). This field is for display and analysis/debugging only — it is NOT used in any trading decision logic, which continues to operate on USD indicator data as before (Freqtrade independently fetches its own live GBP prices from Kraken for actual trade execution).
+
+Rate source: `api.frankfurter.app/latest?from=USD&to=GBP` (primary), `open.er-api.com/v6/latest/USD` (fallback). Cached 1h in memory and `data/fxrate.json`. Rate direction: `gbpUsdRate` is GBP per USD (< 1.0, typically ~0.78). `priceGBP = price_usd × gbpUsdRate`.
+
+### How to compare correctly going forward
+
+- Prefer Freqtrade's own `current_rate` field from `GET /api/v1/status` or the positions endpoint — always in the trade's quote currency (GBP)
+- Or use the new `priceGBP` field in `indicators.json` for a same-currency comparison against Freqtrade trade prices
+- Never compare cryptodash's raw USD price fields directly against Freqtrade GBP prices
 
 ---
 

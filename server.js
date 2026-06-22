@@ -26,6 +26,7 @@ const FEARGREED_FILE  = path.join(DATA_DIR, 'feargreed.json');
 const SCANNER_FILE      = path.join(DATA_DIR, 'scanner.json');
 const BACKTEST_FILE     = path.join(DATA_DIR, 'backtest.json');
 const KRAKEN_PAIRS_FILE = path.join(DATA_DIR, 'kraken_pairs.json');
+const FXRATE_FILE       = path.join(DATA_DIR, 'fxrate.json');
 const FT_CONFIG_FILE       = '/home/gallus23/freqtrade/user_data/config.json';
 const FT_TREND_CONFIG_FILE = '/home/gallus23/freqtrade/user_data/config_trend.json';
 
@@ -229,6 +230,70 @@ function writeJson(file, data) {
   fs.renameSync(tmp, file);
 }
 
+// ── GBP/USD exchange rate ─────────────────────────────────────────────────────
+//
+// cryptodash candle/indicator data is sourced from Binance USDT pairs and is in
+// USD. priceGBP is a converted convenience field for comparing against Freqtrade
+// (which trades GBP pairs on Kraken) — do NOT use priceGBP for any trading
+// decision logic; it is for display/debugging only.
+//
+// Rate direction: gbpUsdRate is GBP per USD (i.e. < 1.0, typically ~0.78).
+// priceGBP = price_usd * gbpUsdRate.
+
+let _fxRateCache = null; // { rate: number, fetchedAt: number }
+
+const FX_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+async function fetchFxRate() {
+  if (_fxRateCache && Date.now() - _fxRateCache.fetchedAt < FX_TTL_MS) {
+    return _fxRateCache.rate;
+  }
+
+  // Try to restore from disk cache first (survives restarts)
+  if (!_fxRateCache) {
+    const persisted = readJson(FXRATE_FILE, null);
+    if (persisted && Date.now() - persisted.fetchedAt < FX_TTL_MS) {
+      _fxRateCache = persisted;
+      return _fxRateCache.rate;
+    }
+  }
+
+  // Primary: frankfurter.app — returns rates[GBP] which is GBP per 1 USD
+  let rate = null;
+  try {
+    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=GBP');
+    if (res.ok) {
+      const data = await res.json();
+      rate = data?.rates?.GBP;
+    }
+  } catch (e) {
+    console.warn('[fx] frankfurter.app failed:', e.message);
+  }
+
+  // Fallback: open.er-api.com — same field layout
+  if (!rate) {
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/USD');
+      if (res.ok) {
+        const data = await res.json();
+        rate = data?.rates?.GBP;
+      }
+    } catch (e) {
+      console.warn('[fx] open.er-api.com failed:', e.message);
+    }
+  }
+
+  if (!rate) {
+    console.warn('[fx] Could not fetch GBP/USD rate, priceGBP omitted from indicators.json');
+    return null;
+  }
+
+  _fxRateCache = { rate, fetchedAt: Date.now() };
+  writeJson(FXRATE_FILE, _fxRateCache);
+  console.log(`[fx] GBP/USD rate updated: 1 USD = ${rate.toFixed(6)} GBP`);
+  return rate;
+}
+
 // ── seed helpers ──────────────────────────────────────────────────────────────
 
 // Fetch CoinGecko metadata + Binance candle history for one coin.
@@ -339,6 +404,7 @@ async function updateRSI() {
 async function updateIndicators() {
   const wl = readJson(WATCHLIST_FILE, { coins: [] });
   if (!wl.coins.length) return;
+  const fxRate = await fetchFxRate(); // GBP per USD; null if unavailable
   const cache = {};
   for (const id of wl.coins) {
     // Fetch one extra for each array and strip the last (incomplete forming candle)
@@ -377,7 +443,11 @@ async function updateIndicators() {
     }
     cache[id] = {
       macd, bb, ema50, ema200, emaAbovePrice, goldenCross, deathCross,
-      stochRsi, volumeRatio, atr14, atr14Pct, updatedAt: new Date().toISOString(),
+      stochRsi, volumeRatio, atr14, atr14Pct,
+      ...(fxRate != null
+        ? { priceGBP: price * fxRate, gbpUsdRate: fxRate, gbpUsdRateUpdatedAt: _fxRateCache?.fetchedAt ?? null }
+        : {}),
+      updatedAt: new Date().toISOString(),
     };
   }
   writeJson(INDICATORS_FILE, cache);
