@@ -1151,3 +1151,4 @@ change significantly (BTC reclaims or loses 200 EMA for sustained period).
 - JSON files in `data/` are the source of truth for ephemeral caches; SQLite is the source of truth for candle history
 - Volume stored as **base asset** (`k[5]`), not quote/USDT (`k[7]`) — do not change this
 - `signals.json` is the contract between cryptodash and Freqtrade — schema changes require updating both sides
+- All shared-state JSON files read by Freqtrade (`signals.json`, `indicators.json`, `rsi.json`, `feargreed.json`, `scanner.json`, `backtest.json`, Freqtrade config files) are written atomically: `writeJson` in `server.js` writes to `<file>.tmp` then calls `fs.renameSync(tmp, file)`. This prevents Freqtrade from reading a partial file mid-write. Do not use `fs.writeFileSync(file, ...)` directly for any shared-state file — always go through `writeJson`.

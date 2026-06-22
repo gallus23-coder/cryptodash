@@ -144,7 +144,9 @@ function ftConfigAddPair(pair, configFile, label) {
     if (!wl.includes(pair)) {
       wl.push(pair);
       cfg.exchange.pair_whitelist = wl;
-      fs.writeFileSync(configFile, JSON.stringify(cfg, null, 2));
+      const tmp = configFile + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
+      fs.renameSync(tmp, configFile);
       console.log(`[scanner] Added ${pair} to ${label} whitelist`);
     }
   } catch (e) {
@@ -159,7 +161,9 @@ function ftConfigRemovePair(pair, configFile, label) {
     const updated = wl.filter(p => p !== pair);
     if (updated.length !== wl.length) {
       cfg.exchange.pair_whitelist = updated;
-      fs.writeFileSync(configFile, JSON.stringify(cfg, null, 2));
+      const tmp = configFile + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
+      fs.renameSync(tmp, configFile);
       console.log(`[scanner] Removed ${pair} from ${label} whitelist`);
     }
   } catch (e) {
@@ -220,7 +224,9 @@ function readJson(file, fallback) {
 }
 
 function writeJson(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, file);
 }
 
 // ── seed helpers ──────────────────────────────────────────────────────────────
