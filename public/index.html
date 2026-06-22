@@ -335,6 +335,38 @@ select.form-input { cursor: pointer; }
 .portfolio-compare th { padding: 8px 14px; text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; background: var(--bg3); font-family: var(--mono); }
 .portfolio-compare td { padding: 8px 14px; border-top: 1px solid var(--border); font-family: var(--mono); }
 .portfolio-loading { padding: 60px 0; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* ── strategy reference panel ── */
+.strat-ref { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.strat-ref-toggle { width: 100%; background: none; border: none; cursor: pointer; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; font-family: var(--sans); text-align: left; }
+.strat-ref-toggle:hover { background: var(--bg3); }
+.strat-ref-toggle-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.strat-ref-toggle-caret { font-size: 11px; color: var(--muted); font-family: var(--mono); transition: transform 0.2s; }
+.strat-ref-toggle[aria-expanded="true"] .strat-ref-toggle-caret { transform: rotate(180deg); }
+.strat-ref-body { display: none; border-top: 1px solid var(--border); padding: 16px; }
+.strat-ref-body.open { display: block; }
+.strat-ref-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .strat-ref-cards { grid-template-columns: 1fr; } }
+.strat-ref-card { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.strat-ref-card-header { padding: 10px 14px; background: var(--bg3); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.strat-ref-card-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.strat-ref-phase-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-family: var(--mono); padding: 2px 8px; border-radius: 10px; }
+.strat-ref-phase-bull { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; }
+.strat-ref-phase-bear { background: #FEE2E2; color: #B91C1C; border: 1px solid #FCA5A5; }
+.strat-ref-phase-unknown { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+.strat-ref-card-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.strat-ref-phase-block { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.strat-ref-phase-block.active { border-color: var(--accent2); }
+.strat-ref-phase-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; font-family: var(--mono); padding: 5px 10px; background: var(--bg3); border-bottom: 1px solid var(--border); color: var(--muted); }
+.strat-ref-phase-block.active .strat-ref-phase-label { background: #EFF6FF; color: #1D4ED8; border-bottom-color: #BFDBFE; }
+.strat-ref-params { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; padding: 8px 10px; }
+.strat-ref-param { display: flex; flex-direction: column; gap: 1px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.strat-ref-param:nth-last-child(-n+2) { border-bottom: none; }
+.strat-ref-param-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--mono); }
+.strat-ref-param-val { font-size: 12px; font-weight: 600; font-family: var(--mono); color: var(--text); }
+.strat-ref-phase-block.active .strat-ref-param-val { color: #1D4ED8; }
+.strat-ref-note { font-size: 11px; color: var(--muted); line-height: 1.5; padding: 6px 10px; background: var(--bg3); border-radius: 5px; }
+.strat-ref-footer { margin-top: 12px; padding: 10px 14px; background: var(--bg3); border-radius: 6px; font-size: 11px; color: var(--muted); line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -1719,7 +1751,100 @@ function renderPortfolio(d) {
       </div>`;
   }
 
-  el.innerHTML = summaryCards + instances + compareHtml;
+  // ── strategy reference panel
+  // Phase derived from BTC's emaAbovePrice in indicatorData (same source as watchlist badges)
+  const btcInd = indicatorData['bitcoin'] || {};
+  const phase = btcInd.emaAbovePrice === true ? 'bull' : btcInd.emaAbovePrice === false ? 'bear' : null;
+  const phasePillHtml = phase === 'bull'
+    ? `<span class="strat-ref-phase-pill strat-ref-phase-bull"><span class="dot"></span>BULL</span>`
+    : phase === 'bear'
+    ? `<span class="strat-ref-phase-pill strat-ref-phase-bear"><span class="dot"></span>BEAR</span>`
+    : `<span class="strat-ref-phase-pill strat-ref-phase-unknown">Phase unknown</span>`;
+
+  function phaseBlock(label, isActive, params) {
+    return `
+      <div class="strat-ref-phase-block${isActive ? ' active' : ''}">
+        <div class="strat-ref-phase-label">${label}${isActive ? ' — ACTIVE' : ''}</div>
+        <div class="strat-ref-params">
+          ${params.map(([k,v]) => `
+            <div class="strat-ref-param">
+              <div class="strat-ref-param-label">${k}</div>
+              <div class="strat-ref-param-val">${v}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  const mrBullParams = [
+    ['RSI', '32 – 53'], ['StochRSI %K', '< 39'],
+    ['Volume', '> 1.8×'], ['EMA50 dist', '< 1.2%'],
+    ['Stop loss', '7%'], ['Take profit', '20%'],
+    ['Time stop', '67h'],
+  ];
+  const mrBearParams = [
+    ['RSI', '34 – 49'], ['StochRSI %K', '< 17'],
+    ['Volume', '> 1.7×'], ['EMA50 dist', '< 6.2%'],
+    ['Stop loss', '5%'], ['Take profit', '15%'],
+    ['Time stop', '89h'],
+  ];
+
+  const stratRefHtml = `
+    <div class="strat-ref">
+      <button class="strat-ref-toggle" aria-expanded="false" onclick="
+        const b=this.nextElementSibling;
+        const open=b.classList.toggle('open');
+        this.setAttribute('aria-expanded',open);
+      ">
+        <span class="strat-ref-toggle-title">Strategy Reference</span>
+        <span class="strat-ref-toggle-caret">▼</span>
+      </button>
+      <div class="strat-ref-body">
+        <div class="strat-ref-cards">
+
+          <div class="strat-ref-card">
+            <div class="strat-ref-card-header">
+              <span class="strat-ref-card-title">Mean Reversion (CryptodashStrategy)</span>
+              ${phasePillHtml}
+            </div>
+            <div class="strat-ref-card-body">
+              ${phaseBlock('BULL — BTC above EMA200', phase === 'bull', mrBullParams)}
+              ${phaseBlock('BEAR — BTC below EMA200', phase === 'bear', mrBearParams)}
+              <div class="strat-ref-note">Entry: STRONG BUY signal only, with all Claude criteria met (<code>allCriteriaMet: true</code>) and all dataframe confirmation checks passed.</div>
+              <div class="strat-ref-note">Exit: signal reversal on <code>sell</code> or <code>strong_sell</code>. Phase for exit always read from <code>enter_tag</code> — not re-evaluated.</div>
+            </div>
+          </div>
+
+          <div class="strat-ref-card">
+            <div class="strat-ref-card-header">
+              <span class="strat-ref-card-title">Trend Following (CryptodashTrendStrategy)</span>
+              <span class="strat-ref-phase-pill strat-ref-phase-unknown">Fixed params</span>
+            </div>
+            <div class="strat-ref-card-body">
+              <div class="strat-ref-phase-block active">
+                <div class="strat-ref-phase-label">All market conditions</div>
+                <div class="strat-ref-params">
+                  <div class="strat-ref-param"><div class="strat-ref-param-label">RSI</div><div class="strat-ref-param-val">45 – 70</div></div>
+                  <div class="strat-ref-param"><div class="strat-ref-param-label">MACD</div><div class="strat-ref-param-val">Line &amp; hist &gt; 0</div></div>
+                  <div class="strat-ref-param"><div class="strat-ref-param-label">Volume</div><div class="strat-ref-param-val">&gt; 1.2×</div></div>
+                  <div class="strat-ref-param"><div class="strat-ref-param-label">Price</div><div class="strat-ref-param-val">Above EMA200 &amp; EMA50</div></div>
+                  <div class="strat-ref-param"><div class="strat-ref-param-label">Stop loss</div><div class="strat-ref-param-val">5%</div></div>
+                  <div class="strat-ref-param"><div class="strat-ref-param-label">Time stop</div><div class="strat-ref-param-val">48h</div></div>
+                  <div class="strat-ref-param" style="grid-column:1/-1"><div class="strat-ref-param-label">Take profit (ROI)</div><div class="strat-ref-param-val">15% (0h) → 5% (48h) → 0% (72h)</div></div>
+                </div>
+              </div>
+              <div class="strat-ref-note">Entry: any signal that is NOT <code>sell</code> / <code>strong_sell</code>. Does not require <code>allCriteriaMet</code> or <code>strong_buy</code>. hold, buy, strong_buy all qualify.</div>
+              <div class="strat-ref-note">Exit: also exits on <code>trend_signal_reversal</code> if signal flips to <code>strong_sell</code>.</div>
+            </div>
+          </div>
+
+        </div>
+        <div class="strat-ref-footer">
+          Both strategies use <strong>£200 fixed stake</strong> per trade, <strong>max 2 open positions each</strong> (4 total across both bots). Currently running in <strong>dry-run</strong> mode — all trades are simulated against live Kraken prices.
+        </div>
+      </div>
+    </div>`;
+
+  el.innerHTML = summaryCards + instances + compareHtml + stratRefHtml;
 }
 
 // ── init ───────────────────────────────────────────────────────────────────────
