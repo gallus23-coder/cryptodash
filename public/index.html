@@ -1656,7 +1656,7 @@ function renderPortfolio(d) {
       ? openTrades.map(t => `
           <div class="pi-trade">
             <span class="pi-trade-pair">${esc(t.pair)}</span>
-            <span class="pi-trade-pl ${(t.profit_pct ?? 0) >= 0 ? 'up' : 'dn'}">${((t.profit_pct ?? 0) * 100).toFixed(2)}%</span>
+            <span class="pi-trade-pl ${(t.profit_pct ?? 0) >= 0 ? 'up' : 'dn'}">${((t.profit_pct ?? 0)).toFixed(2)}%</span>
           </div>`).join('')
       : `<div style="font-size:12px;color:var(--muted);padding:6px 0">No open positions</div>`;
 
