@@ -188,7 +188,8 @@ class CryptodashTrendStrategy(IStrategy):
         dataframe.loc[entry_conditions, 'enter_long'] = 1
         dataframe.loc[entry_conditions, 'enter_tag']  = 'cryptodash_trend_entry'
 
-        if entry_conditions.any():
+        is_entry_now = dataframe['enter_long'].iloc[-1] == 1
+        if is_entry_now:
             logger.info(
                 f'[trend] ENTRY: {pair} | Signal: {signal.get("signal")} | '
                 f'RSI: {rsi:.1f} | MACD hist: {hist:.4f} | Vol: {vol:.2f}x')
