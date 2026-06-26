@@ -23,6 +23,12 @@ function initDb() {
     console.log('[db] migrating candles table to new schema');
     _db.exec('DROP TABLE IF EXISTS candles');
   }
+  // Migrate derivatives_history: add open_interest_usd column if missing.
+  const derivCols = _db.pragma('table_info(derivatives_history)');
+  if (derivCols.length > 0 && !derivCols.some(c => c.name === 'open_interest_usd')) {
+    console.log('[db] migrating derivatives_history: adding open_interest_usd column');
+    _db.exec('ALTER TABLE derivatives_history ADD COLUMN open_interest_usd REAL');
+  }
   _db.exec(`
     CREATE TABLE IF NOT EXISTS coin_meta (
       id                    TEXT PRIMARY KEY,
@@ -46,10 +52,11 @@ function initDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_candles_cit ON candles(coin_id, interval, time DESC);
     CREATE TABLE IF NOT EXISTS derivatives_history (
-      coin_id        TEXT    NOT NULL,
-      time           INTEGER NOT NULL,
-      funding_rate   REAL,
-      open_interest  REAL,
+      coin_id            TEXT    NOT NULL,
+      time               INTEGER NOT NULL,
+      funding_rate       REAL,
+      open_interest      REAL,               -- raw coin quantity (e.g. number of BTC)
+      open_interest_usd  REAL,               -- USD notional (open_interest × price at time of fetch)
       UNIQUE(coin_id, time)
     );
     CREATE INDEX IF NOT EXISTS idx_deriv_cit ON derivatives_history(coin_id, time DESC);
@@ -200,11 +207,13 @@ function getMetaBySymbol(symbol) {
 
 // ── derivatives history ───────────────────────────────────────────────────────
 
-function upsertDerivatives({ coin_id, time, funding_rate, open_interest }) {
+function upsertDerivatives({ coin_id, time, funding_rate, open_interest, open_interest_usd }) {
   prepare(`
-    INSERT OR REPLACE INTO derivatives_history (coin_id, time, funding_rate, open_interest)
-    VALUES (@coin_id, @time, @funding_rate, @open_interest)
-  `).run({ coin_id, time, funding_rate, open_interest });
+    INSERT OR REPLACE INTO derivatives_history
+      (coin_id, time, funding_rate, open_interest, open_interest_usd)
+    VALUES
+      (@coin_id, @time, @funding_rate, @open_interest, @open_interest_usd)
+  `).run({ coin_id, time, funding_rate, open_interest, open_interest_usd });
 }
 
 // Returns most-recent row at or before `cutoffMs` ago. Used for 24h trend calc.

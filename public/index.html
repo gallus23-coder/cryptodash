@@ -843,17 +843,23 @@ function buildIndicatorPanel(coinId, price) {
       'Perpetual futures funding rate — paid between longs and shorts every 8h. Positive = longs pay shorts (bullish sentiment). Rising into a rally = crowded, watch for squeeze.'));
   }
 
-  // Open Interest Trend
+  // Open Interest Trend (current = USD notional; currentCoinQty = raw base asset qty)
   if (ind.openInterest) {
     const oi = ind.openInterest;
-    const oiM = (oi.current / 1e6).toFixed(0);
+    const oiUSD = oi.current; // USD notional
+    const oiDisplay = oiUSD >= 1e9
+      ? `$${(oiUSD / 1e9).toFixed(2)}B`
+      : `$${(oiUSD / 1e6).toFixed(0)}M`;
+    const coinQtyNote = oi.currentCoinQty != null
+      ? ` (${oi.currentCoinQty.toFixed(0)} coins)`
+      : '';
     const trendStr = oi.trend24hPct != null ? `${oi.trend24hPct >= 0 ? '+' : ''}${oi.trend24hPct.toFixed(1)}% 24h` : '24h trend pending';
     const arrow = oi.direction === 'rising' ? '↑ ' : oi.direction === 'falling' ? '↓ ' : '→ ';
     const reading = arrow + oi.direction.charAt(0).toUpperCase() + oi.direction.slice(1);
     const impact = oi.direction === 'rising' ? 'Bullish' : oi.direction === 'falling' ? 'Bearish' : 'Neutral';
-    rows.push(indTableRow('Open Interest', `$${oiM}M (${trendStr})`, reading, impact,
-      'Rising OI + rising price = genuine new buying. Rising OI + falling price = new shorts, bearish conviction. Falling OI = positions being closed/liquidated. Context only.',
-      'Total open perpetual futures contracts. Rising OI alongside price = real money entering. Falling OI = positions unwinding. Divergence between price and OI often precedes reversals.'));
+    rows.push(indTableRow('Open Interest', `${oiDisplay}${coinQtyNote} (${trendStr})`, reading, impact,
+      'Rising OI + rising price = genuine new buying. Rising OI + falling price = new shorts, bearish conviction. Falling OI = positions being closed/liquidated. Context only. Value shown in USD notional.',
+      'Total open perpetual futures contracts in USD notional value. Rising OI alongside price = real money entering. Falling OI = positions unwinding. Divergence between price and OI often precedes reversals.'));
   }
 
   if (!rows.length) return `<div style="padding:12px;color:var(--muted);font-size:12px">Indicator data not yet available. Refreshes every 15 minutes.</div>`;

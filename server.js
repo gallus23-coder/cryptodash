@@ -486,13 +486,21 @@ async function updateIndicators() {
     if (meta?.symbol) {
       try {
         const deriv = await fetchFundingAndOI(meta.symbol);
-        const now   = Date.now();
-        if (deriv.fundingRate != null || deriv.openInterest != null) {
-          db.upsertDerivatives({ coin_id: id, time: now, funding_rate: deriv.fundingRate, open_interest: deriv.openInterest });
+        // openInterest from Binance is coin quantity (e.g. number of BTC).
+        // Multiply by current USD price for cross-coin comparable notional value.
+        const oiCoinQty = deriv.openInterest;
+        const oiUSD     = oiCoinQty != null ? oiCoinQty * price : null;
+        const now = Date.now();
+        if (deriv.fundingRate != null || oiCoinQty != null) {
+          db.upsertDerivatives({ coin_id: id, time: now, funding_rate: deriv.fundingRate, open_interest: oiCoinQty, open_interest_usd: oiUSD });
         }
         const ago = db.getDerivativesAgo(id, 24 * 3600 * 1000);
-        fundingRate   = derivTrend(deriv.fundingRate,  ago, 'funding_rate');
-        openInterest  = derivTrend(deriv.openInterest, ago, 'open_interest');
+        fundingRate = derivTrend(deriv.fundingRate, ago, 'funding_rate');
+        // Build openInterest trend using USD notional for comparability; expose coin qty separately
+        const oiTrend = derivTrend(oiUSD, ago, 'open_interest_usd');
+        if (oiTrend != null) {
+          openInterest = { ...oiTrend, currentCoinQty: oiCoinQty };
+        }
       } catch (e) {
         console.warn(`[indicators] derivatives fetch failed for ${id}:`, e.message);
       }
