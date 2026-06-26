@@ -2075,7 +2075,9 @@ function renderStatus(d) {
   function connCard(label, state) {
     const ok = state?.ok;
     const dot = ok === true ? 'green' : ok === false ? 'red' : 'grey';
-    const dotLabel = ok === true ? '<span class="conn-ok">Connected</span>' : ok === false ? '<span class="conn-err">Error</span>' : '<span style="color:var(--muted);font-size:12px">No data yet</span>';
+    const dotLabel = ok === true ? '<span class="conn-ok">Connected</span>'
+                 : ok === false ? '<span class="conn-err">Error</span>'
+                 : '<span style="color:var(--muted);font-size:12px">Not called yet this session</span>';
     const sub = ok === true ? `last success ${relTime(state.lastSuccessAt)}`
               : ok === false ? `<span style="color:var(--red);font-size:10px">${esc((state.lastError || '').slice(0, 80))}</span>`
               : '';
