@@ -1,0 +1,28 @@
+{
+  "fetchedAt": 1782407101003,
+  "pairs": {
+    "AAVEUSDT": "AAVE/GBP",
+    "ADAUSDT": "ADA/GBP",
+    "ALGOUSDT": "ALGO/GBP",
+    "ATOMUSDT": "ATOM/GBP",
+    "BCHUSDT": "BCH/GBP",
+    "DOTUSDT": "DOT/GBP",
+    "FILUSDT": "FIL/GBP",
+    "GRTUSDT": "GRT/GBP",
+    "KSMUSDT": "KSM/GBP",
+    "LINKUSDT": "LINK/GBP",
+    "LTCUSDT": "LTC/GBP",
+    "MINAUSDT": "MINA/GBP",
+    "PEPEUSDT": "PEPE/GBP",
+    "POPCATUSDT": "POPCAT/GBP",
+    "SANDUSDT": "SAND/GBP",
+    "SOLUSDT": "SOL/GBP",
+    "SUIUSDT": "SUI/GBP",
+    "WIFUSDT": "WIF/GBP",
+    "XDGUSDT": "XDG/GBP",
+    "ETHUSDT": "ETH/GBP",
+    "XRPUSDT": "XRP/GBP",
+    "XBTUSDT": "XBT/GBP",
+    "XLMUSDT": "XLM/GBP"
+  }
+}

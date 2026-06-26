@@ -224,6 +224,13 @@ function getDerivativesAgo(coin_id, msAgo) {
   ).get(coin_id, cutoff);
 }
 
+function getLatestDerivativesTime() {
+  try {
+    const row = prepare('SELECT MAX(time) as t FROM derivatives_history').get();
+    return row?.t ?? null;
+  } catch { return null; }
+}
+
 function pruneDerivatives(keepMs) {
   const cutoff = Date.now() - keepMs;
   const result = _db.prepare(
@@ -247,7 +254,7 @@ function pruneCandles(interval, keepMs) {
 
 module.exports = {
   initDb, upsertMeta, getMeta, getAllMeta, updateMarketCap, getMetaBySymbol,
-  upsertDerivatives, getDerivativesAgo, pruneDerivatives,
+  upsertDerivatives, getDerivativesAgo, pruneDerivatives, getLatestDerivativesTime,
   insertCandles, getLastCandleTime, getCloses, getVolumes, getOHLCLimit, getCandles, getAggCandles,
   calculateRSI, pruneCandles,
 };

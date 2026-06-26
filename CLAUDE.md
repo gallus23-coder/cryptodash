@@ -1075,6 +1075,28 @@ Polls `/api/freqtrade/combined` on tab open. Renders:
 
 `loadPortfolio()` called on tab switch; results not auto-polled (manual refresh by switching away and back). Instance data fetched in parallel; one instance being down does not block the other.
 
+### Status tab
+
+System health overview. Polls `/api/status` every 30s while tab is active (`startStatusPolling` / `stopStatusPolling` on tab switch).
+
+Six sections:
+
+1. **Live trading banner** — red full-width warning rendered if either instance has `dry_run: false`
+2. **Services** (3-card row): systemd state, uptime, PID, dry-run badge for each service (`crypto-dashboard`, `freqtrade`, `freqtrade-trend`)
+3. **Data freshness** (4-card row): signal, indicator, scanner, derivatives age in minutes. Green ≤15 min, amber ≤45 min, red beyond
+4. **Connectivity** (4-card row): Anthropic, Binance, Kraken, CoinGecko — green/red/grey dot, last success time or last error message
+5. **Resources** (4-card row): CPU load% (1-min avg), memory used%, disk free GB, Pi CPU temp °C. Amber/red thresholds per card
+6. **Recent Errors** — collapsible table; last 30 errors from in-memory `_errorLog`, columns: timestamp / service / message
+
+**Backend infrastructure in `server.js`:**
+
+- `_connState` — in-memory object tracking connectivity per service (`anthropic`, `binance`, `coingecko`, `kraken`). Each entry: `{ ok, lastError, lastSuccessAt, lastErrorAt }`. Updated by `recordConnSuccess(service)` / `recordConnError(service, err)` called at every external API call site.
+- `_errorLog` — rolling array, max 30 entries, newest first. Updated by `logError(service, message)`. Entries: `{ ts, service, message }`. Not persisted across restarts.
+- `getServiceInfo(serviceName)` — calls `systemctl show` via `child_process.execFile`; parses ActiveState, ExecMainPID, ExecMainStartTimestamp into `{ running, pid, uptimeSeconds }`.
+- `getDiskInfo()` — calls `df -BM /` and parses output for `{ diskFreeGB, diskTotalGB, diskUsedPercent }`.
+- `getCpuTemp()` — reads `/sys/class/thermal/thermal_zone0/temp` (millidegrees → °C). Returns `null` if unavailable.
+- `/api/status` — 15s server-side cache (`_statusCache`). Aggregates: 3× `getServiceInfo`, `getDiskInfo`, `os.loadavg/totalmem/freemem`, `db.getLatestDerivativesTime()`, reads of `signals.json`/`indicators.json`/`scanner.json` for freshness, Freqtrade `/status` for open trade counts, direct config-file reads for `dry_run`. Kraken connectivity inferred from FT reachability.
+
 ---
 
 ## API Endpoints
@@ -1110,6 +1132,7 @@ Polls `/api/freqtrade/combined` on tab open. Renders:
 | GET | `/api/freqtrade/trend/profit` | TF instance profit summary |
 | GET | `/api/freqtrade/trend/health` | TF instance liveness |
 | GET | `/api/freqtrade/combined` | Both instances merged: combined balance, P&L, win rates |
+| GET | `/api/status` | System health: services, data freshness, connectivity, resources, trading state, recent errors. 15s server-side cache. |
 
 ---
 

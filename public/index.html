@@ -336,6 +336,46 @@ select.form-input { cursor: pointer; }
 .portfolio-compare td { padding: 8px 14px; border-top: 1px solid var(--border); font-family: var(--mono); }
 .portfolio-loading { padding: 60px 0; text-align: center; color: var(--muted); font-size: 13px; }
 
+/* ── status tab ── */
+.status-tab { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+.status-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-family: var(--mono); margin-bottom: -4px; }
+.status-row { display: grid; gap: 12px; }
+.status-row-3 { grid-template-columns: repeat(3, 1fr); }
+.status-row-4 { grid-template-columns: repeat(4, 1fr); }
+.status-row-2 { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 700px) { .status-row-3,.status-row-4,.status-row-2 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { .status-row-3,.status-row-4,.status-row-2 { grid-template-columns: 1fr; } }
+.status-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.status-card-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--mono); }
+.status-card-val { font-size: 18px; font-weight: 600; font-family: var(--mono); }
+.status-card-val.sm { font-size: 13px; }
+.status-card-sub { font-size: 11px; color: var(--muted); }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; flex-shrink: 0; }
+.status-dot-green { background: #16A34A; }
+.status-dot-red   { background: #DC2626; }
+.status-dot-amber { background: #D97706; }
+.status-dot-grey  { background: #9CA3AF; }
+.status-service-row { display: flex; align-items: center; gap: 6px; }
+.status-uptime { font-size: 12px; font-family: var(--mono); color: var(--muted); }
+.status-pid { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+.live-banner { background: #FEF2F2; border: 2px solid #DC2626; border-radius: var(--radius); padding: 12px 16px; display: flex; align-items: center; gap: 10px; }
+.live-banner-icon { font-size: 18px; }
+.live-banner-text { font-size: 13px; font-weight: 600; color: #B91C1C; }
+.status-error-list { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.status-error-toggle { width: 100%; background: none; border: none; cursor: pointer; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; font-family: var(--sans); text-align: left; }
+.status-error-toggle:hover { background: var(--bg3); }
+.status-error-toggle-title { font-size: 13px; font-weight: 600; }
+.status-error-body { display: none; border-top: 1px solid var(--border); }
+.status-error-body.open { display: block; }
+.status-error-row { display: grid; grid-template-columns: 130px 120px 1fr; gap: 8px; padding: 7px 16px; border-bottom: 1px solid var(--border); font-size: 11px; font-family: var(--mono); align-items: start; }
+.status-error-row:last-child { border-bottom: none; }
+.status-error-ts { color: var(--muted); }
+.status-error-svc { color: var(--accent2); }
+.status-error-msg { color: var(--red); word-break: break-word; }
+.status-empty { padding: 16px; font-size: 12px; color: var(--muted); text-align: center; }
+.conn-ok { color: #15803D; font-size: 12px; font-weight: 600; }
+.conn-err { color: var(--red); font-size: 11px; }
+
 /* ── strategy reference panel ── */
 .strat-ref { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .strat-ref-toggle { width: 100%; background: none; border: none; cursor: pointer; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; font-family: var(--sans); text-align: left; }
@@ -378,6 +418,7 @@ select.form-input { cursor: pointer; }
     <button class="nav-tab" onclick="switchTab('opportunities')">Opportunities</button>
     <button class="nav-tab" onclick="switchTab('backtest')">Backtest</button>
     <button class="nav-tab" onclick="switchTab('portfolio')">Portfolio</button>
+    <button class="nav-tab" onclick="switchTab('status')">Status</button>
   </nav>
   <div class="header-right">
     <span id="status-pill" class="status-pill status-loading"><span class="dot"></span> Loading</span>
@@ -480,6 +521,12 @@ select.form-input { cursor: pointer; }
 <div id="tab-portfolio" class="tab-content">
   <div class="portfolio-tab" id="portfolio-content">
     <div class="portfolio-loading" id="portfolio-loading">Loading portfolio data…</div>
+  </div>
+</div>
+
+<div id="tab-status" class="tab-content">
+  <div class="status-tab" id="status-content">
+    <div class="portfolio-loading" id="status-loading">Loading system status…</div>
   </div>
 </div>
 
@@ -1193,6 +1240,7 @@ function switchTab(name) {
   if (name === 'opportunities' && !scannerData) loadScanner();
   if (name === 'backtest') { populateBtCoinDropdown(); if (!backtestData) loadBacktest(); }
   if (name === 'portfolio') loadPortfolio();
+  if (name === 'status') { loadStatus(); startStatusPolling(); } else { stopStatusPolling(); }
 }
 
 // ── signals refresh ────────────────────────────────────────────────────────────
@@ -1906,6 +1954,221 @@ function renderPortfolio(d) {
     </div>`;
 
   el.innerHTML = summaryCards + instances + compareHtml + stratRefHtml;
+}
+
+// ── Status tab ────────────────────────────────────────────────────────────────
+
+let _statusPollTimer = null;
+let _statusFetching  = false;
+
+function startStatusPolling() {
+  if (_statusPollTimer) return;
+  _statusPollTimer = setInterval(loadStatus, 30000);
+}
+function stopStatusPolling() {
+  if (_statusPollTimer) { clearInterval(_statusPollTimer); _statusPollTimer = null; }
+}
+
+async function loadStatus() {
+  if (_statusFetching) return;
+  _statusFetching = true;
+  try {
+    const r = await fetch('/api/status');
+    if (!r.ok) throw new Error('Status endpoint error ' + r.status);
+    renderStatus(await r.json());
+  } catch (e) {
+    const el = document.getElementById('status-content');
+    if (el) el.innerHTML = `<div class="portfolio-loading" style="color:var(--red)">⚠ ${esc(e.message)}</div>`;
+  } finally {
+    _statusFetching = false;
+  }
+}
+
+function fmtUptime(sec) {
+  if (sec == null) return '—';
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function fmtAgeColour(ageMin, greenMax, amberMax) {
+  if (ageMin == null) return '#DC2626';
+  if (ageMin <= greenMax) return '#16A34A';
+  if (ageMin <= amberMax) return '#D97706';
+  return '#DC2626';
+}
+
+function relTime(iso) {
+  if (!iso) return 'never';
+  const mins = (Date.now() - new Date(iso).getTime()) / 60000;
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${Math.floor(mins)}m ago`;
+  return `${Math.floor(mins / 60)}h ${Math.floor(mins % 60)}m ago`;
+}
+
+function renderStatus(d) {
+  const el = document.getElementById('status-content');
+  if (!el) return;
+
+  const s = d.services || {};
+  const df = d.dataFreshness || {};
+  const c  = d.connectivity  || {};
+  const r  = d.resources     || {};
+  const tr = d.trading       || {};
+  const errors = d.recentErrors || [];
+
+  // ── Live trading banner
+  const liveBanners = [];
+  if (tr.meanReversion?.dryRun === false)
+    liveBanners.push(`<div class="live-banner"><span class="live-banner-icon">⚠</span><span class="live-banner-text">LIVE TRADING ACTIVE on Mean Reversion — dry_run is FALSE. Real money trades will execute.</span></div>`);
+  if (tr.trendFollowing?.dryRun === false)
+    liveBanners.push(`<div class="live-banner"><span class="live-banner-icon">⚠</span><span class="live-banner-text">LIVE TRADING ACTIVE on Trend Following — dry_run is FALSE. Real money trades will execute.</span></div>`);
+
+  // ── Services
+  function svcCard(label, info, extra) {
+    const running = info?.running;
+    const dot = running ? 'green' : 'red';
+    const uptime = fmtUptime(info?.uptimeSeconds);
+    const pid = info?.pid ? `PID ${info.pid}` : '';
+    return `<div class="status-card">
+      <div class="status-card-label">${label}</div>
+      <div class="status-service-row">
+        <span class="status-dot status-dot-${dot}"></span>
+        <span style="font-size:13px;font-weight:600;color:${running ? '#16A34A' : '#DC2626'}">${running ? 'Running' : 'Stopped'}</span>
+      </div>
+      <div class="status-uptime">${uptime}</div>
+      ${pid ? `<div class="status-pid">${pid}</div>` : ''}
+      ${extra || ''}
+    </div>`;
+  }
+
+  const dryBadge = dry => dry
+    ? `<span style="font-size:10px;font-family:var(--mono);padding:1px 6px;border-radius:8px;background:#FEF9C3;color:#854D0E;border:1px solid #FDE047">dry-run</span>`
+    : `<span style="font-size:10px;font-family:var(--mono);padding:1px 6px;border-radius:8px;background:#FEE2E2;color:#B91C1C;border:1px solid #FCA5A5">LIVE</span>`;
+
+  const services = `<div class="status-row status-row-3">
+    ${svcCard('Crypto Dashboard', s.cryptodash)}
+    ${svcCard('Mean Reversion', s.meanReversion, dryBadge(s.meanReversion?.dryRun ?? true))}
+    ${svcCard('Trend Following', s.trendFollowing, dryBadge(s.trendFollowing?.dryRun ?? true))}
+  </div>`;
+
+  // ── Data freshness
+  function freshnessCard(label, ageMin, greenMax, amberMax, lastAt) {
+    const color = fmtAgeColour(ageMin, greenMax, amberMax);
+    const val = ageMin != null ? `${ageMin.toFixed(1)} min` : '—';
+    const sub = lastAt ? relTime(lastAt) : 'never updated';
+    return `<div class="status-card">
+      <div class="status-card-label">${label}</div>
+      <div class="status-card-val" style="color:${color}">${val}</div>
+      <div class="status-card-sub">${sub}</div>
+    </div>`;
+  }
+  const freshness = `<div class="status-row status-row-4">
+    ${freshnessCard('Signals', df.signalAgeMinutes, 15, 45, df.lastSignalUpdate)}
+    ${freshnessCard('Indicators', df.indicatorAgeMinutes, 15, 45, df.lastIndicatorUpdate)}
+    ${freshnessCard('Scanner', df.scannerAgeMinutes, 70, 210, df.lastScannerRun)}
+    ${freshnessCard('Derivatives', df.derivativesAgeMinutes, 15, 45, df.lastDerivativesWrite)}
+  </div>`;
+
+  // ── Connectivity
+  function connCard(label, state) {
+    const ok = state?.ok;
+    const dot = ok === true ? 'green' : ok === false ? 'red' : 'grey';
+    const dotLabel = ok === true ? '<span class="conn-ok">Connected</span>' : ok === false ? '<span class="conn-err">Error</span>' : '<span style="color:var(--muted);font-size:12px">No data yet</span>';
+    const sub = ok === true ? `last success ${relTime(state.lastSuccessAt)}`
+              : ok === false ? `<span style="color:var(--red);font-size:10px">${esc((state.lastError || '').slice(0, 80))}</span>`
+              : '';
+    return `<div class="status-card">
+      <div class="status-card-label">${label}</div>
+      <div class="status-service-row"><span class="status-dot status-dot-${dot}"></span>${dotLabel}</div>
+      <div class="status-card-sub">${sub}</div>
+    </div>`;
+  }
+  const connectivity = `<div class="status-row status-row-4">
+    ${connCard('Anthropic', c.anthropic)}
+    ${connCard('Binance', c.binance)}
+    ${connCard('Kraken', c.kraken)}
+    ${connCard('CoinGecko', c.coingecko)}
+  </div>`;
+
+  // ── Resources
+  function resCard(label, val, suffix, sub, warn, crit) {
+    const num = typeof val === 'number' ? val : null;
+    const color = num == null ? 'var(--muted)' : num >= crit ? '#DC2626' : num >= warn ? '#D97706' : '#111827';
+    const display = num != null ? `${num}${suffix}` : '—';
+    return `<div class="status-card">
+      <div class="status-card-label">${label}</div>
+      <div class="status-card-val" style="color:${color}">${display}</div>
+      ${sub ? `<div class="status-card-sub">${sub}</div>` : ''}
+    </div>`;
+  }
+  const diskFreeWarn = r.diskFreeGB != null && r.diskFreeGB < 2;
+  const diskFreeColor = r.diskFreeGB == null ? 'var(--muted)' : r.diskFreeGB < 1 ? '#DC2626' : r.diskFreeGB < 2 ? '#D97706' : '#111827';
+  const resources = `<div class="status-row status-row-4">
+    ${resCard('CPU Load', r.cpuLoadPercent, '%', '1-min avg', 80, 95)}
+    ${resCard('Memory', r.memoryUsedPercent, '%', '', 85, 95)}
+    <div class="status-card">
+      <div class="status-card-label">Disk Free</div>
+      <div class="status-card-val" style="color:${diskFreeColor}">${r.diskFreeGB != null ? r.diskFreeGB + ' GB' : '—'}</div>
+      <div class="status-card-sub">${r.diskUsedPercent != null ? r.diskUsedPercent + '% used' : ''}</div>
+    </div>
+    ${resCard('Pi Temp', r.cpuTempCelsius, '°C', '', 70, 80)}
+  </div>`;
+
+  // ── Trading state
+  function tradeCard(label, info) {
+    if (!info) return `<div class="status-card"><div class="status-card-label">${label}</div><div class="status-card-sub">Unavailable</div></div>`;
+    const open = info.openTrades ?? '—';
+    const max  = info.maxTrades ?? 2;
+    const pct  = typeof info.openTrades === 'number' ? info.openTrades / max : null;
+    const barColor = pct === 1 ? '#D97706' : '#16A34A';
+    return `<div class="status-card">
+      <div class="status-card-label">${label}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin:4px 0">
+        ${dryBadge(info.dryRun ?? true)}
+        <span style="font-size:13px;font-weight:600;font-family:var(--mono)">${open} / ${max} trades</span>
+      </div>
+      ${pct != null ? `<div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden"><div style="height:100%;width:${Math.min(pct*100,100)}%;background:${barColor};border-radius:2px"></div></div>` : ''}
+    </div>`;
+  }
+  const trading = `<div class="status-row status-row-2">
+    ${tradeCard('Mean Reversion', tr.meanReversion)}
+    ${tradeCard('Trend Following', tr.trendFollowing)}
+  </div>`;
+
+  // ── Recent errors
+  const hasErrors = errors.length > 0;
+  const errorRows = hasErrors
+    ? errors.map(e => `<div class="status-error-row">
+        <span class="status-error-ts">${new Date(e.timestamp).toLocaleTimeString()}</span>
+        <span class="status-error-svc">${esc(e.service)}</span>
+        <span class="status-error-msg">${esc(e.message)}</span>
+      </div>`).join('')
+    : `<div class="status-empty">No recent errors ✓</div>`;
+  const errLabel = hasErrors
+    ? `<span class="status-error-toggle-title" style="color:var(--red)">Recent Errors (${errors.length})</span>`
+    : `<span class="status-error-toggle-title">Recent Errors</span>`;
+  const errBody = `<div class="status-error-list">
+    <button class="status-error-toggle" aria-expanded="${hasErrors}" onclick="const b=this.nextElementSibling;const o=b.classList.toggle('open');this.setAttribute('aria-expanded',o)">
+      ${errLabel}
+      <span style="font-size:11px;color:var(--muted);font-family:var(--mono)">▼</span>
+    </button>
+    <div class="status-error-body${hasErrors ? ' open' : ''}">${errorRows}</div>
+  </div>`;
+
+  const refreshNote = `<div style="font-size:11px;color:var(--muted);text-align:right;font-family:var(--mono)">Auto-refreshes every 30s · Last loaded ${new Date().toLocaleTimeString()}</div>`;
+
+  el.innerHTML = [
+    ...liveBanners,
+    `<div class="status-section-title">Services</div>`, services,
+    `<div class="status-section-title">Data Freshness</div>`, freshness,
+    `<div class="status-section-title">Connectivity</div>`, connectivity,
+    `<div class="status-section-title">Resources</div>`, resources,
+    `<div class="status-section-title">Trading State</div>`, trading,
+    errBody,
+    refreshNote,
+  ].join('');
 }
 
 // ── init ───────────────────────────────────────────────────────────────────────

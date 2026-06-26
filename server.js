@@ -3,6 +3,8 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { execFile } = require('child_process');
 const cron = require('node-cron');
 const notifier = require('node-notifier');
 const db = require('./db');
@@ -12,6 +14,31 @@ const ind       = require('./indicators');
 const feargreed = require('./feargreed');
 const scanner   = require('./scanner');
 const backtest  = require('./backtest');
+
+// ── In-memory connectivity tracker ───────────────────────────────────────────
+// Updated by existing fetch call-sites via recordConnSuccess / recordConnError.
+// Services: 'anthropic', 'binance', 'coingecko', 'kraken'
+const _connState = {
+  anthropic:  { ok: null, lastError: null, lastSuccessAt: null, lastErrorAt: null },
+  binance:    { ok: null, lastError: null, lastSuccessAt: null, lastErrorAt: null },
+  coingecko:  { ok: null, lastError: null, lastSuccessAt: null, lastErrorAt: null },
+  kraken:     { ok: null, lastError: null, lastSuccessAt: null, lastErrorAt: null },
+};
+function recordConnSuccess(service) {
+  const s = _connState[service];
+  if (s) { s.ok = true; s.lastError = null; s.lastSuccessAt = new Date().toISOString(); }
+}
+function recordConnError(service, err) {
+  const s = _connState[service];
+  if (s) { s.ok = false; s.lastError = String(err); s.lastErrorAt = new Date().toISOString(); }
+}
+
+// ── In-memory rolling error log (last 30 entries) ─────────────────────────────
+const _errorLog = [];
+function logError(service, message) {
+  _errorLog.unshift({ service, timestamp: new Date().toISOString(), message: String(message).slice(0, 300) });
+  if (_errorLog.length > 30) _errorLog.length = 30;
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -128,9 +155,12 @@ async function getKrakenGBPMap() {
     const map = await scanner.fetchKrakenGBPPairs();
     writeJson(KRAKEN_PAIRS_FILE, { fetchedAt: Date.now(), pairs: Object.fromEntries(map) });
     console.log(`[scanner] Kraken GBP pairs refreshed (${map.size} pairs)`);
+    recordConnSuccess('kraken');
     return map;
   } catch (e) {
     console.error('[scanner] Kraken AssetPairs fetch failed:', e.message);
+    recordConnError('kraken', e.message);
+    logError('crypto-dashboard', `[scanner] Kraken: ${e.message}`);
     if (cached && cached.pairs) return new Map(Object.entries(cached.pairs));
     return new Map();
   }
@@ -341,8 +371,11 @@ async function seedCoin(id) {
     let cgData;
     try {
       cgData = await coingecko.fetchMetadata(id);
+      recordConnSuccess('coingecko');
     } catch (e) {
       console.error(`[seed] metadata failed for ${id}:`, e.message);
+      recordConnError('coingecko', e.message);
+      logError('crypto-dashboard', `[seed] coingecko ${id}: ${e.message}`);
       return;
     }
     const symbol = binance.SYMBOL_MAP[id] || (cgData.cgSymbol + 'USDT');
@@ -400,8 +433,11 @@ async function updateCandles() {
     if (!meta || !meta.symbol) continue;
     try {
       await binance.fetchNewCandles(id, meta.symbol, '1h', db);
+      recordConnSuccess('binance');
     } catch (e) {
       console.error(`[candles] 1h update failed for ${id}:`, e.message);
+      recordConnError('binance', e.message);
+      logError('crypto-dashboard', `[candles] 1h ${id}: ${e.message}`);
     }
   }
 }
@@ -414,8 +450,11 @@ async function update1mCandles() {
     if (!meta || !meta.symbol) continue;
     try {
       await binance.fetchNewCandles(id, meta.symbol, '1m', db);
+      recordConnSuccess('binance');
     } catch (e) {
       console.error(`[candles] 1m update failed for ${id}:`, e.message);
+      recordConnError('binance', e.message);
+      logError('crypto-dashboard', `[candles] 1m ${id}: ${e.message}`);
     }
   }
 }
@@ -678,8 +717,11 @@ async function updateSignals() {
     let ticker;
     try {
       ticker = await binance.fetchTicker(meta.symbol);
+      recordConnSuccess('binance');
     } catch (e) {
       console.error(`[signals] ticker failed for ${id}:`, e.message);
+      recordConnError('binance', e.message);
+      logError('crypto-dashboard', `[signals] ticker ${id}: ${e.message}`);
       continue;
     }
     const rsiEntry  = rsiCache[id];
@@ -712,6 +754,7 @@ async function updateSignals() {
       if (!['strong_buy', 'buy', 'hold', 'sell', 'strong_sell'].includes(parsed.signal))
         throw new Error(`invalid signal: ${parsed.signal}`);
       if (typeof parsed.summary !== 'string') throw new Error('missing summary');
+      recordConnSuccess('anthropic');
       signalCache[id] = {
         signal:              parsed.signal,
         summary:             parsed.summary,
@@ -724,6 +767,12 @@ async function updateSignals() {
       };
     } catch (e) {
       console.error(`[signals] ${id}:`, e.message);
+      if (e.message.includes('Anthropic')) {
+        recordConnError('anthropic', e.message);
+        logError('crypto-dashboard', `[signals] anthropic ${id}: ${e.message}`);
+      } else {
+        logError('crypto-dashboard', `[signals] ${id}: ${e.message}`);
+      }
     }
     await new Promise(r => setTimeout(r, 500));
   }
@@ -964,10 +1013,13 @@ async function updateScanner() {
       if (!['strong_buy', 'buy', 'hold', 'sell', 'strong_sell'].includes(parsed.signal))
         throw new Error(`invalid signal: ${parsed.signal}`);
       if (typeof parsed.summary !== 'string') throw new Error('missing summary');
+      recordConnSuccess('anthropic');
       result.winner.signal        = parsed.signal;
       result.winner.signalSummary = parsed.summary;
     } catch (e) {
       console.error('[scanner] Claude failed:', e.message);
+      recordConnError('anthropic', e.message);
+      logError('crypto-dashboard', `[scanner] anthropic: ${e.message}`);
       result.winner.signal        = null;
       result.winner.signalSummary = null;
     }
@@ -1314,6 +1366,162 @@ app.get('/api/freqtrade/combined', async (req, res) => {
     meanReversion: mr,
     trend: tf,
   });
+});
+
+// ── /api/status ───────────────────────────────────────────────────────────────
+
+let _statusCache = null; // { data, at }
+const STATUS_CACHE_MS = 15 * 1000;
+
+function execShell(cmd, args) {
+  return new Promise(resolve => {
+    execFile(cmd, args, { timeout: 5000 }, (err, stdout) => resolve(err ? null : stdout.trim()));
+  });
+}
+
+async function getServiceInfo(serviceName) {
+  try {
+    const out = await execShell('systemctl', [
+      'show', serviceName,
+      '--property=ActiveState,MainPID,ExecMainStartTimestamp',
+      '--no-pager',
+    ]);
+    if (!out) return { running: false, uptimeSeconds: null, pid: null };
+    const state = (out.match(/ActiveState=(.+)/) || [])[1];
+    const pid   = parseInt((out.match(/MainPID=(\d+)/) || [])[1]) || null;
+    const ts    = (out.match(/ExecMainStartTimestamp=(.+)/) || [])[1];
+    const startMs = ts && ts !== '' && ts !== 'n/a' ? new Date(ts).getTime() : null;
+    const uptimeSeconds = startMs && !isNaN(startMs) ? Math.floor((Date.now() - startMs) / 1000) : null;
+    return { running: state === 'active', uptimeSeconds, pid };
+  } catch {
+    return { running: false, uptimeSeconds: null, pid: null };
+  }
+}
+
+async function getDiskInfo() {
+  try {
+    const out = await execShell('df', ['-BM', '/']);
+    if (!out) return null;
+    const lines = out.split('\n');
+    const parts = lines[1]?.split(/\s+/);
+    if (!parts || parts.length < 6) return null;
+    const total  = parseInt(parts[1]);
+    const used   = parseInt(parts[2]);
+    const free   = parseInt(parts[3]);
+    const usePct = parseInt(parts[4]);
+    return { diskFreeGB: parseFloat((free / 1024).toFixed(1)), diskUsedPercent: usePct, diskTotalGB: parseFloat((total / 1024).toFixed(1)) };
+  } catch { return null; }
+}
+
+function getCpuTemp() {
+  try {
+    const raw = fs.readFileSync('/sys/class/thermal/thermal_zone0/temp', 'utf8').trim();
+    return parseFloat((parseInt(raw) / 1000).toFixed(1));
+  } catch { return null; }
+}
+
+app.get('/api/status', async (req, res) => {
+  if (_statusCache && Date.now() - _statusCache.at < STATUS_CACHE_MS) {
+    return res.json(_statusCache.data);
+  }
+
+  const [cdInfo, mrInfo, tfInfo, diskInfo] = await Promise.all([
+    getServiceInfo('crypto-dashboard'),
+    getServiceInfo('freqtrade'),
+    getServiceInfo('freqtrade-trend'),
+    getDiskInfo(),
+  ]);
+
+  // data freshness
+  const signals    = readJson(SIGNALS_FILE, {});
+  const indicators = readJson(INDICATORS_FILE, {});
+  const scannerD   = readJson(SCANNER_FILE, { latest: null });
+  const now = Date.now();
+
+  function freshness(iso) {
+    if (!iso) return { timestamp: null, ageMinutes: null };
+    const ms = new Date(iso).getTime();
+    return { timestamp: iso, ageMinutes: isNaN(ms) ? null : parseFloat(((now - ms) / 60000).toFixed(1)) };
+  }
+
+  const latestSignalAt = Object.values(signals).reduce((best, s) => {
+    if (!s?.updatedAt) return best;
+    return !best || s.updatedAt > best ? s.updatedAt : best;
+  }, null);
+  const latestIndAt = Object.values(indicators).reduce((best, i) => {
+    if (!i?.updatedAt) return best;
+    return !best || i.updatedAt > best ? i.updatedAt : best;
+  }, null);
+  const scannerAt = scannerD.latest?.timestamp ? new Date(scannerD.latest.timestamp).toISOString() : null;
+
+  let derivAt = null;
+  try {
+    const t = db.getLatestDerivativesTime();
+    if (t) derivAt = new Date(t).toISOString();
+  } catch {}
+
+  // resources
+  const totalMem = os.totalmem();
+  const freeMem  = os.freemem();
+  const usedMem  = totalMem - freeMem;
+  const cpuLoad  = os.loadavg()[0]; // 1-min average
+  const cpuPct   = parseFloat(Math.min(cpuLoad * 100 / os.cpus().length, 100).toFixed(1));
+  const memPct   = parseFloat((usedMem / totalMem * 100).toFixed(1));
+
+  // trading state — read dryRun directly from config files
+  let mrDryRun = true, tfDryRun = true;
+  try { mrDryRun = JSON.parse(fs.readFileSync(FT_CONFIG_FILE, 'utf8')).dry_run !== false; } catch {}
+  try { tfDryRun = JSON.parse(fs.readFileSync(FT_TREND_CONFIG_FILE, 'utf8')).dry_run !== false; } catch {}
+
+  const [mrStatus, tfStatus] = await Promise.all([
+    meanReversionClient.safeGet('/status').catch(() => null),
+    trendClient.safeGet('/status').catch(() => null),
+  ]);
+  // /status returns array of open trades
+  const mrOpen = Array.isArray(mrStatus) ? mrStatus.length : (mrStatus === null ? null : 0);
+  const tfOpen = Array.isArray(tfStatus) ? tfStatus.length : (tfStatus === null ? null : 0);
+
+  // Kraken connectivity: infer from FT reachability
+  if (mrStatus !== null || tfStatus !== null) recordConnSuccess('kraken');
+
+  const data = {
+    services: {
+      cryptodash:    { ...cdInfo },
+      meanReversion: { ...mrInfo, dryRun: mrDryRun },
+      trendFollowing:{ ...tfInfo, dryRun: tfDryRun },
+    },
+    dataFreshness: {
+      ...freshness(latestSignalAt),
+      signalAgeMinutes:      freshness(latestSignalAt).ageMinutes,
+      lastSignalUpdate:      latestSignalAt,
+      indicatorAgeMinutes:   freshness(latestIndAt).ageMinutes,
+      lastIndicatorUpdate:   latestIndAt,
+      scannerAgeMinutes:     freshness(scannerAt).ageMinutes,
+      lastScannerRun:        scannerAt,
+      derivativesAgeMinutes: freshness(derivAt).ageMinutes,
+      lastDerivativesWrite:  derivAt,
+    },
+    connectivity: {
+      anthropic: { ..._connState.anthropic },
+      binance:   { ..._connState.binance },
+      kraken:    { ..._connState.kraken },
+      coingecko: { ..._connState.coingecko },
+    },
+    resources: {
+      cpuLoadPercent: cpuPct,
+      memoryUsedPercent: memPct,
+      ...(diskInfo || {}),
+      cpuTempCelsius: getCpuTemp(),
+    },
+    trading: {
+      meanReversion:  { dryRun: mrDryRun, openTrades: mrOpen, maxTrades: 2 },
+      trendFollowing: { dryRun: tfDryRun, openTrades: tfOpen, maxTrades: 2 },
+    },
+    recentErrors: [..._errorLog],
+  };
+
+  _statusCache = { data, at: Date.now() };
+  res.json(data);
 });
 
 // ── alert checker ──────────────────────────────────────────────────────────────
