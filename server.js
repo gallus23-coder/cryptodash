@@ -294,6 +294,43 @@ async function fetchFxRate() {
   return rate;
 }
 
+// ── Binance Futures — funding rate & open interest ───────────────────────────
+//
+// Uses Binance USDT-M Futures (fapi). Not all watchlist coins have perp contracts
+// (e.g. small-cap alts). Errors and missing data are handled gracefully — callers
+// receive null fields which are omitted from indicators.json rather than guessed.
+
+const FAPI_BASE = 'https://fapi.binance.com';
+
+async function fetchFundingAndOI(symbol) {
+  // symbol is e.g. 'BTCUSDT' — same format as spot
+  try {
+    const [premRes, oiRes] = await Promise.all([
+      fetch(`${FAPI_BASE}/fapi/v1/premiumIndex?symbol=${symbol}`),
+      fetch(`${FAPI_BASE}/fapi/v1/openInterest?symbol=${symbol}`),
+    ]);
+    const fundingRate   = premRes.ok ? parseFloat((await premRes.json()).lastFundingRate) : null;
+    const openInterest  = oiRes.ok  ? parseFloat((await oiRes.json()).openInterest)       : null;
+    return { fundingRate, openInterest };
+  } catch {
+    return { fundingRate: null, openInterest: null };
+  }
+}
+
+// Compute trend object from current value and 24h-ago DB row.
+// direction: 'rising' / 'falling' / 'flat' (±2% relative threshold)
+function derivTrend(current, agoRow, field) {
+  if (current == null) return null;
+  const agoVal = agoRow?.[field] ?? null;
+  const trend24h    = agoVal != null ? current - agoVal : null;
+  const trend24hPct = trend24h != null && agoVal !== 0 ? trend24h / Math.abs(agoVal) * 100 : null;
+  const direction   = trend24hPct == null ? 'unknown'
+                    : trend24hPct >  2 ? 'rising'
+                    : trend24hPct < -2 ? 'falling'
+                    : 'flat';
+  return { current, trend24h, trend24hPct, direction };
+}
+
 // ── seed helpers ──────────────────────────────────────────────────────────────
 
 // Fetch CoinGecko metadata + Binance candle history for one coin.
@@ -404,7 +441,8 @@ async function updateRSI() {
 async function updateIndicators() {
   const wl = readJson(WATCHLIST_FILE, { coins: [] });
   if (!wl.coins.length) return;
-  const fxRate = await fetchFxRate(); // GBP per USD; null if unavailable
+  const fxRate   = await fetchFxRate(); // GBP per USD; null if unavailable
+  const metaById = Object.fromEntries(db.getAllMeta().map(m => [m.id, m]));
   const cache = {};
   for (const id of wl.coins) {
     // Fetch one extra for each array and strip the last (incomplete forming candle)
@@ -441,12 +479,33 @@ async function updateIndicators() {
         }
       }
     }
+
+    // ── Derivatives: funding rate + open interest ────────────────────────────
+    let fundingRate = null, openInterest = null;
+    const meta = metaById[id];
+    if (meta?.symbol) {
+      try {
+        const deriv = await fetchFundingAndOI(meta.symbol);
+        const now   = Date.now();
+        if (deriv.fundingRate != null || deriv.openInterest != null) {
+          db.upsertDerivatives({ coin_id: id, time: now, funding_rate: deriv.fundingRate, open_interest: deriv.openInterest });
+        }
+        const ago = db.getDerivativesAgo(id, 24 * 3600 * 1000);
+        fundingRate   = derivTrend(deriv.fundingRate,  ago, 'funding_rate');
+        openInterest  = derivTrend(deriv.openInterest, ago, 'open_interest');
+      } catch (e) {
+        console.warn(`[indicators] derivatives fetch failed for ${id}:`, e.message);
+      }
+    }
+
     cache[id] = {
       macd, bb, ema50, ema200, emaAbovePrice, goldenCross, deathCross,
       stochRsi, volumeRatio, atr14, atr14Pct,
       ...(fxRate != null
         ? { priceGBP: price * fxRate, gbpUsdRate: fxRate, gbpUsdRateUpdatedAt: _fxRateCache?.fetchedAt ?? null }
         : {}),
+      ...(fundingRate  != null ? { fundingRate }  : {}),
+      ...(openInterest != null ? { openInterest } : {}),
       updatedAt: new Date().toISOString(),
     };
   }
@@ -517,7 +576,8 @@ Respond ONLY with valid JSON, no markdown, no prose. Use exactly this shape:
     "timeStopNote": "<one sentence on likelihood of resolving within ${params.timeStop}h>"
   },
   "newsImpact": "<none|minor|major>",
-  "newsNote": "<one sentence if newsImpact is minor or major, else null>"
+  "newsNote": "<one sentence if newsImpact is minor or major, else null>",
+  "derivativesContext": "<one sentence on what funding rate and/or OI trend signals about conviction or risk, or null if derivatives data absent>"
 }`;
 }
 
@@ -551,6 +611,32 @@ function buildWatchlistSignalPrompt(meta, price, change24h, rsi, i, fngStr, volu
     lines.push(`ATR-14 (1h): $${i.atr14.toFixed(4)}${atrPct}`);
   }
   lines.push(`Fear & Greed: ${fngStr}`);
+
+  // ── Derivatives context (qualitative signal, NOT a hard entry gate) ────────
+  const hasDeriv = i.fundingRate || i.openInterest;
+  if (hasDeriv) {
+    lines.push('');
+    lines.push('DERIVATIVES MARKET CONTEXT (qualitative judgment — NOT a hard pass/fail gate):');
+    if (i.fundingRate) {
+      const fr = i.fundingRate;
+      const frPct = (fr.current * 100).toFixed(4);
+      const trendNote = fr.trend24hPct != null
+        ? `, ${fr.direction} (${fr.trend24hPct >= 0 ? '+' : ''}${fr.trend24hPct.toFixed(1)}% over 24h)`
+        : '';
+      lines.push(`Funding rate: ${frPct}%${trendNote}`);
+      lines.push('  Rising funding into a rally can signal overheating — leveraged longs paying more. Falling/negative funding during a dip signals short capitulation, often precedes bounces.');
+    }
+    if (i.openInterest) {
+      const oi = i.openInterest;
+      const oiTrendNote = oi.trend24hPct != null
+        ? ` ${oi.direction} (${oi.trend24hPct >= 0 ? '+' : ''}${oi.trend24hPct.toFixed(1)}% over 24h)`
+        : ' — direction unknown (no 24h history yet)';
+      lines.push(`Open interest:${oiTrendNote} (current: $${(oi.current / 1e6).toFixed(1)}M)`);
+      lines.push('  Rising price + rising OI = new money entering, trend likely genuine. Rising price + falling OI = short covering, weaker conviction. Falling price + rising OI = new shorts, bearish. Falling price + falling OI = longs liquidating, potential snap-back.');
+    }
+    lines.push('If OI/funding contradicts the technical setup, note this and consider downgrading confidence (e.g. strong_buy → buy) even if all 9 technical criteria are met. Populate derivativesContext with your interpretation.');
+  }
+
   lines.push('');
   lines.push('Evaluate this coin against the strategy criteria above and return the JSON response.');
   return lines.join('\n');
@@ -619,12 +705,13 @@ async function updateSignals() {
         throw new Error(`invalid signal: ${parsed.signal}`);
       if (typeof parsed.summary !== 'string') throw new Error('missing summary');
       signalCache[id] = {
-        signal:          parsed.signal,
-        summary:         parsed.summary,
-        entryQuality:    parsed.entryQuality    || null,
-        riskAssessment:  parsed.riskAssessment  || null,
-        newsImpact:      parsed.newsImpact      || 'none',
-        newsNote:        parsed.newsNote        || null,
+        signal:              parsed.signal,
+        summary:             parsed.summary,
+        entryQuality:        parsed.entryQuality        || null,
+        riskAssessment:      parsed.riskAssessment      || null,
+        newsImpact:          parsed.newsImpact          || 'none',
+        newsNote:            parsed.newsNote            || null,
+        derivativesContext:  parsed.derivativesContext  || null,
         updatedAt: new Date().toISOString(),
       };
     } catch (e) {
@@ -1305,6 +1392,11 @@ cron.schedule('0 0 * * *', () => {
     db.pruneCandles('1m', 7 * 24 * 3600 * 1000);
   } catch (e) {
     console.error('[cron prune]', e.message);
+  }
+  try {
+    db.pruneDerivatives(7 * 24 * 3600 * 1000); // keep 7 days of derivatives history
+  } catch (e) {
+    console.error('[cron prune derivatives]', e.message);
   }
 });
 

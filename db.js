@@ -45,6 +45,14 @@ function initDb() {
       UNIQUE (coin_id, interval, time)
     );
     CREATE INDEX IF NOT EXISTS idx_candles_cit ON candles(coin_id, interval, time DESC);
+    CREATE TABLE IF NOT EXISTS derivatives_history (
+      coin_id        TEXT    NOT NULL,
+      time           INTEGER NOT NULL,
+      funding_rate   REAL,
+      open_interest  REAL,
+      UNIQUE(coin_id, time)
+    );
+    CREATE INDEX IF NOT EXISTS idx_deriv_cit ON derivatives_history(coin_id, time DESC);
   `);
 }
 
@@ -190,6 +198,33 @@ function getMetaBySymbol(symbol) {
   return prepare('SELECT * FROM coin_meta WHERE symbol = ?').get(symbol) || null;
 }
 
+// ── derivatives history ───────────────────────────────────────────────────────
+
+function upsertDerivatives({ coin_id, time, funding_rate, open_interest }) {
+  prepare(`
+    INSERT OR REPLACE INTO derivatives_history (coin_id, time, funding_rate, open_interest)
+    VALUES (@coin_id, @time, @funding_rate, @open_interest)
+  `).run({ coin_id, time, funding_rate, open_interest });
+}
+
+// Returns most-recent row at or before `cutoffMs` ago. Used for 24h trend calc.
+function getDerivativesAgo(coin_id, msAgo) {
+  const cutoff = Date.now() - msAgo;
+  return prepare(
+    'SELECT * FROM derivatives_history WHERE coin_id = ? AND time <= ? ORDER BY time DESC LIMIT 1'
+  ).get(coin_id, cutoff);
+}
+
+function pruneDerivatives(keepMs) {
+  const cutoff = Date.now() - keepMs;
+  const result = _db.prepare(
+    'DELETE FROM derivatives_history WHERE time < ?'
+  ).run(cutoff);
+  if (result.changes > 0) {
+    console.log(`[db] pruned ${result.changes} old derivatives rows`);
+  }
+}
+
 // Prune candles older than keepMs for a given interval. Called daily.
 function pruneCandles(interval, keepMs) {
   const cutoff = Date.now() - keepMs;
@@ -203,6 +238,7 @@ function pruneCandles(interval, keepMs) {
 
 module.exports = {
   initDb, upsertMeta, getMeta, getAllMeta, updateMarketCap, getMetaBySymbol,
+  upsertDerivatives, getDerivativesAgo, pruneDerivatives,
   insertCandles, getLastCandleTime, getCloses, getVolumes, getOHLCLimit, getCandles, getAggCandles,
   calculateRSI, pruneCandles,
 };

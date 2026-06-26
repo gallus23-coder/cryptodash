@@ -163,6 +163,23 @@ Intervals stored: `1h` (90 days depth) and `1m` (7 days depth). Aggregated inter
 
 **Volume note**: stored as base asset volume (BTC, ETH, etc.) from Binance kline index `k[5]`. `k[7]` (USDT quote volume) must NOT be used — it was a bug that was fixed.
 
+### `derivatives_history`
+
+```sql
+CREATE TABLE derivatives_history (
+  coin_id        TEXT    NOT NULL,
+  time           INTEGER NOT NULL,   -- Unix ms (when row was recorded)
+  funding_rate   REAL,               -- Binance USDT-M perp lastFundingRate (e.g. 0.0001 = 0.01%)
+  open_interest  REAL,               -- Binance USDT-M perp openInterest in base asset units
+  UNIQUE(coin_id, time)
+);
+CREATE INDEX idx_deriv_cit ON derivatives_history(coin_id, time DESC);
+```
+
+Populated every 15 minutes (same cycle as `updateIndicators`). Pruned to 7 days at midnight. Not all watchlist coins have Binance USDT-M perp contracts — rows are only inserted when data is available.
+
+`upsertDerivatives()`, `getDerivativesAgo(coin_id, msAgo)`, `pruneDerivatives(keepMs)` in `db.js`.
+
 ### `coin_meta`
 
 ```sql
@@ -191,6 +208,15 @@ Base URL: `https://api.binance.com`
 - Kline format: `[openTime, open, high, low, close, baseVolume, closeTime, quoteVolume, ...]`
   - `k[5]` = base asset volume (what we store) ✓
   - `k[7]` = quote asset volume in USDT (do NOT use)
+
+### Binance Futures (USDT-M, public API, no key required)
+
+Base URL: `https://fapi.binance.com`
+
+- **Funding rate**: `GET /fapi/v1/premiumIndex?symbol=BTCUSDT` — returns `lastFundingRate` (8h rate, e.g. 0.0001 = 0.01%)
+- **Open interest**: `GET /fapi/v1/openInterest?symbol=BTCUSDT` — returns `openInterest` in base asset units
+
+Called in `fetchFundingAndOI(symbol)` within `updateIndicators()` every 15 min per coin. Errors are non-fatal — coins without perp contracts (or API failures) simply omit the `fundingRate`/`openInterest` fields from `indicators.json`.
 
 ### CoinGecko (free tier, no key required)
 
@@ -285,7 +311,7 @@ initDb()
 
 1. `updateCandles()` — fetch new 1h candles from Binance for each watchlist coin
 2. `updateRSI()` — read closes from SQLite, recalculate RSI-14, write `rsi.json`
-3. `updateIndicators()` — compute MACD, Bollinger, EMA50/200, golden/death cross, StochRSI, volume ratio, ATR-14; fetch GBP/USD rate (1h cache via `fetchFxRate`); write `indicators.json` with `priceGBP`, `gbpUsdRate`, `gbpUsdRateUpdatedAt` fields added per coin
+3. `updateIndicators()` — compute MACD, Bollinger, EMA50/200, golden/death cross, StochRSI, volume ratio, ATR-14; fetch GBP/USD rate (1h cache via `fetchFxRate`); fetch Binance Futures funding rate + OI via `fetchFundingAndOI`, store to `derivatives_history`, compute 24h trends; write `indicators.json` with `priceGBP`, `fundingRate`, `openInterest` objects per coin
 4. `updateSignals()` — for each watchlist coin: fetch live ticker, build prompt, call Claude API, write `signals.json`
 
 `signals.json` is the **signal bridge** — Freqtrade reads it on every candle close.
@@ -361,11 +387,19 @@ from `indCache['bitcoin'].emaAbovePrice` before the coin loop.
   },
   "newsImpact": "none",
   "newsNote": null,
+  "derivativesContext": "Rising OI confirms genuine buying conviction behind this setup",
   "updatedAt": "2026-06-05T12:00:00.000Z"
 }
 ```
 
 Signal must be one of: `strong_buy`, `buy`, `hold`, `sell`, `strong_sell`. If `entryQuality`/`riskAssessment` fields are absent (old cached entries or parse failure), they are stored as `null` — the UI degrades gracefully, and Freqtrade will not act on the signal (allCriteriaMet is treated as false when absent).
+
+**`derivativesContext`** is a qualitative one-sentence summary of what the funding rate and open interest trend signals about market conviction or reversal risk. It is:
+- Populated only when `fundingRate` and/or `openInterest` data is available in `indicators.json` for that coin
+- **NOT a hard pass/fail gate** — it does not affect `allCriteriaMet`, `entryQuality`, or Freqtrade entry logic
+- Intentional design choice: avoid changing trade frequency/behaviour until sufficient trade history exists to validate that these signals correlate with actual outcomes
+- Future action: after 20+ trades, run learning analysis to check whether `derivativesContext` content correlates with win/loss — only then consider promoting specific conditions to hard entry criteria
+- Displayed in the explain panel under a clearly-labelled "Derivatives Context (qualitative)" section, visually distinct from the Strategy Alignment pass/fail list
 
 **IMPORTANT — keep in sync with Freqtrade:** The system prompt must stay in sync with `CryptodashStrategy.py` and `config.json`. If entry criteria, stop/target levels, or signal scale change, update `WATCHLIST_SIGNAL_SYSTEM` in `server.js` **and** the corresponding Freqtrade parameters.
 
@@ -1050,7 +1084,7 @@ Polls `/api/freqtrade/combined` on tab open. Renders:
 | GET | `/api/market` | Live market data for all watchlist coins (price, change, sparkline) |
 | GET | `/api/candles/:coinId?interval=` | OHLCV candles (1m/5m/15m/1h/4h/1d) |
 | GET | `/api/rsi` | RSI cache (`{ coinId: { rsi, updatedAt } }`) |
-| GET | `/api/signals` | Signal cache (`{ coinId: { signal, summary, entryQuality, riskAssessment, newsImpact, newsNote, updatedAt } }`) |
+| GET | `/api/signals` | Signal cache (`{ coinId: { signal, summary, entryQuality, riskAssessment, newsImpact, newsNote, derivativesContext, updatedAt } }`) |
 | GET | `/api/indicators` | Full indicators cache per coin |
 | GET | `/api/feargreed` | Fear & Greed index (`{ value, classification, fetchedAt }`) |
 | GET | `/api/scanner` | Latest scanner result + 24-scan history |

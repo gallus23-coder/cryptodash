@@ -690,7 +690,26 @@ function buildGaugeRowInner(coinId, price) {
   if (emaCircles) parts.push(`<div class="gauge-item"><span class="gauge-label">EMA 50/200</span>${emaCircles}</div>`);
   if (stochBar) parts.push(stochBar);
   if (fgBit) parts.push(`<div class="gauge-item">${fgBit}</div>`);
-  parts.push(`<div class="gauge-item"><span class="gauge-label">Funding</span><span style="font-size:11px;color:var(--muted)">—</span></div>`);
+  // Funding rate trend
+  if (ind.fundingRate) {
+    const fr = ind.fundingRate;
+    const frPct = (fr.current * 100).toFixed(4);
+    const arrow = fr.direction === 'rising' ? '↑' : fr.direction === 'falling' ? '↓' : '→';
+    const frColor = fr.direction === 'rising' ? '#D97706' : fr.direction === 'falling' ? '#16A34A' : '#9CA3AF';
+    const trendNote = fr.trend24hPct != null ? ` ${fr.trend24hPct >= 0 ? '+' : ''}${fr.trend24hPct.toFixed(1)}%` : '';
+    parts.push(`<div class="gauge-item"><span class="gauge-label">Funding</span><span style="font-size:11px;font-family:var(--mono);color:${frColor}">${frPct}% <span title="24h trend: ${fr.direction}${trendNote}">${arrow}</span></span></div>`);
+  } else {
+    parts.push(`<div class="gauge-item"><span class="gauge-label">Funding</span><span style="font-size:11px;color:var(--muted)">—</span></div>`);
+  }
+  // Open interest trend
+  if (ind.openInterest) {
+    const oi = ind.openInterest;
+    const arrow = oi.direction === 'rising' ? '↑' : oi.direction === 'falling' ? '↓' : '→';
+    const oiAligns = oi.direction === 'rising'; // simplistic — rising OI generally positive for trend
+    const oiColor = oi.direction === 'unknown' ? '#9CA3AF' : oiAligns ? '#16A34A' : '#D97706';
+    const trendNote = oi.trend24hPct != null ? `${oi.trend24hPct >= 0 ? '+' : ''}${oi.trend24hPct.toFixed(1)}%` : '—';
+    parts.push(`<div class="gauge-item"><span class="gauge-label">OI</span><span style="font-size:11px;font-family:var(--mono);color:${oiColor}" title="Open interest 24h change: ${trendNote}">${arrow} ${trendNote}</span></div>`);
+  }
 
   const isOpen = openPanelCoin === coinId;
   return `<div class="gauge-inner">
@@ -811,6 +830,32 @@ function buildIndicatorPanel(coinId, price) {
       'Measures overall crypto market sentiment 0–100. Extreme Fear often marks market bottoms. Extreme Greed often precedes corrections. Best used as a contrarian indicator.'));
   }
 
+  // Funding Rate Trend
+  if (ind.fundingRate) {
+    const fr = ind.fundingRate;
+    const frPct = (fr.current * 100).toFixed(4);
+    const trendStr = fr.trend24hPct != null ? `${fr.trend24hPct >= 0 ? '+' : ''}${fr.trend24hPct.toFixed(1)}% 24h` : '24h trend pending';
+    const arrow = fr.direction === 'rising' ? '↑ ' : fr.direction === 'falling' ? '↓ ' : '→ ';
+    const reading = arrow + fr.direction.charAt(0).toUpperCase() + fr.direction.slice(1);
+    const impact = fr.direction === 'rising' ? 'Bearish' : fr.direction === 'falling' ? 'Bullish' : 'Neutral';
+    rows.push(indTableRow('Funding Rate', `${frPct}% (${trendStr})`, reading, impact,
+      'Rising funding = longs paying more to hold — can signal overheating. Falling/negative = shorts capitulating, often precedes bounces. Context only, not a hard entry gate.',
+      'Perpetual futures funding rate — paid between longs and shorts every 8h. Positive = longs pay shorts (bullish sentiment). Rising into a rally = crowded, watch for squeeze.'));
+  }
+
+  // Open Interest Trend
+  if (ind.openInterest) {
+    const oi = ind.openInterest;
+    const oiM = (oi.current / 1e6).toFixed(0);
+    const trendStr = oi.trend24hPct != null ? `${oi.trend24hPct >= 0 ? '+' : ''}${oi.trend24hPct.toFixed(1)}% 24h` : '24h trend pending';
+    const arrow = oi.direction === 'rising' ? '↑ ' : oi.direction === 'falling' ? '↓ ' : '→ ';
+    const reading = arrow + oi.direction.charAt(0).toUpperCase() + oi.direction.slice(1);
+    const impact = oi.direction === 'rising' ? 'Bullish' : oi.direction === 'falling' ? 'Bearish' : 'Neutral';
+    rows.push(indTableRow('Open Interest', `$${oiM}M (${trendStr})`, reading, impact,
+      'Rising OI + rising price = genuine new buying. Rising OI + falling price = new shorts, bearish conviction. Falling OI = positions being closed/liquidated. Context only.',
+      'Total open perpetual futures contracts. Rising OI alongside price = real money entering. Falling OI = positions unwinding. Divergence between price and OI often precedes reversals.'));
+  }
+
   if (!rows.length) return `<div style="padding:12px;color:var(--muted);font-size:12px">Indicator data not yet available. Refreshes every 15 minutes.</div>`;
 
   const updatedAt = sigEntry.updatedAt;
@@ -873,6 +918,15 @@ function buildIndicatorPanel(coinId, price) {
     </div>`;
   }
 
+  // Derivatives Context — shown only when Claude returned derivativesContext
+  let derivHtml = '';
+  if (sigEntry.derivativesContext) {
+    derivHtml = `<div style="margin-top:10px;padding:10px 12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;">
+      <div style="font-size:12px;font-weight:600;color:#92400E;margin-bottom:4px">Derivatives Context <span style="font-weight:400;font-size:10px;color:#B45309">(qualitative — not a trade gate)</span></div>
+      <div style="font-size:12px;color:#78350F;line-height:1.5">${esc(sigEntry.derivativesContext)}</div>
+    </div>`;
+  }
+
   return `<table class="ind-table">
     <thead><tr>
       <th>Indicator</th><th>Value</th><th>Reading</th><th>Impact</th><th>How it&apos;s used</th>
@@ -880,6 +934,7 @@ function buildIndicatorPanel(coinId, price) {
     <tbody>${rows.join('')}</tbody>
   </table>
   ${strategyHtml}
+  ${derivHtml}
   <div style="margin-top:10px;padding:10px 12px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;">
     <div style="font-size:12px;font-weight:600;color:#1E40AF;margin-bottom:3px">Claude AI interpretation</div>
     <div style="font-size:11px;color:#3B82F6">${timestampLine}</div>
