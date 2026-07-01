@@ -1787,11 +1787,34 @@ function renderPortfolio(d) {
       </div>`;
 
     const openTrades   = Array.isArray(data.openTrades) ? data.openTrades : [];
-    const recentTrades = Array.isArray(data.recentTrades) ? data.recentTrades.slice(0, 5) : [];
+    // Sort newest-first by close_date or open_date, then slice
+    const recentTrades = Array.isArray(data.recentTrades)
+      ? [...data.recentTrades].sort((a, b) => {
+          const ta = a.close_timestamp ?? a.open_timestamp ?? 0;
+          const tb = b.close_timestamp ?? b.open_timestamp ?? 0;
+          return tb - ta;
+        }).slice(0, 5)
+      : [];
     const bal  = data.balance?.total ?? null;
     const pl   = data.profit?.profit_all_coin ?? null;
     const tc   = data.profit?.trade_count ?? 0;
     const wr   = data.profit?.winrate ?? null;
+
+    function exitBadge(reason) {
+      if (!reason) return '';
+      const r = String(reason).toLowerCase();
+      if (r === 'roi' || r.startsWith('roi'))
+        return `<span style="font-size:9px;font-family:var(--mono);padding:1px 5px;border-radius:6px;background:rgba(22,163,74,0.15);color:#16A34A;border:1px solid rgba(22,163,74,0.3);margin-left:4px">TP</span>`;
+      if (r === 'stop_loss' || r === 'stoploss')
+        return `<span style="font-size:9px;font-family:var(--mono);padding:1px 5px;border-radius:6px;background:rgba(220,38,38,0.15);color:#DC2626;border:1px solid rgba(220,38,38,0.3);margin-left:4px">SL</span>`;
+      if (r.includes('signal_reversal') || r.includes('signal reversal'))
+        return `<span style="font-size:9px;font-family:var(--mono);padding:1px 5px;border-radius:6px;background:rgba(37,99,235,0.15);color:#2563EB;border:1px solid rgba(37,99,235,0.3);margin-left:4px">Sig</span>`;
+      if (r.includes('time_stop') || r.includes('time stop'))
+        return `<span style="font-size:9px;font-family:var(--mono);padding:1px 5px;border-radius:6px;background:rgba(217,119,6,0.15);color:#D97706;border:1px solid rgba(217,119,6,0.3);margin-left:4px">TS</span>`;
+      if (r.startsWith('force_'))
+        return `<span style="font-size:9px;font-family:var(--mono);padding:1px 5px;border-radius:6px;background:rgba(156,163,175,0.2);color:#6B7280;border:1px solid rgba(156,163,175,0.4);margin-left:4px">Manual</span>`;
+      return '';
+    }
 
     const openRows = openTrades.length
       ? openTrades.map(t => `
@@ -1805,7 +1828,10 @@ function renderPortfolio(d) {
       ? recentTrades.map(t => `
           <div class="pi-trade">
             <span class="pi-trade-pair">${esc(t.pair)}</span>
-            <span class="pi-trade-pl ${(t.profit_abs ?? 0) >= 0 ? 'up' : 'dn'}">${fmtGBP(t.profit_abs)}</span>
+            <span style="display:flex;align-items:center">
+              <span class="pi-trade-pl ${(t.profit_abs ?? 0) >= 0 ? 'up' : 'dn'}">${fmtGBP(t.profit_abs)}</span>
+              ${exitBadge(t.exit_reason ?? t.sell_reason)}
+            </span>
           </div>`).join('')
       : `<div style="font-size:12px;color:var(--muted);padding:6px 0">No closed trades yet</div>`;
 
