@@ -32,7 +32,8 @@ class CryptodashTrendStrategy(IStrategy):
 
     Entry: price above both EMA50 and EMA200, RSI 45-70, MACD positive and rising,
            volume above 1.2x average, signal is not sell/strong_sell.
-    Exit:  15% take profit, 5% stop loss, 48h time stop, strong_sell reversal.
+    Exit:  adaptive ROI (custom_roi), 5% stop loss, 48h time stop, strong_sell reversal.
+           Minimum hold: 240 minutes before any exit fires.
 
     Does NOT require allCriteriaMet: true or signal == strong_buy.
     Any non-sell signal (hold, buy, strong_buy) qualifies as trend-allowed entry.
@@ -42,12 +43,16 @@ class CryptodashTrendStrategy(IStrategy):
 
     timeframe = '1h'
     stoploss = -0.05
+
+    # Fallback only — active if custom_roi returns None (before 4h minimum hold).
     minimal_roi = {
-        "0":  0.15,
-        "48": 0.05,
-        "72": 0.00,
+        "240": 0.03,
+        "480": 0.02,
+        "720": 0.015,
+        "960": 0.008,
     }
 
+    use_custom_roi = True
     trailing_stop = False
     process_only_new_candles = True
     use_exit_signal = True
@@ -147,6 +152,93 @@ class CryptodashTrendStrategy(IStrategy):
     def signal_is_strong_sell(self, signal: dict) -> bool:
         return signal.get('signal') == 'strong_sell'
 
+    def get_market_phase(self) -> str:
+        """
+        Detect current market phase by reading BTC's signal from signals.json —
+        the same file already used by read_signal().
+
+        Returns 'bull' if BTC is above its 200 EMA, 'bear' otherwise.
+        Defaults to 'bear' if the file cannot be read or BTC signal is missing,
+        to ensure conservative behaviour on any error.
+        """
+        try:
+            if not SIGNALS_FILE.exists():
+                return 'bear'
+            with open(SIGNALS_FILE, 'r') as f:
+                signals = json.load(f)
+            btc = signals.get('bitcoin', {})
+            # Use the summary field — phase-aware signal prompt in cryptodash
+            # includes 'above ema200' or 'bull' in bull conditions
+            summary = btc.get('summary', '').lower()
+            if 'above ema200' in summary or 'bull' in summary:
+                return 'bull'
+            return 'bear'
+        except Exception as e:
+            logger.warning(
+                f'[trend] Could not determine market phase, '
+                f'defaulting to bear: {e}')
+            return 'bear'
+
+    # ── custom ROI ────────────────────────────────────────────────────────────
+    def custom_roi(self, pair: str, trade, current_time: datetime,
+                   trade_duration: int, entry_tag: Optional[str],
+                   side: str, **kwargs) -> Optional[float]:
+        """
+        Adaptive ROI based on current market phase.
+
+        Bull market (BTC above 200 EMA):
+          Trends run further — higher targets, more time to develop before
+          stepping down.
+
+        Bear market (BTC below 200 EMA):
+          Choppier conditions — take profit faster, floor at fee breakeven
+          (0.8% gross ≈ 0% net after round-trip fees).
+
+        Minimum hold time (240 min) enforced here and in custom_exit —
+        belt and braces.
+
+        Bear targets: based on actual observed peak gains from 13 live
+          dry-run trades (Jun-Jul 2026): max 3.98%, median ~0.85%.
+        Bull targets: based on Jun-Nov 2024 hyperopt data showing
+          significantly higher peak moves in confirmed uptrend conditions.
+        """
+        # Enforce minimum hold — return None before 4h so no ROI exit fires
+        if trade_duration < 240:
+            return None
+
+        phase = self.get_market_phase()
+
+        if phase == 'bull':
+            roi_table = {
+                240:  0.08,   # 8% after 4h
+                480:  0.05,   # 5% after 8h
+                720:  0.03,   # 3% after 12h
+                960:  0.015,  # 1.5% after 16h
+                1440: 0.008,  # fee breakeven after 24h
+            }
+        else:  # bear
+            roi_table = {
+                240:  0.03,   # 3% after 4h
+                480:  0.02,   # 2% after 8h
+                720:  0.015,  # 1.5% after 12h
+                960:  0.008,  # fee breakeven after 16h
+            }
+
+        # Find the highest applicable time key
+        applicable = {k: v for k, v in roi_table.items() if k <= trade_duration}
+        if not applicable:
+            return None
+
+        threshold = roi_table[max(applicable.keys())]
+
+        logger.debug(
+            f'[trend] custom_roi {pair} | '
+            f'Phase: {phase} | '
+            f'Duration: {trade_duration}min | '
+            f'ROI threshold: {threshold:.3f} ({threshold*100:.1f}%)')
+
+        return threshold
+
     # ── entry logic ───────────────────────────────────────────────────────────
     def populate_entry_trend(self, dataframe: DataFrame,
                              metadata: dict) -> DataFrame:
@@ -210,6 +302,14 @@ class CryptodashTrendStrategy(IStrategy):
     def custom_exit(self, pair: str, trade, current_time: datetime,
                     current_rate: float, current_profit: float,
                     **kwargs) -> Optional[str]:
+        # Minimum hold time — don't let signal reversal exit
+        # a trade that's barely open
+        MIN_HOLD_MINUTES = 240
+        trade_duration_minutes = (
+            current_time - trade.open_date_utc
+        ).total_seconds() / 60
+        if trade_duration_minutes < MIN_HOLD_MINUTES:
+            return None
         # Time stop at 48h
         trade_duration_hours = (
             current_time - trade.open_date_utc

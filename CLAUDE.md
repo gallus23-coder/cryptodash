@@ -465,7 +465,8 @@ Two Freqtrade instances run in **dry-run (paper trading) mode** on the same Rasp
 |-----------|-------|
 | `dry_run` | `true` |
 | `stoploss` | `-0.05` |
-| `minimal_roi` | `{"0": 0.15, "48": 0.05, "72": 0.00}` |
+| `minimal_roi` | `{"240": 0.03, "480": 0.02, "720": 0.015, "960": 0.008}` (fallback only — active before 4h minimum hold) |
+| `use_custom_roi` | `True` — adaptive ROI via `custom_roi()` (see below) |
 | `max_open_trades` | `2` |
 | `stake_amount` | `200` (£200) |
 | `dry_run_wallet` | `1000` |
@@ -542,9 +543,34 @@ Entry tag: `cryptodash_trend_entry`
 | Reason | Mechanism |
 |--------|-----------|
 | `stoploss` | Freqtrade built-in, -5% |
-| `roi` | Freqtrade built-in: +15% at 0h, +5% at 48h, +0% at 72h |
+| `roi` | `custom_roi()`: adaptive targets by phase; fallback `minimal_roi` active before 4h hold |
 | `trend_time_stop_48h` | `custom_exit`: trade open > 48h |
 | `trend_signal_reversal` | `custom_exit`: signal becomes `strong_sell` only |
+
+**Adaptive ROI (`custom_roi`) — July 2026:**
+
+Phase detected from BTC's `summary` field in `signals.json` (same file as `read_signal()`). Returns `None` before 240 min — no ROI exit in first 4h. `custom_exit` also enforces 240 min minimum hold independently (belt and braces).
+
+Bear market ROI table (BTC below EMA200):
+
+| Duration | Target |
+|----------|--------|
+| 240 min (4h) | 3% |
+| 480 min (8h) | 2% |
+| 720 min (12h) | 1.5% |
+| 960 min (16h) | 0.8% (fee breakeven) |
+
+Bull market ROI table (BTC above EMA200):
+
+| Duration | Target |
+|----------|--------|
+| 240 min (4h) | 8% |
+| 480 min (8h) | 5% |
+| 720 min (12h) | 3% |
+| 960 min (16h) | 1.5% |
+| 1440 min (24h) | 0.8% (fee breakeven) |
+
+Bear targets calibrated from 13 live dry-run trades (Jun–Jul 2026): max peak gain 3.98%, median ~0.85%, fee round-trip ~0.8% gross. Bull targets from Jun–Nov 2024 hyperopt data.
 
 ### Strategy Comparison
 
@@ -558,10 +584,11 @@ Entry tag: `cryptodash_trend_entry`
 | StochRSI | < 17 (bear) / < 39 (bull) | Not checked |
 | Volume | ≥ 1.7× (bear) / ≥ 1.8× (bull) | ≥ 1.2× |
 | Stop loss | 7% (compromise) | 5% |
-| Take profit | 20% (bull) / 15% (bear) | 15% (scales down at 48h) |
+| Take profit | 20% (bull) / 15% (bear) | adaptive `custom_roi` (bull: 8/5/3/1.5/0.8%; bear: 3/2/1.5/0.8%) |
 | Time stop | 89h (bear) / 67h (bull) | 48h |
+| Minimum hold | None | 240 min (enforced in both `custom_roi` and `custom_exit`) |
 | Signal reversal | sell or strong_sell | strong_sell only |
-| Phase adaptive | Yes | No |
+| Phase adaptive | Yes | ROI targets only (entry conditions fixed) |
 
 ### Freqtrade Useful Commands
 
@@ -1225,6 +1252,32 @@ reversal logic rather than a lower ROI, since ROI cannot vary per trade.
 
 Next hyperopt: recommended after 6 months of live data or when market conditions
 change significantly (BTC reclaims or loses 200 EMA for sustained period).
+
+### Trend Strategy — Adaptive ROI (July 2026)
+
+`CryptodashTrendStrategy` uses `custom_roi()` to dynamically set take profit targets
+based on current market phase, detected from `signals.json` (BTC's `summary` field —
+same file used by `read_signal()`). `use_custom_roi = True` at class level.
+
+Bear market ROI (BTC below 200 EMA):
+  240min: 3%  |  480min: 2%  |  720min: 1.5%  |  960min: 0.8%
+
+Bull market ROI (BTC above 200 EMA):
+  240min: 8%  |  480min: 5%  |  720min: 3%  |  960min: 1.5%  |  1440min: 0.8%
+
+Minimum hold: 240 minutes enforced in BOTH `custom_roi` (returns `None` before 4h) and
+`custom_exit` (returns `None` before 4h). Belt and braces — both must agree before any
+exit fires.
+
+Bear targets calibrated from 13 live dry-run trades (Jun–Jul 2026): max peak gain 3.98%,
+median ~0.85%. Fee round-trip is ~0.8% gross so 0.8% = ~0% net.
+
+Bull targets from Jun–Nov 2024 hyperopt data showing significantly higher peak moves in
+confirmed uptrend conditions.
+
+`minimal_roi` in `config_trend.json` acts as fallback only — Freqtrade requires it but
+`custom_roi` takes precedence when `use_custom_roi = True`. The fallback values mirror the
+bear ROI table (`240: 0.03, 480: 0.02, 720: 0.015, 960: 0.008`).
 
 ---
 
