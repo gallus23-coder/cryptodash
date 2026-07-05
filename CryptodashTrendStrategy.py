@@ -242,11 +242,12 @@ class CryptodashTrendStrategy(IStrategy):
     # ── entry logic ───────────────────────────────────────────────────────────
     def populate_entry_trend(self, dataframe: DataFrame,
                              metadata: dict) -> DataFrame:
-        pair = metadata['pair']
-        coin_id = self.pair_to_coin_id(pair)
-
+        # Zero out unconditionally first — never mark historical rows as entries
         dataframe['enter_long'] = 0
         dataframe['enter_tag']  = ''
+
+        pair = metadata['pair']
+        coin_id = self.pair_to_coin_id(pair)
 
         if not coin_id:
             logger.warning(f'[trend] No coin mapping for {pair}')
@@ -277,8 +278,10 @@ class CryptodashTrendStrategy(IStrategy):
             (dataframe['volume'] > 0)
         )
 
-        dataframe.loc[entry_conditions, 'enter_long'] = 1
-        dataframe.loc[entry_conditions, 'enter_tag']  = 'cryptodash_trend_entry'
+        # Only signal entry on the CURRENT (last) candle — never historical rows
+        if entry_conditions.iloc[-1]:
+            dataframe.loc[dataframe.index[-1], 'enter_long'] = 1
+            dataframe.loc[dataframe.index[-1], 'enter_tag']  = 'cryptodash_trend_entry'
 
         is_entry_now = dataframe['enter_long'].iloc[-1] == 1
         if is_entry_now:

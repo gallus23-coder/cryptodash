@@ -231,11 +231,12 @@ class CryptodashStrategy(IStrategy):
         Parameters adapt automatically based on whether BTC
         is above or below its 200 EMA (bull vs bear market).
         """
-        pair = metadata['pair']
-        coin_id = self.pair_to_coin_id(pair)
-
+        # Zero out unconditionally first — never mark historical rows as entries
         dataframe['enter_long'] = 0
         dataframe['enter_tag']  = ''
+
+        pair = metadata['pair']
+        coin_id = self.pair_to_coin_id(pair)
 
         if not coin_id:
             logger.warning(f'[cryptodash] No coin mapping for {pair}')
@@ -268,11 +269,13 @@ class CryptodashStrategy(IStrategy):
             (dataframe['volume'] > 0)
         )
 
-        dataframe.loc[entry_conditions, 'enter_long'] = 1
-        dataframe.loc[entry_conditions, 'enter_tag'] = \
-            f'cryptodash_{phase}_strong_buy'
+        # Only signal entry on the CURRENT (last) candle — never historical rows
+        if entry_conditions.iloc[-1]:
+            dataframe.loc[dataframe.index[-1], 'enter_long'] = 1
+            dataframe.loc[dataframe.index[-1], 'enter_tag']  = \
+                f'cryptodash_{phase}_strong_buy'
 
-        if entry_conditions.any():
+        if entry_conditions.iloc[-1]:
             logger.info(
                 f'[cryptodash] ENTRY SIGNAL: {pair} | '
                 f'Phase: {phase} | '

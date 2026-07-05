@@ -1789,11 +1789,9 @@ function renderPortfolio(d) {
     const openTrades   = Array.isArray(data.openTrades) ? data.openTrades : [];
     // Sort newest-first by close_date or open_date, then slice
     const recentTrades = Array.isArray(data.recentTrades)
-      ? [...data.recentTrades].sort((a, b) => {
-          const ta = a.close_timestamp ?? a.open_timestamp ?? 0;
-          const tb = b.close_timestamp ?? b.open_timestamp ?? 0;
-          return tb - ta;
-        }).slice(0, 5)
+      ? [...data.recentTrades]
+          .sort((a, b) => (b.trade_id ?? 0) - (a.trade_id ?? 0))
+          .slice(0, 5)
       : [];
     const bal  = data.balance?.total ?? null;
     const pl   = data.profit?.profit_all_coin ?? null;
