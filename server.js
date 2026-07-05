@@ -1287,7 +1287,7 @@ async function ftPortfolioBundle(client) {
   const [profit, status, trades, balance] = await Promise.all([
     client.safeGet('/profit'),
     client.safeGet('/status'),
-    client.safeGet('/trades?limit=20'),
+    client.safeGet('/trades?limit=50'),
     client.safeGet('/balance'),
   ]);
   return { profit, openTrades: status, recentTrades: trades?.trades ?? null, balance };

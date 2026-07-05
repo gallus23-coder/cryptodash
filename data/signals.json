@@ -1,106 +1,110 @@
 {
   "bitcoin": {
-    "signal": "strong_sell",
-    "summary": "Bitcoin fails 4 of 6 entry criteria: price is below EMA200 (uptrend broken), MACD line is deeply negative at -4.09, volume ratio is critically low at 0.17x (only 14% of required threshold), and Fear & Greed at extreme 10/100 signals capitulation.",
+    "signal": "hold",
+    "summary": "Bitcoin is above EMA200 (uptrend confirmed) with RSI at 52.1 and Stoch RSI %K at 20.6 (both favorable), but fails the critical volume ratio requirement (1.11x vs. 1.8x minimum) and MACD histogram is deeply negative (-25.49), indicating deteriorating macro momentum. Fear & Greed at 23 suggests capitulation but entry conditions are incomplete.",
     "entryQuality": {
       "allCriteriaMet": false,
       "marginalCriteria": [
-        "RSI at 45.4 is at upper edge of 25-45 band but acceptable",
-        "Stochastic RSI %K at 33.1 meets oversold criterion"
+        "Price within 1.2% of EMA50: $62,804 vs $62,571 = 0.37% — well met",
+        "Stochastic RSI %K at 20.6 — well below 39 threshold"
       ],
       "failingCriteria": [
-        "Price $62861.34 is below EMA200 $65333.07 — uptrend not confirmed",
-        "MACD line -4.088819 is deeply negative — macro momentum is bearish",
-        "Volume ratio 0.17x is far below 1.2x requirement — participation absent",
-        "Price $62861.34 is 0.05% below EMA50 but broader structure deteriorating"
+        "MACD histogram -25.49 (deeply negative; requires histogram > 0)",
+        "Volume ratio 1.11x (requires >= 1.8x; critical participation missing)"
       ]
     },
     "riskAssessment": {
-      "stopLossRisk": "high",
-      "stopLossNote": "ATR suggests $423.92 volatility; a 5% stop at $59717.27 could be easily tested given downside momentum and price already below key MA support.",
+      "stopLossRisk": "medium",
+      "stopLossNote": "ATR-14 of $232 (0.37% of price) is tight; 7% stop = $5,796, providing 25× ATR cushion, but low volume context makes fills unpredictable.",
       "takeProfitReachable": false,
-      "takeProfitNote": "Negative MACD, broken uptrend, and extreme fear sentiment make 10% upside target ($69147.47) unlikely within near term.",
+      "takeProfitNote": "MACD histogram collapse and volume drought suggest momentum is insufficient for 20% rally without external catalyst or multi-day consolidation.",
       "timeStopRisk": "high",
-      "timeStopNote": "Capitulation signals and structural breakdown suggest 72 hours is insufficient for mean reversion setup to resolve in buy direction."
-    },
-    "newsImpact": "major",
-    "newsNote": "Extreme Fear & Greed reading of 10/100 indicates market-wide capitulation; potential macro headwind or liquidation event driving volume collapse and bearish structure.",
-    "updatedAt": "2026-06-09T09:15:08.249Z"
-  },
-  "ethereum": {
-    "signal": "strong_sell",
-    "summary": "Ethereum fails multiple critical entry criteria: price is below EMA200 (downtrend confirmation), volume ratio is severely depressed at 0.06x vs 1.2x requirement, and MACD histogram is negative despite positive line value. Extreme Fear sentiment (10/100) reinforces downside risk.",
-    "entryQuality": {
-      "allCriteriaMet": false,
-      "marginalCriteria": [
-        "RSI at 50.5 is slightly above the 25-45 pullback range but acceptable"
-      ],
-      "failingCriteria": [
-        "Price $1677.09 is below EMA200 $1751.52 — no confirmed uptrend",
-        "Volume ratio 0.06x is critically below 1.2x threshold — no participation confirmation",
-        "MACD histogram negative at -2.39 — momentum deteriorating despite positive line"
-      ]
-    },
-    "riskAssessment": {
-      "stopLossRisk": "high",
-      "stopLossNote": "5% stop loss at $1593.24 is marginally wider than 1h ATR ($17.64), but downtrend structure makes any long entry high-risk.",
-      "takeProfitReachable": false,
-      "takeProfitNote": "With price below 200 EMA and extreme fear sentiment, 10% upside target ($1844.80) faces structural headwinds with minimal momentum support.",
-      "timeStopRisk": "high",
-      "timeStopNote": "Bearish alignment and volume collapse suggest this setup could deteriorate further within 72h rather than resolve upward."
-    },
-    "newsImpact": "major",
-    "newsNote": "Extreme Fear reading (10/100) indicates significant negative sentiment or macro headwinds likely driving price below moving averages and volume collapse.",
-    "updatedAt": "2026-06-09T09:15:15.342Z"
-  },
-  "solana": {
-    "signal": "strong_sell",
-    "summary": "Solana fails 4 of 6 entry criteria: price is below EMA200 (downtrend), RSI at 52 is overbought for mean reversion setup, Stochastic RSI %K at 53.6 is well above the 30 oversold threshold, and volume ratio of 0.09x is critically low at 7.5% of the 1.2x requirement. The setup is fundamentally broken.",
-    "entryQuality": {
-      "allCriteriaMet": false,
-      "marginalCriteria": [],
-      "failingCriteria": [
-        "Price below EMA200 ($66.71 vs $70.12) — downtrend, not uptrend",
-        "RSI at 52.0 — overbought territory, not the 25-45 pullback zone",
-        "Stochastic RSI %K at 53.6 — well above 30 threshold, not oversold",
-        "Volume ratio 0.09x — severely below 1.2x requirement, no participation"
-      ]
-    },
-    "riskAssessment": {
-      "stopLossRisk": "high",
-      "stopLossNote": "Price already below structural support (EMA200), making a 5% stop loss insufficient protection in weakening downtrend.",
-      "takeProfitReachable": false,
-      "takeProfitNote": "No uptrend momentum exists; MACD histogram is negative and price is below 200 EMA, making a 10% rally unlikely without reversal confirmation.",
-      "timeStopRisk": "high",
-      "timeStopNote": "Extreme fear sentiment (10/100) and downtrend structure suggest resolution away from entry target within 72h is probable."
-    },
-    "newsImpact": "minor",
-    "newsNote": "Extreme Fear & Greed reading suggests market-wide stress; Solana's underperformance may reflect sector weakness rather than coin-specific catalysts.",
-    "updatedAt": "2026-06-09T09:15:23.538Z"
-  },
-  "cardano": {
-    "signal": "strong_sell",
-    "summary": "Cardano fails 4 of 6 entry criteria: price is below EMA200 (downtrend, not uptrend), RSI at 53.4 is above the 25–45 pullback range, MACD line is marginally positive but histogram is negative (momentum deteriorating), and volume ratio is critically low at 0.12x versus required 1.2x. Extreme Fear sentiment (10/100) and price action below long-term MA confirm downtrend conditions.",
-    "entryQuality": {
-      "allCriteriaMet": false,
-      "marginalCriteria": [],
-      "failingCriteria": [
-        "Price below EMA200 ($0.1691 vs $0.1853) — downtrend, not uptrend",
-        "RSI at 53.4 — above 25–45 range, indicating strength without pullback",
-        "Volume ratio at 0.12x — far below 1.2x requirement, no participation",
-        "MACD histogram negative at -0.000246 — momentum rolling over despite positive line"
-      ]
-    },
-    "riskAssessment": {
-      "stopLossRisk": "high",
-      "stopLossNote": "ATR at 1.47% is tight; 5% stop loss would be $0.1605, but price is already in structural downtrend below 200 EMA with no uptrend foundation.",
-      "takeProfitReachable": false,
-      "takeProfitNote": "Negative MACD histogram, deteriorating RSI, and volume collapse make 10% upside target ($0.1860) highly unlikely without reversal confirmation.",
-      "timeStopRisk": "high",
-      "timeStopNote": "With downtrend intact and Extreme Fear sentiment, price is unlikely to resolve upward within 72 hours; time stop will likely trigger without profit."
+      "timeStopNote": "Extreme Fear reading (23/100) and falling OI + falling funding rate hint at capitulation, but lack of volume conviction means bounce may stall before 67 hours elapse."
     },
     "newsImpact": "none",
     "newsNote": null,
-    "updatedAt": "2026-06-09T09:15:29.173Z"
+    "derivativesContext": "Funding rate falling (-51.9%) and OI declining (-2.1%) while price is sideways suggests short covering and deleveraging, not fresh conviction. This is a mild positive signal for potential reversal bounce, but does not override the missing volume participation — entry should wait for volume confirmation.",
+    "updatedAt": "2026-07-05T19:45:46.195Z"
+  },
+  "ethereum": {
+    "signal": "sell",
+    "summary": "ETH price is above EMA200 confirming uptrend, MACD is positive, and RSI shows pullback; however, Stochastic RSI %K at 96.0 signals extreme overbought conditions on the fast oscillator, and critically, volume ratio of 0.23x severely fails the 1.8x participation requirement, indicating weak entry conviction. Fear & Greed at 23 reflects market stress despite technical structure.",
+    "entryQuality": {
+      "allCriteriaMet": false,
+      "marginalCriteria": [
+        "Price within 1.2% of EMA50 ($1781.69 vs $1757.96 = 1.35% — marginally above threshold)"
+      ],
+      "failingCriteria": [
+        "RSI 61.2 is above the 32–53 range (overbought, not pulled back enough)",
+        "Stochastic RSI %K at 96.0 is well above the <39 requirement (severely overbought on fast oscillator)",
+        "Volume ratio 0.23x falls far short of 1.8x requirement (critically weak participation)"
+      ]
+    },
+    "riskAssessment": {
+      "stopLossRisk": "high",
+      "stopLossNote": "ATR-14 of $9.27 (0.52%) is much tighter than the 7% stop loss ($124.71), suggesting volatility is contained but entry timing during an extreme overbought state (Stoch RSI 96) creates snap-back risk.",
+      "takeProfitReachable": false,
+      "takeProfitNote": "Stochastic RSI at 96 and RSI at 61 indicate momentum is exhausted; price is at Bollinger upper band ($1781.98) with BW only 1.5%, leaving minimal room for the 20% upside target without a significant new impulse.",
+      "timeStopRisk": "high",
+      "timeStopNote": "With overbought oscillators and Fear & Greed at extreme lows (23), a mean-reversion pullback or consolidation is more likely within 67 hours than a 20% rally; time stop risk is elevated."
+    },
+    "newsImpact": "minor",
+    "newsNote": "Fear & Greed index at 23/100 (Extreme Fear) reflects broad market stress; no specific Ethereum news noted, but sentiment tailwind is absent.",
+    "derivativesContext": "Funding rate at 0.0044% is falling sharply (-55.9% in 24h), which typically signals short capitulation and potential bounce, but this is contradicted by open interest flat (-0.3%), indicating no fresh conviction from either longs or shorts. The combination of falling funding with flat OI during an overbought pullback suggests limited institutional buying interest to support a rally.",
+    "updatedAt": "2026-07-05T19:45:54.352Z"
+  },
+  "solana": {
+    "signal": "sell",
+    "summary": "Solana price is above EMA200 and RSI is acceptable at 47.9, but volume participation is critically weak (0.35x vs 1.8x requirement), MACD line is negative, and Stochastic RSI is deeply overbought at 77.4—indicating exhaustion rather than mean reversion setup. Fear & Greed extreme (23) combined with falling OI suggests conviction is fading.",
+    "entryQuality": {
+      "allCriteriaMet": false,
+      "marginalCriteria": [
+        "Price within 1.2% of EMA50 (currently $81.03 vs $81.1261 = 0.15% distance, acceptable)"
+      ],
+      "failingCriteria": [
+        "Volume ratio 0.35x vs 1.8x minimum (severe deficit, no participation confirmation)",
+        "MACD line -0.120967 is negative (macro momentum failing)",
+        "Stochastic RSI %K 77.4 is well above 39 threshold (overbought, not oversold)",
+        "MACD histogram positive but line deeply negative (conflicting momentum signals)"
+      ]
+    },
+    "riskAssessment": {
+      "stopLossRisk": "medium",
+      "stopLossNote": "ATR of $0.5243 (0.65%) is tighter than 7% stop; price could trigger stop in volatile intraday moves, but uptrend structure is intact.",
+      "takeProfitReachable": false,
+      "takeProfitNote": "Stochastic overbought at 77.4 and MACD line negative signal exhaustion; momentum is not aligned for a 20% push higher without mean reversion first.",
+      "timeStopRisk": "high",
+      "timeStopNote": "Extreme fear sentiment (23), negative MACD, and falling OI suggest the setup is more likely to consolidate or pull back than resolve upward within 67 hours."
+    },
+    "newsImpact": "none",
+    "newsNote": null,
+    "derivativesContext": "Funding rate rising (+71.3%) into a weakening uptrend and falling OI (-3.5%) signals short covering without fresh conviction; leveraged longs are overstretched. This contradicts the setup and reinforces deterioration signal.",
+    "updatedAt": "2026-07-05T19:45:22.467Z"
+  },
+  "cardano": {
+    "signal": "hold",
+    "summary": "Cardano fails the critical volume requirement (0.48x vs 1.8x needed) and MACD histogram is negative, preventing entry despite price above EMA200 and RSI at 55. Extreme fear sentiment and falling OI suggest weak conviction in any bounce attempt.",
+    "entryQuality": {
+      "allCriteriaMet": false,
+      "marginalCriteria": [
+        "Price within 1.2% of EMA50 (currently $0.1888 vs $0.1843 EMA50 = 0.24% above, well within tolerance)"
+      ],
+      "failingCriteria": [
+        "Volume ratio 0.48x vs 1.8x minimum (severely insufficient participation)",
+        "MACD histogram negative (-0.000439) despite positive line, macro momentum not confirmed"
+      ]
+    },
+    "riskAssessment": {
+      "stopLossRisk": "medium",
+      "stopLossNote": "ATR-14 of 1.30% is tighter than the 7% stop-loss buffer, suggesting volatile intraday movement could trigger stops on noise rather than trend reversal.",
+      "takeProfitReachable": false,
+      "takeProfitNote": "MACD histogram negative and extreme fear sentiment indicate weak upside momentum; 20% target unlikely without fresh buying participation.",
+      "timeStopRisk": "high",
+      "timeStopNote": "Falling OI (-5.5%) combined with -2.33% 24h price decline and extreme fear suggest capital is exiting; 67-hour resolution unlikely without major catalyst."
+    },
+    "newsImpact": "none",
+    "newsNote": null,
+    "derivativesContext": "Flat funding rate (0.0100%) with falling OI (-5.5%) into a down move indicates short covering is not occurring and longs are liquidating; low conviction and weakness in the setup. This contradicts any mean-reversion bounce narrative.",
+    "updatedAt": "2026-07-05T19:46:06.526Z"
   }
 }

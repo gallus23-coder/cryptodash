@@ -3,7 +3,6 @@
     "bitcoin",
     "ethereum",
     "solana",
-    "cardano",
-    "xrp"
+    "cardano"
   ]
 }
