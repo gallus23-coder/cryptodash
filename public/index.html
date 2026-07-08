@@ -322,10 +322,16 @@ select.form-input { cursor: pointer; }
 .pi-stat-val { font-size: 15px; font-weight: 600; font-family: var(--mono); }
 .pi-section-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--mono); margin-top: 4px; }
 .pi-trade-list { display: flex; flex-direction: column; gap: 4px; }
-.pi-trade { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.pi-trade { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
 .pi-trade:last-child { border-bottom: none; }
 .pi-trade-pair { font-family: var(--mono); font-weight: 600; }
 .pi-trade-pl { font-family: var(--mono); }
+.pi-trade-detail { display: none; padding: 10px 0 6px; border-bottom: 1px solid var(--border); }
+.pi-trade-detail.open { display: block; }
+.pi-trade-detail-header { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-bottom: 8px; flex-wrap: wrap; }
+.pi-trade-detail-header strong { color: #111827; font-weight: 600; }
+.pi-trade-detail canvas { width: 100% !important; height: 140px !important; }
+.pi-trade-empty { font-size: 12px; color: var(--muted); padding: 8px 0; }
 .pi-frequi-link { display: inline-block; font-size: 11px; color: var(--accent2); text-decoration: none; margin-top: 4px; }
 .pi-frequi-link:hover { text-decoration: underline; }
 .pi-offline { padding: 32px 0; text-align: center; color: var(--muted); font-size: 13px; }
@@ -551,6 +557,7 @@ select.form-input { cursor: pointer; }
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
 // ── globals ────────────────────────────────────────────────────────────────────
 let marketData  = [];
@@ -1774,7 +1781,7 @@ function renderPortfolio(d) {
     </div>`;
 
   // ── instance panel builder
-  function instancePanel(data, label, badgeCls, port, freqUiPort) {
+  function instancePanel(data, label, badgeCls, port, freqUiPort, bot) {
     if (!data) return `
       <div class="portfolio-instance">
         <div class="portfolio-instance-header">
@@ -1824,12 +1831,16 @@ function renderPortfolio(d) {
 
     const closedRows = recentTrades.length
       ? recentTrades.map(t => `
-          <div class="pi-trade">
+          <div class="pi-trade" data-trade-id="${t.trade_id}" data-bot="${bot}"
+               onclick="toggleTradeDetail(this)">
             <span class="pi-trade-pair">${esc(t.pair)}</span>
             <span style="display:flex;align-items:center">
               <span class="pi-trade-pl ${(t.profit_abs ?? 0) >= 0 ? 'up' : 'dn'}">${fmtGBP(t.profit_abs)}</span>
               ${exitBadge(t.exit_reason ?? t.sell_reason)}
             </span>
+          </div>
+          <div class="pi-trade-detail" id="td-${bot}-${t.trade_id}">
+            <div class="pi-trade-empty">Loading…</div>
           </div>`).join('')
       : `<div style="font-size:12px;color:var(--muted);padding:6px 0">No closed trades yet</div>`;
 
@@ -1857,8 +1868,8 @@ function renderPortfolio(d) {
 
   const instances = `
     <div class="portfolio-instances">
-      ${instancePanel(mr, 'Mean Reversion', 'pi-badge-mr', 8080, 8080)}
-      ${instancePanel(tf, 'Trend Following', 'pi-badge-tf', 8081, 8081)}
+      ${instancePanel(mr, 'Mean Reversion', 'pi-badge-mr', 8080, 8080, 'mr')}
+      ${instancePanel(tf, 'Trend Following', 'pi-badge-tf', 8081, 8081, 'trend')}
     </div>`;
 
   // ── comparison table (show when ≥5 trades in either)
@@ -2195,6 +2206,127 @@ function renderStatus(d) {
     errBody,
     refreshNote,
   ].join('');
+}
+
+// ── trade drill-down ──────────────────────────────────────────────────────────
+const _tradeCharts = new Map(); // canvasId → Chart instance
+
+async function toggleTradeDetail(row) {
+  const tradeId = row.dataset.tradeId;
+  const bot     = row.dataset.bot;
+  const panelId = `td-${bot}-${tradeId}`;
+  const panel   = document.getElementById(panelId);
+  if (!panel) return;
+
+  const isOpen = panel.classList.contains('open');
+  if (isOpen) {
+    panel.classList.remove('open');
+    return;
+  }
+
+  panel.classList.add('open');
+  // Only fetch if not already loaded
+  if (panel.dataset.loaded) return;
+  panel.dataset.loaded = '1';
+
+  let data;
+  try {
+    const r = await fetch(`/api/trade-signal-path/${bot}/${tradeId}`);
+    data = await r.json();
+  } catch (e) {
+    panel.innerHTML = `<div class="pi-trade-empty">Failed to load signal path.</div>`;
+    return;
+  }
+
+  renderTradeDetail(panel, data, bot);
+}
+
+function renderTradeDetail(panel, data, bot) {
+  const { trade, signalPath } = data;
+
+  const entryStr  = trade?.open_rate  != null ? `£${trade.open_rate.toFixed(4)}`  : '—';
+  const exitStr   = trade?.close_rate != null ? `£${trade.close_rate.toFixed(4)}` : '—';
+  const plAbs     = trade?.close_profit_abs != null ? `£${trade.close_profit_abs.toFixed(2)}` : '—';
+  const plPct     = trade?.close_profit     != null ? `${(trade.close_profit * 100).toFixed(2)}%` : '—';
+  const reason    = trade?.exit_reason ?? '—';
+  const plColor   = (trade?.close_profit_abs ?? 0) >= 0 ? 'var(--accent)' : 'var(--red)';
+
+  const header = `
+    <div class="pi-trade-detail-header">
+      <span>Entry <strong>${entryStr}</strong></span>
+      <span>Exit <strong>${exitStr}</strong></span>
+      <span>P&L <strong style="color:${plColor}">${plAbs} (${plPct})</strong></span>
+      <span>Exit reason <strong>${esc(reason)}</strong></span>
+    </div>`;
+
+  if (!signalPath || signalPath.length === 0) {
+    panel.innerHTML = header + `<div class="pi-trade-empty">No signal history available for this trade.</div>`;
+    return;
+  }
+
+  const canvasId = `chart-${bot}-${trade.id}`;
+  panel.innerHTML = header + `<canvas id="${canvasId}"></canvas>`;
+
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  const SIGNAL_COLOR = s => ['strong_buy','buy','hold'].includes(s) ? '#16A34A' : '#DC2626';
+
+  const labels  = signalPath.map(p => p.timestamp.replace('T',' ').slice(0,16));
+  const prices  = signalPath.map(p => p.price_gbp);
+  const colors  = signalPath.map(p => SIGNAL_COLOR(p.signal));
+  const signals = signalPath.map(p => p.signal);
+
+  // Destroy previous instance if re-rendered
+  if (_tradeCharts.has(canvasId)) {
+    _tradeCharts.get(canvasId).destroy();
+    _tradeCharts.delete(canvasId);
+  }
+
+  const chart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: prices,
+        borderColor: '#6B7280',
+        borderWidth: 1.5,
+        pointBackgroundColor: colors,
+        pointBorderColor: colors,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        tension: 0.2,
+        fill: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const i = ctx.dataIndex;
+              const p = signalPath[i];
+              return [
+                `£${ctx.parsed.y.toFixed(4)}`,
+                `Signal: ${signals[i]}`,
+                `RSI: ${p.rsi != null ? p.rsi.toFixed(1) : '—'}`,
+                `Vol: ${p.volume_ratio != null ? p.volume_ratio.toFixed(2)+'x' : '—'}`,
+              ];
+            },
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { font: { size: 9 }, maxTicksLimit: 6 }, grid: { display: false } },
+        y: { ticks: { font: { size: 9 }, callback: v => '£'+v.toFixed(2) }, grid: { color: '#F3F4F6' } },
+      },
+    },
+  });
+
+  _tradeCharts.set(canvasId, chart);
 }
 
 // ── init ───────────────────────────────────────────────────────────────────────
