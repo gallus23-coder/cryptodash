@@ -755,6 +755,7 @@ async function updateSignals() {
         throw new Error(`invalid signal: ${parsed.signal}`);
       if (typeof parsed.summary !== 'string') throw new Error('missing summary');
       recordConnSuccess('anthropic');
+      const updatedAt = new Date().toISOString();
       signalCache[id] = {
         signal:              parsed.signal,
         summary:             parsed.summary,
@@ -763,8 +764,25 @@ async function updateSignals() {
         newsImpact:          parsed.newsImpact          || 'none',
         newsNote:            parsed.newsNote            || null,
         derivativesContext:  parsed.derivativesContext  || null,
-        updatedAt: new Date().toISOString(),
+        updatedAt,
       };
+      try {
+        db.insertSignalHistory({
+          coin_id:             id,
+          timestamp:           updatedAt,
+          signal:              parsed.signal,
+          market_phase:        btcPhase,
+          rsi:                 rsi ?? null,
+          macd_hist:           i.macd?.histogram ?? null,
+          volume_ratio:        i.volumeRatio ?? null,
+          price_usd:           price,
+          price_gbp:           i.priceGBP ?? null,
+          derivatives_context: parsed.derivativesContext || null,
+          summary:             parsed.summary,
+        });
+      } catch (e) {
+        console.warn(`[signals] signal_history insert failed for ${id}:`, e.message);
+      }
     } catch (e) {
       console.error(`[signals] ${id}:`, e.message);
       if (e.message.includes('Anthropic')) {

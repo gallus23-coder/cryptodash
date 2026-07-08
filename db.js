@@ -60,6 +60,21 @@ function initDb() {
       UNIQUE(coin_id, time)
     );
     CREATE INDEX IF NOT EXISTS idx_deriv_cit ON derivatives_history(coin_id, time DESC);
+    CREATE TABLE IF NOT EXISTS signal_history (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      coin_id             TEXT    NOT NULL,
+      timestamp           TEXT    NOT NULL,
+      signal              TEXT    NOT NULL,
+      market_phase        TEXT,
+      rsi                 REAL,
+      macd_hist           REAL,
+      volume_ratio        REAL,
+      price_usd           REAL,
+      price_gbp           REAL,
+      derivatives_context TEXT,
+      summary             TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_sighist_cit ON signal_history(coin_id, timestamp DESC);
   `);
 }
 
@@ -252,9 +267,20 @@ function pruneCandles(interval, keepMs) {
   }
 }
 
+function insertSignalHistory(row) {
+  prepare(`
+    INSERT INTO signal_history
+      (coin_id, timestamp, signal, market_phase, rsi, macd_hist, volume_ratio,
+       price_usd, price_gbp, derivatives_context, summary)
+    VALUES
+      (@coin_id, @timestamp, @signal, @market_phase, @rsi, @macd_hist, @volume_ratio,
+       @price_usd, @price_gbp, @derivatives_context, @summary)
+  `).run(row);
+}
+
 module.exports = {
   initDb, upsertMeta, getMeta, getAllMeta, updateMarketCap, getMetaBySymbol,
   upsertDerivatives, getDerivativesAgo, pruneDerivatives, getLatestDerivativesTime,
   insertCandles, getLastCandleTime, getCloses, getVolumes, getOHLCLimit, getCandles, getAggCandles,
-  calculateRSI, pruneCandles,
+  calculateRSI, pruneCandles, insertSignalHistory,
 };
