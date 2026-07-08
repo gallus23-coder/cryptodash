@@ -1181,6 +1181,8 @@ Six sections:
 | GET | `/api/freqtrade/trend/profit` | TF instance profit summary |
 | GET | `/api/freqtrade/trend/health` | TF instance liveness |
 | GET | `/api/freqtrade/combined` | Both instances merged: combined balance, P&L, win rates |
+| GET | `/api/signal-history/:coinId?from=<ISO8601>&to=<ISO8601>` | Signal history rows for a coin within time window. `from`/`to` optional (default: all time / now). Returns `[{ timestamp, signal, market_phase, rsi, macd_hist, volume_ratio, price_usd, price_gbp, derivatives_context, summary }]` ordered ascending. Empty array if no rows. |
+| GET | `/api/trade-signal-path/:bot/:tradeId` | Trade + signal path for drill-down. `:bot` = `mr` or `trend`. Looks up trade from Freqtrade SQLite (read-only), maps pair → coin_id via `PAIR_TO_COIN`, queries `signal_history` for that coin between open/close dates. Returns `{ trade: {...}, signalPath: [...] }`. `signalPath` is empty array if no history exists for that window. |
 | GET | `/api/status` | System health: services, data freshness, connectivity, resources, trading state, recent errors. 15s server-side cache. |
 
 ---
