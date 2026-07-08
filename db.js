@@ -267,6 +267,18 @@ function pruneCandles(interval, keepMs) {
   }
 }
 
+function getSignalHistory(coinId, from, to) {
+  return prepare(`
+    SELECT timestamp, signal, market_phase, rsi, macd_hist, volume_ratio,
+           price_usd, price_gbp, derivatives_context, summary
+    FROM signal_history
+    WHERE coin_id = ?
+      AND timestamp >= ?
+      AND timestamp <= ?
+    ORDER BY timestamp ASC
+  `).all(coinId, from, to);
+}
+
 function insertSignalHistory(row) {
   prepare(`
     INSERT INTO signal_history
@@ -282,5 +294,5 @@ module.exports = {
   initDb, upsertMeta, getMeta, getAllMeta, updateMarketCap, getMetaBySymbol,
   upsertDerivatives, getDerivativesAgo, pruneDerivatives, getLatestDerivativesTime,
   insertCandles, getLastCandleTime, getCloses, getVolumes, getOHLCLimit, getCandles, getAggCandles,
-  calculateRSI, pruneCandles, insertSignalHistory,
+  calculateRSI, pruneCandles, insertSignalHistory, getSignalHistory,
 };

@@ -8,6 +8,7 @@ const { execFile } = require('child_process');
 const cron = require('node-cron');
 const notifier = require('node-notifier');
 const db = require('./db');
+const Database = require('better-sqlite3');
 const binance = require('./binance');
 const coingecko = require('./coingecko');
 const ind       = require('./indicators');
@@ -74,6 +75,15 @@ const COIN_TO_PAIR = {
   chainlink:     'LINK/GBP',
   'avalanche-2': 'AVAX/GBP',
 };
+
+// Inverse map: Freqtrade GBP pair → CoinGecko ID
+const PAIR_TO_COIN = Object.fromEntries(
+  Object.entries(COIN_TO_PAIR).map(([k, v]) => [v, k])
+);
+
+// Freqtrade SQLite paths (opened read-only per request)
+const FT_DB_MR    = '/home/gallus23/freqtrade/user_data/tradesv3.sqlite';
+const FT_DB_TREND = '/home/gallus23/freqtrade/user_data/tradesv3_trend.sqlite';
 
 async function ftLogin() {
   const b64 = Buffer.from(`${FT_CREDS.username}:${FT_CREDS.password}`).toString('base64');
@@ -1384,6 +1394,50 @@ app.get('/api/freqtrade/combined', async (req, res) => {
     meanReversion: mr,
     trend: tf,
   });
+});
+
+// ── /api/signal-history & /api/trade-signal-path ──────────────────────────────
+
+app.get('/api/signal-history/:coinId', (req, res) => {
+  const { coinId } = req.params;
+  const from = req.query.from || '2000-01-01T00:00:00.000Z';
+  const to   = req.query.to   || new Date().toISOString();
+  try {
+    const rows = db.getSignalHistory(coinId, from, to);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/trade-signal-path/:bot/:tradeId', (req, res) => {
+  const { bot, tradeId } = req.params;
+  if (!['mr', 'trend'].includes(bot))
+    return res.status(400).json({ error: 'bot must be "mr" or "trend"' });
+  const dbPath = bot === 'mr' ? FT_DB_MR : FT_DB_TREND;
+  let ftDb;
+  try {
+    ftDb = new Database(dbPath, { readonly: true });
+    const trade = ftDb.prepare(
+      `SELECT id, pair, open_date, close_date, open_rate, close_rate,
+              close_profit_abs, close_profit, exit_reason, enter_tag, is_open
+       FROM trades WHERE id = ?`
+    ).get(parseInt(tradeId, 10));
+    ftDb.close();
+    ftDb = null;
+    if (!trade) return res.status(404).json({ error: 'trade not found' });
+    const coinId = PAIR_TO_COIN[trade.pair];
+    if (!coinId) return res.json({ trade, signalPath: [] });
+    // Freqtrade dates stored as "2026-06-20 15:00:09.557049" UTC — convert to ISO 8601
+    const toISO = s => s ? s.replace(' ', 'T').replace(/(\.\d{1,3})\d*$/, '$1') + 'Z' : null;
+    const from = toISO(trade.open_date);
+    const to   = trade.close_date ? toISO(trade.close_date) : new Date().toISOString();
+    const signalPath = db.getSignalHistory(coinId, from, to);
+    res.json({ trade, signalPath });
+  } catch (e) {
+    if (ftDb) try { ftDb.close(); } catch (_) {}
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── /api/status ───────────────────────────────────────────────────────────────
