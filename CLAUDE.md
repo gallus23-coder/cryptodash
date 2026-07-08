@@ -1120,9 +1120,12 @@ Polls `/api/freqtrade/combined` on tab open. Renders:
 
 - **Combined summary cards**: total balance, total P&L, trade counts (MR / TF), win rates
 - **Side-by-side instance panels** (Mean Reversion | Trend Following): balance, P&L, trade count, win rate, open positions with live P&L%, recent 5 closed trades, link to FreqUI. Shows "Offline" state if instance unreachable.
+- **Trade drill-down**: clicking a closed trade row toggles an expandable panel below it. On first expand, calls `GET /api/trade-signal-path/:bot/:tradeId` (bot = `mr` or `trend`). Renders a Chart.js line chart of `price_gbp` over the trade's lifetime — one point per signal_history row, green for buy/hold signals, red for sell. Tooltip shows signal, RSI, volume ratio. Header shows entry price, exit price, P&L (£ and %), exit reason. Shows "No signal history available for this trade" if `signalPath` is empty (common for trades before Jul 8 2026 when logging started). Chart instances tracked in `_tradeCharts` Map and destroyed on re-render. Fetch is gated by `data-loaded` attribute — only fires once per panel open.
 - **Strategy comparison table**: shown once either instance has ≥5 closed trades; compares trades, P&L, win rate, avg win, balance side by side.
 
 `loadPortfolio()` called on tab switch; results not auto-polled (manual refresh by switching away and back). Instance data fetched in parallel; one instance being down does not block the other.
+
+Chart.js 4 loaded via CDN (`chart.js@4/dist/chart.umd.min.js`) — single `<script>` tag before the main script block. Used only by the trade drill-down chart.
 
 ### Status tab
 
