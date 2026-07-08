@@ -194,6 +194,28 @@ CREATE TABLE coin_meta (
 );
 ```
 
+### `signal_history`
+
+```sql
+CREATE TABLE signal_history (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  coin_id             TEXT    NOT NULL,
+  timestamp           TEXT    NOT NULL,   -- ISO 8601 UTC (same as signals.json updatedAt)
+  signal              TEXT    NOT NULL,   -- strong_buy / buy / hold / sell / strong_sell
+  market_phase        TEXT,               -- 'bull' or 'bear' (BTC vs EMA200 at generation time)
+  rsi                 REAL,
+  macd_hist           REAL,
+  volume_ratio        REAL,
+  price_usd           REAL,
+  price_gbp           REAL,
+  derivatives_context TEXT,
+  summary             TEXT
+);
+CREATE INDEX idx_sighist_cit ON signal_history(coin_id, timestamp DESC);
+```
+
+Append-only — INSERT only, never UPDATE or DELETE. Populated every 15 min by `updateSignals()` in `server.js`, one row per coin per signal generation. Insert is wrapped in try/catch so failure never blocks the atomic `signals.json` write. `db.insertSignalHistory(row)` in `db.js`.
+
 ---
 
 ## Data Sources
