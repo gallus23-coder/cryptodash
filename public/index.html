@@ -1823,9 +1823,17 @@ function renderPortfolio(d) {
 
     const openRows = openTrades.length
       ? openTrades.map(t => `
-          <div class="pi-trade">
+          <div class="pi-trade" data-trade-id="${t.trade_id}" data-bot="${bot}"
+               data-is-open="1"
+               data-current-rate="${t.current_rate ?? ''}"
+               data-profit-abs="${t.profit_abs ?? ''}"
+               data-profit-pct="${t.profit_pct ?? ''}"
+               onclick="toggleTradeDetail(this)">
             <span class="pi-trade-pair">${esc(t.pair)}</span>
             <span class="pi-trade-pl ${(t.profit_pct ?? 0) >= 0 ? 'up' : 'dn'}">${((t.profit_pct ?? 0)).toFixed(2)}%</span>
+          </div>
+          <div class="pi-trade-detail" id="td-${bot}-${t.trade_id}">
+            <div class="pi-trade-empty">Loading…</div>
           </div>`).join('')
       : `<div style="font-size:12px;color:var(--muted);padding:6px 0">No open positions</div>`;
 
@@ -2221,6 +2229,7 @@ async function toggleTradeDetail(row) {
   const isOpen = panel.classList.contains('open');
   if (isOpen) {
     panel.classList.remove('open');
+    if (row.dataset.isOpen === '1') delete panel.dataset.loaded; // re-fetch next expand for live data
     return;
   }
 
@@ -2238,26 +2247,43 @@ async function toggleTradeDetail(row) {
     return;
   }
 
-  renderTradeDetail(panel, data, bot);
+  renderTradeDetail(panel, data, bot, row);
 }
 
-function renderTradeDetail(panel, data, bot) {
+function renderTradeDetail(panel, data, bot, row) {
   const { trade, signalPath } = data;
 
-  const entryStr  = trade?.open_rate  != null ? `£${trade.open_rate.toFixed(4)}`  : '—';
-  const exitStr   = trade?.close_rate != null ? `£${trade.close_rate.toFixed(4)}` : '—';
-  const plAbs     = trade?.close_profit_abs != null ? `£${trade.close_profit_abs.toFixed(2)}` : '—';
-  const plPct     = trade?.close_profit     != null ? `${(trade.close_profit * 100).toFixed(2)}%` : '—';
-  const reason    = trade?.exit_reason ?? '—';
-  const plColor   = (trade?.close_profit_abs ?? 0) >= 0 ? 'var(--accent)' : 'var(--red)';
-
-  const header = `
-    <div class="pi-trade-detail-header">
-      <span>Entry <strong>${entryStr}</strong></span>
-      <span>Exit <strong>${exitStr}</strong></span>
-      <span>P&L <strong style="color:${plColor}">${plAbs} (${plPct})</strong></span>
-      <span>Exit reason <strong>${esc(reason)}</strong></span>
-    </div>`;
+  const entryStr = trade?.open_rate != null ? `£${trade.open_rate.toFixed(4)}` : '—';
+  let header;
+  if (trade?.is_open) {
+    const currentRate = parseFloat(row?.dataset.currentRate);
+    const profitAbs   = parseFloat(row?.dataset.profitAbs);
+    const profitPct   = parseFloat(row?.dataset.profitPct);
+    const curStr  = isNaN(currentRate) ? '—' : `£${currentRate.toFixed(4)}`;
+    const plAbs   = isNaN(profitAbs)   ? '—' : `£${profitAbs.toFixed(2)}`;
+    const plPct   = isNaN(profitPct)   ? '—' : `${profitPct.toFixed(2)}%`;
+    const plColor = (!isNaN(profitAbs) && profitAbs < 0) ? 'var(--red)' : 'var(--accent)';
+    header = `
+      <div class="pi-trade-detail-header">
+        <span>Entry <strong>${entryStr}</strong></span>
+        <span>Current <strong>${curStr}</strong></span>
+        <span>Unrealized P&amp;L <strong style="color:${plColor}">${plAbs} (${plPct})</strong></span>
+        <span style="color:#D97706;font-weight:600">⬤ Open</span>
+      </div>`;
+  } else {
+    const exitStr = trade?.close_rate != null ? `£${trade.close_rate.toFixed(4)}` : '—';
+    const plAbs   = trade?.close_profit_abs != null ? `£${trade.close_profit_abs.toFixed(2)}` : '—';
+    const plPct   = trade?.close_profit     != null ? `${(trade.close_profit * 100).toFixed(2)}%` : '—';
+    const reason  = trade?.exit_reason ?? '—';
+    const plColor = (trade?.close_profit_abs ?? 0) >= 0 ? 'var(--accent)' : 'var(--red)';
+    header = `
+      <div class="pi-trade-detail-header">
+        <span>Entry <strong>${entryStr}</strong></span>
+        <span>Exit <strong>${exitStr}</strong></span>
+        <span>P&amp;L <strong style="color:${plColor}">${plAbs} (${plPct})</strong></span>
+        <span>Exit reason <strong>${esc(reason)}</strong></span>
+      </div>`;
+  }
 
   if (!signalPath || signalPath.length === 0) {
     panel.innerHTML = header + `<div class="pi-trade-empty">No signal history available for this trade.</div>`;
