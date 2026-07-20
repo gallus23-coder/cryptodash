@@ -567,7 +567,17 @@ Entry tag: `cryptodash_trend_entry`
 | `stoploss` | Freqtrade built-in, -5% |
 | `roi` | `custom_roi()`: adaptive targets by phase; fallback `minimal_roi` active before 4h hold |
 | `trend_time_stop_48h` | `custom_exit`: trade open > 48h |
-| `trend_signal_reversal` | `custom_exit`: signal becomes `strong_sell` only |
+| `trend_signal_reversal` | `custom_exit`: `confirmed_strong_sell()` returns True — requires ≥2 signal_history rows all == `strong_sell` within the last 10 minutes. Single-read blips do not trigger exit. |
+
+**Signal reversal confirmation (`confirmed_strong_sell`) — July 2026:**
+
+`CryptodashTrendStrategy.confirmed_strong_sell(coin_id)` reads directly from `signal_history` SQLite table (read-only URI connection, `sqlite3` stdlib). Returns `True` only when:
+1. ≥ `MIN_CONFIRMATION_READS` (2) rows exist in the last `CONFIRMATION_WINDOW_MINUTES` (10) minutes
+2. Every row in that window has `signal == 'strong_sell'`
+
+Fail-safe: any DB error (locked, missing, malformed) logs a warning and returns `False` — never exits on uncertainty. `read_signal()` and `signal_is_strong_sell()` are no longer called in the reversal path; `signal_history` is authoritative. Debug log on every check: coin_id, row count in window, verdict.
+
+Analysis: 3 of 6 recent `trend_signal_reversal` losses were single-read blips (hold → strong_sell → hold); 2 were genuine sustained signals (30min–2hr). This filter eliminates the blips while allowing genuine reversals.
 
 **Adaptive ROI (`custom_roi`) — July 2026:**
 
