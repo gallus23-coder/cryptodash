@@ -1,5 +1,6 @@
 import json
 import logging
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -53,7 +54,8 @@ class CryptodashTrendStrategy(IStrategy):
     }
 
     use_custom_roi = True
-    trailing_stop = False
+    use_custom_stoploss = True
+    trailing_stop = False  # must stay False — custom_stoploss replaces it, don't run both
     process_only_new_candles = True
     use_exit_signal = True
     exit_profit_only = False
@@ -61,6 +63,30 @@ class CryptodashTrendStrategy(IStrategy):
 
     MAX_SIGNAL_AGE_MINUTES = 20
     TIME_STOP_HOURS = 48
+
+    # Signal reversal confirmation — requires multiple consecutive strong_sell
+    # readings in the history window before exiting, filtering single-read blips.
+    CONFIRMATION_WINDOW_MINUTES = 10
+    MIN_CONFIRMATION_READS      = 2
+    SIGNAL_HISTORY_DB = '/home/gallus23/crypto-dashboard/data/crypto.db'
+
+    # ── trailing stop activation (custom_stoploss) ──────────────────────────
+    # Below this profit, custom_stoploss just returns the fixed -5% stop —
+    # behaviour is unchanged from before this feature was added.
+    TRAIL_ACTIVATION_PROFIT = 0.05   # 5%
+
+    # Trail distance tiers — tighter as profit grows, so gains lock in
+    # progressively rather than giving back a flat % regardless of peak size.
+    TRAIL_TIERS_BULL = {
+        0.05: 0.04,   # 5%+ profit  -> trail 4% behind peak
+        0.10: 0.03,   # 10%+ profit -> trail 3% behind peak
+        0.20: 0.02,   # 20%+ profit -> trail 2% behind peak
+    }
+    TRAIL_TIERS_BEAR = {
+        0.05: 0.03,   # bear phase gets less room to give back
+        0.10: 0.025,
+        0.20: 0.02,
+    }
 
     # ── indicators ────────────────────────────────────────────────────────────
     def populate_indicators(self, dataframe: DataFrame,
@@ -152,6 +178,54 @@ class CryptodashTrendStrategy(IStrategy):
     def signal_is_strong_sell(self, signal: dict) -> bool:
         return signal.get('signal') == 'strong_sell'
 
+    def confirmed_strong_sell(self, coin_id: str) -> bool:
+        """
+        Returns True only if signal_history contains >= MIN_CONFIRMATION_READS
+        rows within the last CONFIRMATION_WINDOW_MINUTES minutes, and every one
+        of those rows has signal == 'strong_sell'.
+
+        Fail-safe: any DB error returns False — a hiccup never triggers an exit,
+        only prevents one. Caller must not exit on False.
+        """
+        conn = None
+        try:
+            cutoff_ts = (
+                datetime.now(timezone.utc).timestamp()
+                - self.CONFIRMATION_WINDOW_MINUTES * 60
+            )
+            cutoff_iso = datetime.fromtimestamp(
+                cutoff_ts, tz=timezone.utc).isoformat()
+
+            conn = sqlite3.connect(
+                f'file:{self.SIGNAL_HISTORY_DB}?mode=ro', uri=True)
+            rows = conn.execute(
+                'SELECT signal FROM signal_history '
+                'WHERE coin_id = ? AND timestamp >= ? '
+                'ORDER BY timestamp DESC',
+                (coin_id, cutoff_iso)
+            ).fetchall()
+
+            count = len(rows)
+            all_strong_sell = count > 0 and all(r[0] == 'strong_sell' for r in rows)
+            confirmed = count >= self.MIN_CONFIRMATION_READS and all_strong_sell
+
+            logger.debug(
+                f'[trend] confirmed_strong_sell {coin_id} | '
+                f'rows in window: {count} | '
+                f'all strong_sell: {all_strong_sell} | '
+                f'confirmed: {confirmed}')
+
+            return confirmed
+
+        except Exception as e:
+            logger.warning(
+                f'[trend] confirmed_strong_sell DB error for {coin_id}: {e} '
+                f'— defaulting to False (no exit)')
+            return False
+        finally:
+            if conn:
+                conn.close()
+
     def get_market_phase(self) -> str:
         """
         Detect current market phase by reading BTC's signal from signals.json —
@@ -239,6 +313,50 @@ class CryptodashTrendStrategy(IStrategy):
 
         return threshold
 
+    # ── custom trailing stop ──────────────────────────────────────────────────
+    def custom_stoploss(self, pair: str, trade, current_time: datetime,
+                        current_rate: float, current_profit: float,
+                        **kwargs) -> float:
+        """
+        Staged trailing stop for large trend moves (e.g. ADA +30% while a
+        fixed ROI capped the exit at +2.72%).
+
+        Below TRAIL_ACTIVATION_PROFIT: returns the normal fixed -5% stop —
+        identical to prior behaviour, nothing changes for typical trades.
+
+        Above it: trails behind trade.max_rate (Freqtrade's tracked peak
+        price for this trade) with a distance that tightens as profit
+        grows, locking in more of the move the further it runs.
+
+        Not gated by MIN_HOLD_MINUTES — Freqtrade calls this every candle
+        independently of custom_exit, so a sharp reversal after a big run
+        is always protected, even inside the 240min hold window.
+        """
+        if current_profit < self.TRAIL_ACTIVATION_PROFIT:
+            return self.stoploss  # unchanged fixed -5% stop
+
+        phase = self.get_market_phase()
+        tiers = self.TRAIL_TIERS_BULL if phase == 'bull' else self.TRAIL_TIERS_BEAR
+
+        # Pick the tightest applicable tier for current profit level
+        applicable = {k: v for k, v in tiers.items() if current_profit >= k}
+        trail_pct = tiers[min(tiers.keys())] if not applicable else applicable[max(applicable.keys())]
+
+        peak_price = trade.max_rate
+        trail_stop_price = peak_price * (1 - trail_pct)
+
+        # custom_stoploss must return a ratio relative to current_rate, negative = below
+        stoploss_ratio = (trail_stop_price / current_rate) - 1
+
+        logger.debug(
+            f'[trend] custom_stoploss {pair} | '
+            f'Phase: {phase} | Profit: {current_profit:.2%} | '
+            f'Trail: {trail_pct:.1%} behind peak {peak_price:.6f} | '
+            f'Stop ratio: {stoploss_ratio:.4f}')
+
+        # Never return a stop looser than the fixed stoploss as a safety floor
+        return max(stoploss_ratio, self.stoploss)
+
     # ── entry logic ───────────────────────────────────────────────────────────
     def populate_entry_trend(self, dataframe: DataFrame,
                              metadata: dict) -> DataFrame:
@@ -325,16 +443,13 @@ class CryptodashTrendStrategy(IStrategy):
                 f'P&L: {current_profit:.2%}')
             return f'trend_time_stop_{self.TIME_STOP_HOURS}h'
 
-        # Signal reversal — only on strong_sell
+        # Signal reversal — confirmed strong_sell only (≥2 reads in 10min window)
         coin_id = self.pair_to_coin_id(pair)
-        if coin_id:
-            signal = self.read_signal(coin_id)
-            if signal and self.signal_is_strong_sell(signal):
-                logger.info(
-                    f'[trend] SIGNAL REVERSAL EXIT: {pair} | '
-                    f'Signal: {signal.get("signal")} | '
-                    f'P&L: {current_profit:.2%}')
-                return 'trend_signal_reversal'
+        if coin_id and self.confirmed_strong_sell(coin_id):
+            logger.info(
+                f'[trend] SIGNAL REVERSAL EXIT (confirmed): {pair} | '
+                f'P&L: {current_profit:.2%}')
+            return 'trend_signal_reversal'
 
         return None
 
