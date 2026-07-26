@@ -743,8 +743,27 @@ async function updateSignals() {
     const latestClosed = db.getLastClosedCandleTime(id, '1h');
     const cachedCandle = _lastSignalCandle.get(id);
     if (cachedCandle != null && cachedCandle === latestClosed && signalCache[id]) {
-      signalCache[id].updatedAt = new Date().toISOString();
+      const updatedAt = new Date().toISOString();
+      signalCache[id].updatedAt = updatedAt;
       console.log(`[signals] ${id}: cache hit (candle ${latestClosed}), skipping API call`);
+      try {
+        const cached = signalCache[id];
+        db.insertSignalHistory({
+          coin_id:             id,
+          timestamp:           updatedAt,
+          signal:              cached.signal,
+          market_phase:        btcPhase,
+          rsi:                 rsi ?? null,
+          macd_hist:           i.macd?.histogram ?? null,
+          volume_ratio:        i.volumeRatio ?? null,
+          price_usd:           price,
+          price_gbp:           i.priceGBP ?? null,
+          derivatives_context: cached.derivativesContext || null,
+          summary:             cached.summary,
+        });
+      } catch (e) {
+        console.warn(`[signals] signal_history insert failed for ${id}:`, e.message);
+      }
       continue;
     }
     console.log(`[signals] ${id}: calling API (closed candle ${latestClosed}, prev ${cachedCandle ?? 'none'})`);
