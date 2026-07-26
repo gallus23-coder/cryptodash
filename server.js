@@ -739,6 +739,16 @@ async function updateSignals() {
     const price     = parseFloat(ticker.lastPrice);
     const change24h = parseFloat(ticker.priceChangePercent);
     const i = indCache[id] || {};
+
+    const latestClosed = db.getLastClosedCandleTime(id, '1h');
+    const cachedCandle = _lastSignalCandle.get(id);
+    if (cachedCandle != null && cachedCandle === latestClosed && signalCache[id]) {
+      signalCache[id].updatedAt = new Date().toISOString();
+      console.log(`[signals] ${id}: cache hit (candle ${latestClosed}), skipping API call`);
+      continue;
+    }
+    console.log(`[signals] ${id}: calling API (closed candle ${latestClosed}, prev ${cachedCandle ?? 'none'})`);
+
     try {
       const prompt = buildWatchlistSignalPrompt(meta, price, change24h, rsi, i, fngStr, phaseVolumeThreshold);
 
@@ -765,6 +775,7 @@ async function updateSignals() {
         throw new Error(`invalid signal: ${parsed.signal}`);
       if (typeof parsed.summary !== 'string') throw new Error('missing summary');
       recordConnSuccess('anthropic');
+      _lastSignalCandle.set(id, latestClosed);
       const updatedAt = new Date().toISOString();
       signalCache[id] = {
         signal:              parsed.signal,
@@ -1443,6 +1454,10 @@ app.get('/api/trade-signal-path/:bot/:tradeId', (req, res) => {
 // ── /api/status ───────────────────────────────────────────────────────────────
 
 let _statusCache = null; // { data, at }
+
+// Per-coin: open-time of the last closed 1h candle for which we called Anthropic.
+// Resets on service restart (safe — just triggers one fresh call per coin on next candle close).
+const _lastSignalCandle = new Map();
 const STATUS_CACHE_MS = 15 * 1000;
 
 function execShell(cmd, args) {

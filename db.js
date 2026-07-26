@@ -119,6 +119,15 @@ function getLastCandleTime(coin_id, interval) {
   return row ? row.t : null;
 }
 
+// Returns the open-time of the most recent COMPLETED candle (2nd-most-recent row),
+// i.e. the candle before the currently-forming one. Returns null if < 2 rows exist.
+function getLastClosedCandleTime(coin_id, interval) {
+  const row = prepare(
+    'SELECT time FROM candles WHERE coin_id = ? AND interval = ? ORDER BY time DESC LIMIT 1 OFFSET 1'
+  ).get(coin_id, interval);
+  return row ? row.time : null;
+}
+
 // Returns closes oldest-first (required for RSI calculation).
 function getCloses(coin_id, interval, limit) {
   const rows = prepare(
@@ -293,6 +302,6 @@ function insertSignalHistory(row) {
 module.exports = {
   initDb, upsertMeta, getMeta, getAllMeta, updateMarketCap, getMetaBySymbol,
   upsertDerivatives, getDerivativesAgo, pruneDerivatives, getLatestDerivativesTime,
-  insertCandles, getLastCandleTime, getCloses, getVolumes, getOHLCLimit, getCandles, getAggCandles,
+  insertCandles, getLastCandleTime, getLastClosedCandleTime, getCloses, getVolumes, getOHLCLimit, getCandles, getAggCandles,
   calculateRSI, pruneCandles, insertSignalHistory, getSignalHistory,
 };
