@@ -378,13 +378,13 @@ Entry tag: `cryptodash_trend_entry`
 |--------|-----------|
 | `stoploss` | -5% (static floor; custom_stoploss takes over above 5% profit) |
 | `roi` | `custom_roi()`: adaptive by phase; no exit before 240 min |
-| `trend_time_stop_48h` | `custom_exit`: trade open > 48h |
+| `trend_time_stop_16h` | `custom_exit`: trade open > 16h |
 | `trend_signal_reversal` | `custom_exit`: `confirmed_strong_sell()` returns True |
 
 **Trailing stop (`custom_stoploss`)**: Below 5% profit → fixed -5% unchanged. Above 5% → trails behind `trade.max_rate`:
 
-| Phase | ≥ 5% profit | ≥ 7.5% profit | ≥ 10% profit |
-|-------|------------|---------------|--------------|
+| Phase | ≥ 5% profit | ≥ 8% profit (bear) / ≥ 10% (bull) | ≥ 12% profit (bear) / ≥ 15% (bull) |
+|-------|------------|-------------------------------------|--------------------------------------|
 | Bull | -4% | -3% | -2% |
 | Bear | -3% | -2.5% | -2% |
 
@@ -394,7 +394,7 @@ Entry tag: `cryptodash_trend_entry`
 
 **Adaptive ROI (`custom_roi`)**: Returns `None` before 240 min (no exit in first 4h). `custom_exit` also enforces 240 min minimum hold independently.
 
-Bear ROI (BTC < EMA200): 240m→3%, 480m→2%, 720m→1.5%, 960m→0.8%
+Bear ROI (BTC < EMA200): 240m→3%, 480m→2%, 720m→1.5%, 900m→0.8% (fits 16h time stop)
 Bull ROI (BTC > EMA200): 240m→8%, 480m→5%, 720m→3%, 960m→1.5%, 1440m→0.8%
 
 Phase detected from BTC's `summary` field in `signals.json`. Bear targets calibrated from 13 live dry-run trades (Jun–Jul 2026): max peak gain 3.98%, median ~0.85%, fee round-trip ~0.8%.
@@ -412,7 +412,7 @@ Phase detected from BTC's `summary` field in `signals.json`. Bear targets calibr
 | Volume | ≥ 1.7× / ≥ 1.8× | ≥ 1.2× |
 | Stop loss | -7% static | -5% static; trailing above 5% profit |
 | Take profit | 20% (bull) / 15% (bear) | adaptive `custom_roi` |
-| Time stop | 89h / 67h | 48h |
+| Time stop | 89h / 67h | 16h |
 | Minimum hold | None | 240 min |
 | Signal reversal | sell or strong_sell | confirmed_strong_sell (last 2 rows) |
 | Phase adaptive | Entry + exit params | ROI + trailing tiers only |
@@ -459,7 +459,7 @@ FX rate source: `api.frankfurter.app/latest?from=USD&to=GBP` (primary), `open.er
 
 ## Known Issues / Trade Learnings
 
-**Sideways/choppy market**: Signal stays `hold` for the full 48h time stop with no clean exit path. Trade closes at a modest loss. No fix yet — flagged as watch item. Consider adding a hold-duration check to TF entry (avoid entering if signal has been hold for >Xh).
+**Sideways/choppy market**: Signal stays `hold` for the time stop window with no clean exit path. Time stop reduced to 16h (Aug 2026) to cut losses faster — previously 48h was causing 8 of 9 trades to close at −£4-6 each. Consider adding a hold-duration check to TF entry (avoid entering if signal has been hold for >Xh).
 
 **trend_signal_reversal blips (fixed Jul 2026)**: Pre-fix, single-read `strong_sell` blips (hold → strong_sell → hold) caused exits at losses. Root cause confirmed: 3 of 6 reversal losses were blips. Fixed via `confirmed_strong_sell()` row-count check. The original time-window (10 min) version became unsatisfiable after API caching reduced write cadence from ~15min to ~1h per coin; that caused one large avoidable loss (SOL, −4.73%/−£9.51 on a genuine sustained strong_sell that couldn't trigger). Fixed by switching to row-count (last 2 rows regardless of timing) — caching writes signal_history every cycle for this reason.
 

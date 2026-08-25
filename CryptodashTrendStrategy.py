@@ -33,7 +33,7 @@ class CryptodashTrendStrategy(IStrategy):
 
     Entry: price above both EMA50 and EMA200, RSI 45-70, MACD positive and rising,
            volume above 1.2x average, signal is not sell/strong_sell.
-    Exit:  adaptive ROI (custom_roi), 5% stop loss, 48h time stop, strong_sell reversal.
+    Exit:  adaptive ROI (custom_roi), 5% stop loss, 16h time stop, strong_sell reversal.
            Minimum hold: 240 minutes before any exit fires.
 
     Does NOT require allCriteriaMet: true or signal == strong_buy.
@@ -62,12 +62,12 @@ class CryptodashTrendStrategy(IStrategy):
     ignore_roi_if_entry_signal = False
 
     MAX_SIGNAL_AGE_MINUTES = 20
-    TIME_STOP_HOURS = 48
+    TIME_STOP_HOURS = 16
 
-    # Signal reversal confirmation — requires multiple consecutive strong_sell
-    # readings in the history window before exiting, filtering single-read blips.
-    CONFIRMATION_WINDOW_MINUTES = 10
-    MIN_CONFIRMATION_READS      = 2
+    # Signal reversal confirmation — row-count based, cadence-independent.
+    # Requires the last MIN_CONFIRMATION_READS rows for this coin ALL == 'strong_sell'.
+    # No time window — works regardless of signal generation cadence (~10-15min or cached).
+    MIN_CONFIRMATION_READS = 2
     SIGNAL_HISTORY_DB = '/home/gallus23/crypto-dashboard/data/crypto.db'
 
     # ── trailing stop activation (custom_stoploss) ──────────────────────────
@@ -80,12 +80,12 @@ class CryptodashTrendStrategy(IStrategy):
     TRAIL_TIERS_BULL = {
         0.05: 0.04,   # 5%+ profit  -> trail 4% behind peak
         0.10: 0.03,   # 10%+ profit -> trail 3% behind peak
-        0.20: 0.02,   # 20%+ profit -> trail 2% behind peak
+        0.15: 0.02,   # 15%+ profit -> trail 2% behind peak (tightened from 20%)
     }
     TRAIL_TIERS_BEAR = {
-        0.05: 0.03,   # bear phase gets less room to give back
-        0.10: 0.025,
-        0.20: 0.02,
+        0.05: 0.03,   # 5%+ profit  -> trail 3% behind peak
+        0.08: 0.025,  # 8%+ profit  -> trail 2.5% (tightened from 10%)
+        0.12: 0.02,   # 12%+ profit -> trail 2% (tightened from 20%)
     }
 
     # ── indicators ────────────────────────────────────────────────────────────
@@ -180,29 +180,25 @@ class CryptodashTrendStrategy(IStrategy):
 
     def confirmed_strong_sell(self, coin_id: str) -> bool:
         """
-        Returns True only if signal_history contains >= MIN_CONFIRMATION_READS
-        rows within the last CONFIRMATION_WINDOW_MINUTES minutes, and every one
-        of those rows has signal == 'strong_sell'.
+        Returns True only if the last MIN_CONFIRMATION_READS rows in signal_history
+        for this coin ALL have signal == 'strong_sell'.
+
+        Row-count based, cadence-independent — no time window.
+        Works regardless of signal generation timing (~10-15min or API-cached ~1h).
+        If fewer than MIN_CONFIRMATION_READS rows exist, returns False (fail-safe).
 
         Fail-safe: any DB error returns False — a hiccup never triggers an exit,
         only prevents one. Caller must not exit on False.
         """
         conn = None
         try:
-            cutoff_ts = (
-                datetime.now(timezone.utc).timestamp()
-                - self.CONFIRMATION_WINDOW_MINUTES * 60
-            )
-            cutoff_iso = datetime.fromtimestamp(
-                cutoff_ts, tz=timezone.utc).isoformat()
-
             conn = sqlite3.connect(
                 f'file:{self.SIGNAL_HISTORY_DB}?mode=ro', uri=True)
             rows = conn.execute(
                 'SELECT signal FROM signal_history '
-                'WHERE coin_id = ? AND timestamp >= ? '
-                'ORDER BY timestamp DESC',
-                (coin_id, cutoff_iso)
+                'WHERE coin_id = ? '
+                'ORDER BY timestamp DESC LIMIT ?',
+                (coin_id, self.MIN_CONFIRMATION_READS)
             ).fetchall()
 
             count = len(rows)
@@ -211,7 +207,7 @@ class CryptodashTrendStrategy(IStrategy):
 
             logger.debug(
                 f'[trend] confirmed_strong_sell {coin_id} | '
-                f'rows in window: {count} | '
+                f'last {self.MIN_CONFIRMATION_READS} rows fetched: {count} | '
                 f'all strong_sell: {all_strong_sell} | '
                 f'confirmed: {confirmed}')
 
@@ -295,7 +291,7 @@ class CryptodashTrendStrategy(IStrategy):
                 240:  0.03,   # 3% after 4h
                 480:  0.02,   # 2% after 8h
                 720:  0.015,  # 1.5% after 12h
-                960:  0.008,  # fee breakeven after 16h
+                900:  0.008,  # fee breakeven after 15h (time stop fires at 16h/960min)
             }
 
         # Find the highest applicable time key
