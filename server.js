@@ -82,7 +82,7 @@ const PAIR_TO_COIN = Object.fromEntries(
 );
 
 // Freqtrade SQLite paths (opened read-only per request)
-const FT_DB_MR    = '/home/gallus23/freqtrade/user_data/tradesv3.sqlite';
+const FT_DB_MR    = '/home/gallus23/freqtrade/tradesv3.dryrun.sqlite';
 const FT_DB_TREND = '/home/gallus23/freqtrade/user_data/tradesv3_trend.sqlite';
 
 async function ftLogin() {
@@ -1345,7 +1345,10 @@ async function ftPortfolioBundle(client) {
   const [profit, status, trades, balance] = await Promise.all([
     client.safeGet('/profit'),
     client.safeGet('/status'),
-    client.safeGet('/trades?limit=50'),
+    // order_by_id=false: FT 2026.5.1 sorts by open_date DESC (newest-first).
+    // Default sort is by trade ID ascending (oldest-first), which cut off recent
+    // trades when total count exceeded the limit (TF bot hit 65+ trades Aug 2026).
+    client.safeGet('/trades?limit=20&order_by_id=false'),
     client.safeGet('/balance'),
   ]);
   return { profit, openTrades: status, recentTrades: trades?.trades ?? null, balance };
