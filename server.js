@@ -81,6 +81,9 @@ const PAIR_TO_COIN = Object.fromEntries(
   Object.entries(COIN_TO_PAIR).map(([k, v]) => [v, k])
 );
 
+// Core coins that must never be auto-removed from the watchlist.
+const PROTECTED_COINS = new Set(['bitcoin', 'ethereum', 'solana', 'cardano', 'ripple', 'chainlink']);
+
 // Freqtrade SQLite paths (opened read-only per request)
 const FT_DB_MR    = '/home/gallus23/freqtrade/tradesv3.dryrun.sqlite';
 const FT_DB_TREND = '/home/gallus23/freqtrade/user_data/tradesv3_trend.sqlite';
@@ -233,6 +236,9 @@ async function ftReloadBoth() {
 
 // Set of GBP pairs present in EITHER config at startup — never auto-remove these.
 let _manualCoins = null;
+
+// Track consecutive Binance 4xx failures per coin. Reset to 0 on first success.
+const _binanceFailCount = new Map();
 
 function initManualCoins() {
   const pairs = new Set();
@@ -461,10 +467,30 @@ async function update1mCandles() {
     try {
       await binance.fetchNewCandles(id, meta.symbol, '1m', db);
       recordConnSuccess('binance');
+      _binanceFailCount.delete(id); // reset on success
     } catch (e) {
       console.error(`[candles] 1m update failed for ${id}:`, e.message);
       recordConnError('binance', e.message);
       logError('crypto-dashboard', `[candles] 1m ${id}: ${e.message}`);
+      // Track consecutive 4xx failures — auto-remove non-protected coins after 5
+      if (/4\d\d/.test(e.message)) {
+        const n = (_binanceFailCount.get(id) || 0) + 1;
+        _binanceFailCount.set(id, n);
+        if (n >= 5) {
+          if (PROTECTED_COINS.has(id)) {
+            if (n === 5) console.warn(`[candles] ${id} protected — retrying despite Binance failures`);
+          } else {
+            console.warn(`[candles] ${id} has ${n} consecutive Binance 4xx failures — auto-removing from watchlist`);
+            try {
+              const wl2 = readJson(WATCHLIST_FILE, { coins: [] });
+              wl2.coins = wl2.coins.filter(c => c !== id);
+              writeJson(WATCHLIST_FILE, wl2);
+            } catch (re) { console.error(`[candles] watchlist remove failed for ${id}:`, re.message); }
+            _binanceFailCount.delete(id);
+            notifier.notify({ title: 'Scanner', message: `${id} auto-removed (Binance market invalid)` });
+          }
+        }
+      }
     }
   }
 }
@@ -894,6 +920,9 @@ async function autoRemoveStaleCoins(autoAdded) {
     // Normalize: support both old `ftPair` field and new `krakenPair` field
     const krakenPair = entry.krakenPair ?? entry.ftPair ?? null;
 
+    // Never remove protected core coins from the watchlist
+    if (PROTECTED_COINS.has(coinId)) { kept.push(entry); continue; }
+
     // Always keep if Freqtrade has an open trade for this pair
     if (krakenPair && openPairs.has(krakenPair)) { kept.push(entry); continue; }
 
@@ -988,7 +1017,18 @@ async function updateScanner() {
       } else {
         result.winner.coinId = coinId;
         const wl = readJson(WATCHLIST_FILE, { coins: [] });
-        if (wl.coins.includes(coinId)) {
+
+        // Probe Binance market before adding — reject pairs with no active spot market
+        let binanceProbeOk = false;
+        try {
+          const probe = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${sym}`);
+          binanceProbeOk = probe.ok;
+        } catch {}
+
+        if (!binanceProbeOk) {
+          watchlistStatus = 'binance_invalid';
+          console.warn(`[scanner] ${sym} (${coinId}) rejected: Binance market probe failed — not added to watchlist`);
+        } else if (wl.coins.includes(coinId)) {
           watchlistStatus = 'already_watched';
           console.log(`[scanner] ${coinId} already on watchlist`);
         } else {

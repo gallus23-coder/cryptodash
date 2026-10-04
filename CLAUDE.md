@@ -481,11 +481,15 @@ Selection: Tier 0 winners preferred; Tier C used if no Tier 0.
 
 ### Auto-add / Auto-remove
 
-**Auto-add**: winner added to `watchlist.json` + both `config.json` and `config_trend.json` → `ftReloadBoth()` → desktop notification. Two writes: immediate (before Claude call) and final (with signal). Skipped if pair in `_manualCoins`.
+**Auto-add**: winner probed against Binance (`GET /api/v3/ticker/24hr?symbol=XXXUSDT`) BEFORE any watchlist write — if probe returns non-200, skip entirely and set `watchlistStatus = 'binance_invalid'`. If probe passes, add to `watchlist.json` + both `config.json` and `config_trend.json` → `ftReloadBoth()` → desktop notification. Skipped if pair in `_manualCoins`. Root cause of 2026-10-04 pieverse incident: probe was missing, PIEVERSEUSDT appeared in top-100 volume but klines returned 400.
 
-**Auto-remove** (at scan start): remove if no open FT trade AND (`addedAt` ≥ 24h OR signal = `strong_sell`). Removes from watchlist + both configs. Skipped if pair in `_manualCoins`.
+**Auto-remove** (at scan start): skip if `PROTECTED_COINS.has(coinId)` (checked first). Then: remove if no open FT trade AND (`addedAt` ≥ 24h OR signal = `strong_sell`). Removes from watchlist + both configs. FT config removal also skipped if pair in `_manualCoins`.
 
-**Manual coin protection**: `initManualCoins()` at startup reads both config whitelists → `_manualCoins` Set. BTC/ETH/SOL etc. never auto-removed.
+**Protected coins**: `PROTECTED_COINS = new Set(['bitcoin','ethereum','solana','cardano','ripple','chainlink'])`. Never removed from watchlist by auto-remove OR failure backoff. Root cause of 2026-10-04 ripple/chainlink loss: `_manualCoins` only guarded FT config, not watchlist — they were in `autoAdded` and expired.
+
+**Failure backoff**: `_binanceFailCount` Map tracks consecutive 4xx failures per coin in `update1mCandles`. After 5 failures: protected coins log one warning and continue retrying; non-protected coins are auto-removed from `watchlist.json` with notifier. Count resets to 0 on first success.
+
+**Manual coin protection**: `initManualCoins()` at startup reads both config whitelists → `_manualCoins` Set. Prevents FT config removal for auto-added coins whose krakenPair is in the original whitelist.
 
 `autoAdded` schema: `{ coinId, symbol, krakenPair, addedAt, tier, score }`. `krakenPair` null if config write failed. Old schema compat: reads `entry.krakenPair ?? entry.ftPair`.
 
