@@ -1,1 +1,7 @@
 node_modules/
+
+# runtime data - rewritten constantly by the dashboard
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.json
