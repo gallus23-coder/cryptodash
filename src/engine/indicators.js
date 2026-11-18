@@ -45,4 +45,86 @@ function rsiFromAverages(avgGain, avgLoss) {
   return 100 - 100 / (1 + avgGain / avgLoss);
 }
 
-module.exports = { ema, rsi };
+function trueRange(curr, prev) {
+  if (!prev) return curr.high - curr.low;
+  return Math.max(
+    curr.high - curr.low,
+    Math.abs(curr.high - prev.close),
+    Math.abs(curr.low - prev.close),
+  );
+}
+
+function atr(candles, period = 14) {
+  const out = new Array(candles.length).fill(null);
+  if (candles.length === 0) return out;
+  const trs = candles.map((c, i) => trueRange(c, i > 0 ? candles[i - 1] : null));
+  out[0] = trs[0];
+  if (candles.length < period) return out;
+  let sum = 0;
+  for (let i = 0; i < period; i += 1) sum += trs[i];
+  let prevAtr = sum / period;
+  out[period - 1] = prevAtr;
+  for (let i = period; i < candles.length; i += 1) {
+    prevAtr = (prevAtr * (period - 1) + trs[i]) / period;
+    out[i] = prevAtr;
+  }
+  return out;
+}
+
+function adx(candles, period = 14) {
+  const n = candles.length;
+  const adxOut = new Array(n).fill(null);
+  const plusDIOut = new Array(n).fill(null);
+  const minusDIOut = new Array(n).fill(null);
+  if (n < period + 1) return { adx: adxOut, plusDI: plusDIOut, minusDI: minusDIOut };
+
+  const trs = [0];
+  const plusDMs = [0];
+  const minusDMs = [0];
+  for (let i = 1; i < n; i += 1) {
+    trs.push(trueRange(candles[i], candles[i - 1]));
+    const upMove = candles[i].high - candles[i - 1].high;
+    const downMove = candles[i - 1].low - candles[i].low;
+    plusDMs.push(upMove > downMove && upMove > 0 ? upMove : 0);
+    minusDMs.push(downMove > upMove && downMove > 0 ? downMove : 0);
+  }
+
+  let trSum = 0, plusDMSum = 0, minusDMSum = 0;
+  for (let i = 1; i <= period; i += 1) {
+    trSum += trs[i]; plusDMSum += plusDMs[i]; minusDMSum += minusDMs[i];
+  }
+
+  const dxValues = new Array(n).fill(null);
+  const setDI = (i, smoothedTR, smoothedPlusDM, smoothedMinusDM) => {
+    const plusDI = smoothedTR === 0 ? 0 : (smoothedPlusDM / smoothedTR) * 100;
+    const minusDI = smoothedTR === 0 ? 0 : (smoothedMinusDM / smoothedTR) * 100;
+    plusDIOut[i] = plusDI;
+    minusDIOut[i] = minusDI;
+    const diSum = plusDI + minusDI;
+    dxValues[i] = diSum === 0 ? 0 : (Math.abs(plusDI - minusDI) / diSum) * 100;
+  };
+
+  setDI(period, trSum, plusDMSum, minusDMSum);
+  let smoothedTR = trSum, smoothedPlusDM = plusDMSum, smoothedMinusDM = minusDMSum;
+  for (let i = period + 1; i < n; i += 1) {
+    smoothedTR = smoothedTR - smoothedTR / period + trs[i];
+    smoothedPlusDM = smoothedPlusDM - smoothedPlusDM / period + plusDMs[i];
+    smoothedMinusDM = smoothedMinusDM - smoothedMinusDM / period + minusDMs[i];
+    setDI(i, smoothedTR, smoothedPlusDM, smoothedMinusDM);
+  }
+
+  if (n >= period * 2) {
+    let dxSum = 0;
+    for (let i = period; i < period * 2; i += 1) dxSum += dxValues[i];
+    let prevAdx = dxSum / period;
+    adxOut[period * 2 - 1] = prevAdx;
+    for (let i = period * 2; i < n; i += 1) {
+      prevAdx = (prevAdx * (period - 1) + dxValues[i]) / period;
+      adxOut[i] = prevAdx;
+    }
+  }
+
+  return { adx: adxOut, plusDI: plusDIOut, minusDI: minusDIOut };
+}
+
+module.exports = { ema, rsi, atr, adx };
