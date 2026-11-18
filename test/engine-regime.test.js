@@ -110,6 +110,43 @@ test('computeRegimeSeries looks up breadth by timestamp, so a gap in one coin do
   assert.equal(afterGap.metrics.breadthPct, 100); // both BTC and ETH are trending up, both above their EMA50
 });
 
+const { alignDailyIndices } = require('../src/engine/regime');
+
+test('alignDailyIndices picks the most recently CLOSED daily candle, never one still open', () => {
+  const DAY = 24 * 3600;
+  const dailySeries = [{ ts: 0 * DAY }, { ts: 1 * DAY }, { ts: 2 * DAY }];
+  const fourHourSeries = [
+    { ts: 2 * DAY + 4 * 3600 }, // 4h into day 2 — day 2 hasn't closed yet (closes at 3*DAY)
+  ];
+
+  const result = alignDailyIndices(dailySeries, fourHourSeries);
+
+  assert.equal(result[0], 1); // day 1 is the most recently closed (closes at 2*DAY <= bar.ts)
+});
+
+test('alignDailyIndices returns null before any daily candle has closed', () => {
+  const DAY = 24 * 3600;
+  const dailySeries = [{ ts: 5 * DAY }];
+  const fourHourSeries = [{ ts: 1 * DAY }];
+
+  const result = alignDailyIndices(dailySeries, fourHourSeries);
+
+  assert.equal(result[0], null);
+});
+
+test('alignDailyIndices advances forward monotonically across a whole series', () => {
+  const DAY = 24 * 3600, FOUR_H = 4 * 3600;
+  const dailySeries = Array.from({ length: 10 }, (_, i) => ({ ts: i * DAY }));
+  const fourHourSeries = Array.from({ length: 60 }, (_, i) => ({ ts: i * FOUR_H }));
+
+  const result = alignDailyIndices(dailySeries, fourHourSeries);
+
+  // By bar index 30 (= day 5, at 00:00), days 0-4 have closed (day 4 closes at 5*DAY = bar 30's ts).
+  assert.equal(result[30], 4);
+  // One bar later, still day 4 is the latest closed (day 5 closes at 6*DAY, bar index 36).
+  assert.equal(result[31], 4);
+});
+
 test('computeRegimeSeries uses the most recently CLOSED daily candle, never one still open at the 4h bar (no look-ahead)', () => {
   const { ema: emaFn } = require('../src/engine/indicators');
   const DAY = 24 * 3600;

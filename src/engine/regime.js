@@ -24,6 +24,20 @@ const ADX_PERIOD = 14;
 const VOLATILITY_WINDOW_BARS = 90 * 6; // 90 days of 4h bars
 const DAY_SECONDS = 24 * 3600;
 
+function alignDailyIndices(dailySeries, fourHourSeries) {
+  const result = new Array(fourHourSeries.length).fill(null);
+  if (dailySeries.length === 0) return result;
+  let dailyPointer = 0;
+  for (let i = 0; i < fourHourSeries.length; i += 1) {
+    const bar = fourHourSeries[i];
+    while (dailyPointer + 1 < dailySeries.length && dailySeries[dailyPointer + 1].ts + DAY_SECONDS <= bar.ts) {
+      dailyPointer += 1;
+    }
+    result[i] = dailySeries[dailyPointer].ts + DAY_SECONDS <= bar.ts ? dailyPointer : null;
+  }
+  return result;
+}
+
 function computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h }) {
   const dailyCloses = btcDaily.map((c) => c.close);
   const dailyEma200 = ema(dailyCloses, DAILY_EMA_PERIOD);
@@ -45,18 +59,13 @@ function computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h }) {
   }
   const coinNames = Object.keys(watchlistBy4h);
 
-  let dailyPointer = 0; // advances forward only — btc4h and btcDaily are both ts-ascending
+  const dailyIdx = alignDailyIndices(btcDaily, btc4h);
   const results = [];
 
   for (let i = 0; i < btc4h.length; i += 1) {
     const bar = btc4h[i];
-
-    // Use the daily candle's CLOSE time (ts + a full day), never its open time —
-    // a bar partway through "today" must not see today's not-yet-closed EMA200.
-    while (dailyPointer + 1 < btcDaily.length && btcDaily[dailyPointer + 1].ts + DAY_SECONDS <= bar.ts) {
-      dailyPointer += 1;
-    }
-    if (btcDaily[dailyPointer].ts + DAY_SECONDS > bar.ts) continue; // no completed daily candle yet at all
+    const dailyPointer = dailyIdx[i];
+    if (dailyPointer === null) continue; // no completed daily candle yet at all
     const ema200Now = dailyEma200[dailyPointer];
     const slopeIdx = dailyPointer - DAILY_SLOPE_LOOKBACK;
     if (ema200Now === null || slopeIdx < 0 || dailyEma200[slopeIdx] === null) continue;
@@ -95,4 +104,4 @@ function computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h }) {
   return results;
 }
 
-module.exports = { labelRegime, computeRegimeSeries };
+module.exports = { labelRegime, computeRegimeSeries, alignDailyIndices };
