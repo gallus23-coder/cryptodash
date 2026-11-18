@@ -119,6 +119,101 @@ test('privateRequest aborts with a TimeoutError when the server is too slow', as
   server.close();
 });
 
+test('privateRequest retries on HTTP 5xx and succeeds once the server recovers', async () => {
+  let requestCount = 0;
+  const server = await startMockServer((req, res) => {
+    req.on('data', () => {});
+    req.on('end', () => {
+      requestCount += 1;
+      if (requestCount < 3) {
+        res.statusCode = 503;
+        res.end('service unavailable');
+      } else {
+        res.end(JSON.stringify({ error: [], result: { ok: true } }));
+      }
+    });
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`, retryBaseDelayMs: 1,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+  });
+
+  const result = await client.privateRequest('Balance', {});
+
+  assert.equal(requestCount, 3);
+  assert.deepEqual(result, { ok: true });
+  server.close();
+});
+
+test('privateRequest retries on EAPI:Rate limit and succeeds once the server recovers', async () => {
+  let requestCount = 0;
+  const server = await startMockServer((req, res) => {
+    req.on('data', () => {});
+    req.on('end', () => {
+      requestCount += 1;
+      if (requestCount < 2) {
+        res.end(JSON.stringify({ error: ['EAPI:Rate limit exceeded'], result: null }));
+      } else {
+        res.end(JSON.stringify({ error: [], result: { ok: true } }));
+      }
+    });
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`, retryBaseDelayMs: 1,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+  });
+
+  const result = await client.privateRequest('Balance', {});
+
+  assert.equal(requestCount, 2);
+  assert.deepEqual(result, { ok: true });
+  server.close();
+});
+
+test('privateRequest gives up after the retry limit and throws the last error', async () => {
+  let requestCount = 0;
+  const server = await startMockServer((req, res) => {
+    req.on('data', () => {});
+    req.on('end', () => {
+      requestCount += 1;
+      res.statusCode = 503;
+      res.end('service unavailable');
+    });
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`, retryBaseDelayMs: 1, retries: 2,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+  });
+
+  await assert.rejects(() => client.privateRequest('Balance', {}), (err) => err.status === 503);
+  assert.equal(requestCount, 3); // initial try + 2 retries
+  server.close();
+});
+
+test('addOrder never retries, even on HTTP 5xx', async () => {
+  let requestCount = 0;
+  const server = await startMockServer((req, res) => {
+    req.on('data', () => {});
+    req.on('end', () => {
+      requestCount += 1;
+      res.statusCode = 503;
+      res.end('service unavailable');
+    });
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`, retryBaseDelayMs: 1,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+  });
+
+  await assert.rejects(() => client.addOrder({ pair: 'XXBTZGBP', type: 'buy', ordertype: 'market', volume: '0.001' }));
+  assert.equal(requestCount, 1);
+  server.close();
+});
+
 test('default nonce generator is strictly increasing even when called twice in the same tick', () => {
   const client = createRestClient({ baseUrl: 'http://unused' });
   const a = client._getNonce();

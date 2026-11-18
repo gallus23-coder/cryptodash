@@ -30,33 +30,56 @@ function makeDefaultNonce() {
   };
 }
 
-function createRestClient({ apiKey, apiSecret, baseUrl = DEFAULT_BASE_URL, getNonce, timeoutMs = 10000 } = {}) {
+function isRetryable(err) {
+  if (err.status >= 500) return true;
+  return err instanceof KrakenApiError && err.errors.some((e) => e.includes('EAPI:Rate limit'));
+}
+
+function createRestClient({
+  apiKey, apiSecret, baseUrl = DEFAULT_BASE_URL, getNonce, timeoutMs = 10000,
+  retries = 3, retryBaseDelayMs = 300,
+} = {}) {
   const nonceFn = getNonce || makeDefaultNonce();
 
-  async function publicRequest(endpoint, params = {}) {
-    const qs = new URLSearchParams(params).toString();
-    const path = `/0/public/${endpoint}`;
-    const url = `${baseUrl}${path}${qs ? `?${qs}` : ''}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-    return parseResponse(res);
+  async function withRetry(fn, retry) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await fn();
+      } catch (err) {
+        if (!retry || attempt === retries || !isRetryable(err)) throw err;
+        await new Promise((r) => setTimeout(r, retryBaseDelayMs * 2 ** attempt));
+      }
+    }
   }
 
-  async function privateRequest(endpoint, params = {}) {
-    const nonce = String(nonceFn());
-    const postdata = new URLSearchParams({ nonce, ...params }).toString();
-    const path = `/0/private/${endpoint}`;
-    const signature = sign(path, postdata, nonce, apiSecret);
-    const res = await fetch(`${baseUrl}${path}`, {
-      method: 'POST',
-      headers: {
-        'API-Key': apiKey,
-        'API-Sign': signature,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: postdata,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    return parseResponse(res);
+  async function publicRequest(endpoint, params = {}, { retry = true } = {}) {
+    return withRetry(async () => {
+      const qs = new URLSearchParams(params).toString();
+      const path = `/0/public/${endpoint}`;
+      const url = `${baseUrl}${path}${qs ? `?${qs}` : ''}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      return parseResponse(res);
+    }, retry);
+  }
+
+  async function privateRequest(endpoint, params = {}, { retry = true } = {}) {
+    return withRetry(async () => {
+      const nonce = String(nonceFn());
+      const postdata = new URLSearchParams({ nonce, ...params }).toString();
+      const path = `/0/private/${endpoint}`;
+      const signature = sign(path, postdata, nonce, apiSecret);
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          'API-Key': apiKey,
+          'API-Sign': signature,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: postdata,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      return parseResponse(res);
+    }, retry);
   }
 
   async function parseResponse(res) {
@@ -100,8 +123,10 @@ function createRestClient({ apiKey, apiSecret, baseUrl = DEFAULT_BASE_URL, getNo
     return privateRequest('Balance');
   }
 
+  // A timed-out AddOrder may already have placed the order on Kraken; retrying
+  // here would risk a second position. Callers must check by cl_ord_id first.
   async function addOrder(params) {
-    return privateRequest('AddOrder', params);
+    return privateRequest('AddOrder', params, { retry: false });
   }
 
   async function amendOrder(params) {
