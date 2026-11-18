@@ -93,9 +93,11 @@ function reportGaps(db) {
 
 function buildHigherTimeframes(db) {
   const nowHour = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
-  const fromTs = nowHour - SIX_MONTHS_SECONDS;
   for (const coin of Object.keys(COINS)) {
-    const hourly = getCandles(db, coin, '1h', fromTs, nowHour);
+    // Build from every 1h candle we have, not just the last 6 months — milestone 3's
+    // regime engine needs 220+ days of daily history (EMA200 + 20-day slope), and the
+    // 1h table already holds full history, so there's no reason to throw the rest away.
+    const hourly = getCandles(db, coin, '1h', 0, nowHour);
     for (const [timeframe, seconds] of [['4h', 4 * HOUR], ['1d', 24 * HOUR]]) {
       const built = aggregateCandles(hourly, seconds, { nowTs: nowHour }).filter((c) => c.closed);
       upsertCandles(db, built.map((c) => ({ coin, timeframe, ...c })));
