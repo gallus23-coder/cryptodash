@@ -63,4 +63,30 @@ function findGapHours(existingTs, fromTs, toTs, stepSeconds = 3600) {
   return gaps;
 }
 
-module.exports = { parseOhlcvtCsv, aggregateCandles, findGapHours };
+function buildCandlesFromTrades(trades, rangeEndTs) {
+  const buckets = new Map();
+  for (const t of trades) {
+    const bucketStart = Math.floor(t.time / 3600) * 3600;
+    if (bucketStart + 3600 > rangeEndTs) continue; // forming or out-of-range hour
+    if (!buckets.has(bucketStart)) buckets.set(bucketStart, []);
+    buckets.get(bucketStart).push(t);
+  }
+
+  const result = [];
+  for (const [bucketStart, bucketTrades] of buckets) {
+    bucketTrades.sort((a, b) => a.time - b.time);
+    result.push({
+      ts: bucketStart,
+      open: bucketTrades[0].price,
+      close: bucketTrades[bucketTrades.length - 1].price,
+      high: Math.max(...bucketTrades.map((t) => t.price)),
+      low: Math.min(...bucketTrades.map((t) => t.price)),
+      volume: bucketTrades.reduce((sum, t) => sum + t.volume, 0),
+      trades: bucketTrades.length,
+      closed: true,
+    });
+  }
+  return result.sort((a, b) => a.ts - b.ts);
+}
+
+module.exports = { parseOhlcvtCsv, aggregateCandles, findGapHours, buildCandlesFromTrades };

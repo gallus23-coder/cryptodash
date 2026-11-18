@@ -121,3 +121,31 @@ test('findGapHours reports only the missing steps, honoring real no-trade gaps',
   const existing = [0, 2 * hour, 3 * hour];
   assert.deepEqual(findGapHours(existing, 0, 3 * hour, hour), [hour]);
 });
+
+const { buildCandlesFromTrades } = require('../src/data/candles');
+
+test('buildCandlesFromTrades buckets trades into hourly OHLCV, dropping the trailing partial hour', () => {
+  const hour = 3600;
+  const trades = [
+    { price: 100, volume: 1, time: 0 },
+    { price: 102, volume: 2, time: 1800 },
+    { price: 101, volume: 1, time: 3599 }, // completes hour 0: [0, 3600)
+    { price: 105, volume: 1, time: hour },
+    { price: 106, volume: 1, time: hour + 10 }, // completes hour 1: [3600, 7200)
+    { price: 999, volume: 1, time: 2 * hour }, // starts hour 2 — trailing, not fully in range
+  ];
+
+  const result = buildCandlesFromTrades(trades, 2 * hour); // range covers through hour 1's close exactly
+
+  assert.equal(result.length, 2);
+  assert.deepEqual(result[0], {
+    ts: 0, open: 100, high: 102, low: 100, close: 101, volume: 4, trades: 3, closed: true,
+  });
+  assert.deepEqual(result[1], {
+    ts: hour, open: 105, high: 106, low: 105, close: 106, volume: 2, trades: 2, closed: true,
+  });
+});
+
+test('buildCandlesFromTrades returns nothing for an empty trades list', () => {
+  assert.deepEqual(buildCandlesFromTrades([], 10000), []);
+});

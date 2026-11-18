@@ -119,6 +119,18 @@ function createRestClient({
     return { candles, last };
   }
 
+  async function getTrades(pair, { since } = {}) {
+    const params = { pair };
+    if (since !== undefined) params.since = since;
+    const result = await publicRequest('Trades', params);
+    const { last, ...rest } = result;
+    const rows = rest[Object.keys(rest)[0]];
+    const trades = rows.map(([price, volume, time]) => ({
+      price: Number(price), volume: Number(volume), time,
+    }));
+    return { trades, last };
+  }
+
   async function getBalance() {
     return privateRequest('Balance');
   }
@@ -155,7 +167,7 @@ function createRestClient({
 
   return {
     publicRequest, privateRequest, sign, _getNonce: nonceFn,
-    getServerTime, getAssetPairs, getTicker, getOhlc,
+    getServerTime, getAssetPairs, getTicker, getOhlc, getTrades,
     getBalance, addOrder, amendOrder, cancelOrder, getOpenOrders,
     queryOrders, getClosedOrders, getTradesHistory,
   };

@@ -289,6 +289,47 @@ test('getTradesHistory posts params to /0/private/TradesHistory', async () => {
   server.close();
 });
 
+test('getTrades fetches /0/public/Trades and normalizes rows, passing through last verbatim', async () => {
+  const server = await startMockServer((req, res) => {
+    res.end(JSON.stringify({
+      error: [],
+      result: {
+        XBTGBP: [
+          ['50000.1', '0.05', 1700000000.123, 'b', 'l', '', 1],
+          ['50001.2', '0.02', 1700000010.456, 's', 'm', '', 2],
+        ],
+        last: '1700000010456000000',
+      },
+    }));
+  });
+  const { port } = server.address();
+  const client = createRestClient({ baseUrl: `http://127.0.0.1:${port}` });
+
+  const { trades, last } = await client.getTrades('XBTGBP', {});
+
+  assert.deepEqual(trades, [
+    { price: 50000.1, volume: 0.05, time: 1700000000.123 },
+    { price: 50001.2, volume: 0.02, time: 1700000010.456 },
+  ]);
+  assert.equal(last, '1700000010456000000');
+  server.close();
+});
+
+test('getTrades passes since through as a query param', async () => {
+  let captured;
+  const server = await startMockServer((req, res) => {
+    captured = req.url;
+    res.end(JSON.stringify({ error: [], result: { XBTGBP: [], last: '0' } }));
+  });
+  const { port } = server.address();
+  const client = createRestClient({ baseUrl: `http://127.0.0.1:${port}` });
+
+  await client.getTrades('XBTGBP', { since: '1700000000000000000' });
+
+  assert.equal(captured, '/0/public/Trades?pair=XBTGBP&since=1700000000000000000');
+  server.close();
+});
+
 test('default nonce generator is strictly increasing even when called twice in the same tick', () => {
   const client = createRestClient({ baseUrl: 'http://unused' });
   const a = client._getNonce();
