@@ -127,4 +127,45 @@ function adx(candles, period = 14) {
   return { adx: adxOut, plusDI: plusDIOut, minusDI: minusDIOut };
 }
 
-module.exports = { ema, rsi, atr, adx };
+function choppiness(candles, period = 14) {
+  const out = new Array(candles.length).fill(null);
+  const trs = candles.map((c, i) => trueRange(c, i > 0 ? candles[i - 1] : null));
+  for (let i = period - 1; i < candles.length; i += 1) {
+    const window = candles.slice(i - period + 1, i + 1);
+    const trSum = trs.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+    const highestHigh = Math.max(...window.map((c) => c.high));
+    const lowestLow = Math.min(...window.map((c) => c.low));
+    const range = highestHigh - lowestLow;
+    out[i] = range === 0 ? 0 : (100 * Math.log10(trSum / range)) / Math.log10(period);
+  }
+  return out;
+}
+
+function bollinger(values, period = 20, mult = 2) {
+  const middle = new Array(values.length).fill(null);
+  const upper = new Array(values.length).fill(null);
+  const lower = new Array(values.length).fill(null);
+  for (let i = period - 1; i < values.length; i += 1) {
+    const window = values.slice(i - period + 1, i + 1);
+    const mean = window.reduce((a, b) => a + b, 0) / period;
+    const variance = window.reduce((sum, v) => sum + (v - mean) ** 2, 0) / period;
+    const stddev = Math.sqrt(variance);
+    middle[i] = mean;
+    upper[i] = mean + mult * stddev;
+    lower[i] = mean - mult * stddev;
+  }
+  return { middle, upper, lower };
+}
+
+function donchian(candles, period = 20) {
+  const upper = new Array(candles.length).fill(null);
+  const lower = new Array(candles.length).fill(null);
+  for (let i = period - 1; i < candles.length; i += 1) {
+    const window = candles.slice(i - period + 1, i + 1);
+    upper[i] = Math.max(...window.map((c) => c.high));
+    lower[i] = Math.min(...window.map((c) => c.low));
+  }
+  return { upper, lower };
+}
+
+module.exports = { ema, rsi, atr, adx, choppiness, bollinger, donchian };
