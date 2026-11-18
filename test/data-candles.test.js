@@ -35,3 +35,70 @@ test('parseOhlcvtCsv skips malformed lines and reports how many were skipped', (
 test('parseOhlcvtCsv returns an empty result for an empty string', () => {
   assert.deepEqual(parseOhlcvtCsv(''), { rows: [], skipped: 0 });
 });
+
+const { aggregateCandles } = require('../src/data/candles');
+
+test('aggregateCandles builds one 4h bucket from four 1h candles aligned to UTC', () => {
+  // 1970-01-01T00:00:00Z is itself a 4h boundary, so epoch-second bucketing
+  // naturally aligns to 00/04/08/12/16/20 UTC without extra calendar math.
+  const hour = 3600;
+  const candles1h = [0, 1, 2, 3].map((i) => ({
+    ts: i * hour, open: 10 + i, high: 11 + i, low: 9 + i, close: 10.5 + i, volume: 1, trades: 2,
+  }));
+
+  const result = aggregateCandles(candles1h, 4 * hour);
+
+  assert.equal(result.length, 1);
+  const bucket = result[0];
+  assert.equal(bucket.ts, 0);
+  assert.equal(bucket.open, 10); // first child's open
+  assert.equal(bucket.close, 13.5); // last child's close
+  assert.equal(bucket.high, 14); // max of the four highs
+  assert.equal(bucket.low, 9); // min of the four lows
+  assert.equal(bucket.volume, 4);
+  assert.equal(bucket.trades, 8);
+  assert.equal(bucket.closed, true); // bucket ends at 4h, last child ends at 4h too
+});
+
+test('aggregateCandles marks the newest bucket unclosed if the clock has not passed its end yet', () => {
+  const hour = 3600;
+  // Only 2 of the 4 hours a full 4h bucket would need have arrived so far.
+  const candles1h = [0, 1].map((i) => ({
+    ts: i * hour, open: 10, high: 11, low: 9, close: 10.5, volume: 1, trades: 1,
+  }));
+
+  const result = aggregateCandles(candles1h, 4 * hour);
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].closed, false);
+});
+
+test('aggregateCandles still closes a sparse bucket (fewer than 4 child rows) once time has passed it', () => {
+  const hour = 3600;
+  // Only hour 0 traded (a real gap, not zero-filled) but hour 5 has already arrived,
+  // meaning the clock is well past the first 4h bucket's end at hour 4.
+  const candles1h = [
+    { ts: 0, open: 10, high: 11, low: 9, close: 10.5, volume: 1, trades: 1 },
+    { ts: 5 * hour, open: 20, high: 21, low: 19, close: 20.5, volume: 1, trades: 1 },
+  ];
+
+  const result = aggregateCandles(candles1h, 4 * hour);
+
+  const firstBucket = result.find((b) => b.ts === 0);
+  assert.equal(firstBucket.closed, true);
+  assert.equal(firstBucket.trades, 1); // only the one child row that actually traded
+});
+
+test('aggregateCandles treats a null trades value as contagious only when every child is null', () => {
+  const hour = 3600;
+  const candles1h = [
+    { ts: 0, open: 10, high: 11, low: 9, close: 10.5, volume: 1, trades: null },
+    { ts: hour, open: 10, high: 11, low: 9, close: 10.5, volume: 1, trades: null },
+    { ts: 2 * hour, open: 10, high: 11, low: 9, close: 10.5, volume: 1, trades: null },
+    { ts: 3 * hour, open: 10, high: 11, low: 9, close: 10.5, volume: 1, trades: null },
+  ];
+
+  const result = aggregateCandles(candles1h, 4 * hour);
+
+  assert.equal(result[0].trades, null);
+});
