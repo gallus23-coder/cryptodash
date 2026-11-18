@@ -97,7 +97,7 @@ function buildHigherTimeframes(db) {
   for (const coin of Object.keys(COINS)) {
     const hourly = getCandles(db, coin, '1h', fromTs, nowHour);
     for (const [timeframe, seconds] of [['4h', 4 * HOUR], ['1d', 24 * HOUR]]) {
-      const built = aggregateCandles(hourly, seconds).filter((c) => c.closed);
+      const built = aggregateCandles(hourly, seconds, { nowTs: nowHour }).filter((c) => c.closed);
       upsertCandles(db, built.map((c) => ({ coin, timeframe, ...c })));
       console.log(`${coin}: built ${built.length} ${timeframe} candles`);
     }

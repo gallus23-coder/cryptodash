@@ -7,7 +7,7 @@ function parseOhlcvtCsv(csvText) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     const fields = trimmed.split(',');
-    if (fields.length !== 7) {
+    if (fields.length !== 7 || fields.some((f) => f.trim() === '')) {
       skipped += 1;
       continue;
     }
@@ -21,9 +21,10 @@ function parseOhlcvtCsv(csvText) {
   return { rows, skipped };
 }
 
-function aggregateCandles(candles1h, bucketSeconds) {
+function aggregateCandles(candles1h, bucketSeconds, { nowTs } = {}) {
   if (candles1h.length === 0) return [];
   const lastChildTs = candles1h[candles1h.length - 1].ts;
+  const referenceTs = nowTs !== undefined ? nowTs : lastChildTs + 3600;
   const buckets = new Map();
 
   for (const c of candles1h) {
@@ -48,7 +49,7 @@ function aggregateCandles(candles1h, bucketSeconds) {
       low: Math.min(...children.map((c) => c.low)),
       volume: children.reduce((sum, c) => sum + c.volume, 0),
       trades: allTradesNull ? null : children.reduce((sum, c) => sum + (c.trades || 0), 0),
-      closed: bucketStart + bucketSeconds <= lastChildTs + 3600,
+      closed: bucketStart + bucketSeconds <= referenceTs,
     });
   }
   return result.sort((a, b) => a.ts - b.ts);

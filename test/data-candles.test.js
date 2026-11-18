@@ -32,6 +32,15 @@ test('parseOhlcvtCsv skips malformed lines and reports how many were skipped', (
   assert.equal(skipped, 1);
 });
 
+test('parseOhlcvtCsv skips a row with a blank field instead of inserting 0', () => {
+  const csv = '1700000000,1,2,3,,5,6\n';
+
+  const { rows, skipped } = parseOhlcvtCsv(csv);
+
+  assert.equal(rows.length, 0);
+  assert.equal(skipped, 1);
+});
+
 test('parseOhlcvtCsv returns an empty result for an empty string', () => {
   assert.deepEqual(parseOhlcvtCsv(''), { rows: [], skipped: 0 });
 });
@@ -101,6 +110,26 @@ test('aggregateCandles treats a null trades value as contagious only when every 
   const result = aggregateCandles(candles1h, 4 * hour);
 
   assert.equal(result[0].trades, null);
+});
+
+test('aggregateCandles closes the trailing bucket when an explicit nowTs has clearly passed its end, even if the last child row is older due to a gap', () => {
+  const hour = 3600;
+  // Hour 0 traded; hours 1-3 are a real no-trade gap. Without a clock reference,
+  // lastChildTs=0 would make the [0,4h) bucket look "not yet closed".
+  const candles1h = [{ ts: 0, open: 10, high: 11, low: 9, close: 10.5, volume: 1, trades: 1 }];
+
+  const result = aggregateCandles(candles1h, 4 * hour, { nowTs: 10 * hour });
+
+  assert.equal(result[0].closed, true);
+});
+
+test('aggregateCandles without an explicit nowTs falls back to the default last-child-based closedness (unchanged)', () => {
+  const hour = 3600;
+  const candles1h = [{ ts: 0, open: 10, high: 11, low: 9, close: 10.5, volume: 1, trades: 1 }];
+
+  const result = aggregateCandles(candles1h, 4 * hour);
+
+  assert.equal(result[0].closed, false);
 });
 
 const { findGapHours } = require('../src/data/candles');
