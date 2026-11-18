@@ -51,3 +51,77 @@ test('echoes the input metrics back unchanged alongside the label', () => {
   const result = labelRegime(metrics);
   assert.deepEqual(result.metrics, metrics);
 });
+
+const { computeRegimeSeries } = require('../src/engine/regime');
+
+function makeDailySeries(days, closeFn) {
+  const HOUR = 3600, DAY = 24 * HOUR;
+  return Array.from({ length: days }, (_, i) => ({ ts: i * DAY, close: closeFn(i) }));
+}
+
+function make4hSeries(bars, priceFn, { skipIndices = new Set() } = {}) {
+  const HOUR = 3600, FOUR_H = 4 * HOUR;
+  const out = [];
+  for (let i = 0; i < bars; i += 1) {
+    if (skipIndices.has(i)) continue; // a real gap — this timestamp is simply absent
+    const p = priceFn(i);
+    out.push({ ts: i * FOUR_H, high: p + 1, low: p - 1, close: p });
+  }
+  return out;
+}
+
+test('computeRegimeSeries only starts once there is enough daily and 4h history', () => {
+  const btcDaily = makeDailySeries(225, (i) => 100 + i * 0.1); // 225 days: 200 for EMA200 + 20 for slope + margin
+  const btc4h = make4hSeries(225 * 6, (i) => 100 + i * 0.02);
+  const watchlistBy4h = { BTC: btc4h.map((c) => ({ ts: c.ts, close: c.close })) };
+
+  const result = computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h });
+
+  assert.ok(result.length > 0);
+  assert.ok(result.length < btc4h.length, 'should not start from index 0 — not enough warm-up history there');
+  assert.ok(result.every((r) => typeof r.label === 'string'));
+});
+
+test('computeRegimeSeries looks up breadth by timestamp, so a gap in one coin does not misalign another', () => {
+  // Regime points only start once 220 daily bars (200 EMA + 20 slope) have
+  // elapsed, so the series needs real margin past that before placing a gap —
+  // a gap at day ~83 would never be reachable regardless of total length.
+  const DAYS = 300;
+  const btcDaily = makeDailySeries(DAYS, (i) => 100 + i); // strongly trending up -> above EMA200
+  const btc4h = make4hSeries(DAYS * 6, (i) => 100 + i * 0.5); // also trending up strongly for ADX
+  // ETH has a gap well inside the valid (post-warmup) range — its array is
+  // shorter and misaligned by position against btc4h from that point on, but
+  // every remaining entry's ts is honest.
+  const GAP_INDEX = 1500;
+  const ethFull = make4hSeries(DAYS * 6, (i) => 50 + i * 0.5);
+  const ethWithGap = ethFull.filter((_, i) => i !== GAP_INDEX);
+
+  const watchlistBy4h = {
+    BTC: btc4h.map((c) => ({ ts: c.ts, close: c.close })),
+    ETH: ethWithGap.map((c) => ({ ts: c.ts, close: c.close })),
+  };
+
+  const result = computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h });
+
+  // Right after the gap, ETH's next real entry must still be matched to the SAME ts
+  // as BTC's corresponding bar, not shifted by one position.
+  const afterGap = result.find((r) => r.ts === btc4h[GAP_INDEX + 1].ts);
+  assert.ok(afterGap, "expected a regime point at the bar right after ETH's gap");
+  assert.equal(afterGap.metrics.breadthPct, 100); // both BTC and ETH are trending up, both above their EMA50
+});
+
+test('computeRegimeSeries never produces NaN or Infinity in any numeric metric', () => {
+  const btcDaily = makeDailySeries(225, (i) => 100 + i * 0.1);
+  const btc4h = make4hSeries(225 * 6, (i) => 100 + Math.sin(i / 10)); // oscillating, exercises choppiness/ADX edge cases
+  const watchlistBy4h = { BTC: btc4h.map((c) => ({ ts: c.ts, close: c.close })) };
+
+  const result = computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h });
+
+  for (const point of result) {
+    for (const [key, value] of Object.entries(point.metrics)) {
+      if (typeof value === 'number') {
+        assert.ok(Number.isFinite(value), `metric ${key} was not finite: ${value}`);
+      }
+    }
+  }
+});
