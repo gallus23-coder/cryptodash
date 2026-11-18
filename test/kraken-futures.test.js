@@ -39,13 +39,38 @@ test('getTickers throws when Kraken Futures reports an error result', async () =
   server.close();
 });
 
-test('getFundingContext extracts funding/OI fields for a known symbol', () => {
+test('getFundingContext converts the absolute fundingRate to a percentage of markPrice', () => {
+  // Confirmed against the real API (2026-11-18): fundingRate/fundingRatePrediction
+  // are absolute quote-currency amounts, not fractions of price — e.g. PF_XBTUSD
+  // returned fundingRate: -0.1604697 against markPrice: 64022.37, i.e. about
+  // -0.00025% per period, not -16%. Must divide by markPrice before use.
   const client = createFuturesClient({});
-  const tickers = [{ symbol: 'PF_XBTUSD', fundingRate: 0.0001, fundingRatePrediction: 0.0002, openInterest: 12345 }];
+  const tickers = [{
+    symbol: 'PF_XBTUSD', fundingRate: -0.1604697, fundingRatePrediction: 0.6826404,
+    openInterest: 12345, markPrice: 64022.3737,
+  }];
 
   const ctx = client.getFundingContext(tickers, 'PF_XBTUSD');
 
-  assert.deepEqual(ctx, { symbol: 'PF_XBTUSD', fundingRate: 0.0001, fundingRatePrediction: 0.0002, openInterest: 12345 });
+  assert.deepEqual(ctx, {
+    symbol: 'PF_XBTUSD',
+    fundingRate: -0.1604697,
+    fundingRatePrediction: 0.6826404,
+    openInterest: 12345,
+    fundingRatePct: (-0.1604697 / 64022.3737) * 100,
+    fundingRatePredictionPct: (0.6826404 / 64022.3737) * 100,
+  });
+  assert.ok(ctx.fundingRatePct < 0 && ctx.fundingRatePct > -0.001, `expected a tiny negative percentage, got ${ctx.fundingRatePct}`);
+});
+
+test('getFundingContext returns null percentages when markPrice is missing', () => {
+  const client = createFuturesClient({});
+  const tickers = [{ symbol: 'PF_XBTUSD', fundingRate: -0.16, fundingRatePrediction: 0.68, openInterest: 12345 }];
+
+  const ctx = client.getFundingContext(tickers, 'PF_XBTUSD');
+
+  assert.equal(ctx.fundingRatePct, null);
+  assert.equal(ctx.fundingRatePredictionPct, null);
 });
 
 test('getTickers aborts with a TimeoutError when the server is too slow', async () => {

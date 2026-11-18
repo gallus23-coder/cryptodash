@@ -10,4 +10,6 @@ test('real Kraken Futures tickers include PF_XBTUSD funding/OI', async () => {
   assert.ok(ctx, 'expected to find PF_XBTUSD in the tickers list');
   assert.equal(typeof ctx.fundingRate, 'number');
   assert.equal(typeof ctx.openInterest, 'number');
+  assert.equal(typeof ctx.fundingRatePct, 'number');
+  assert.ok(Math.abs(ctx.fundingRatePct) < 5, `expected a small percentage, got ${ctx.fundingRatePct} — fundingRate units may have changed`);
 });

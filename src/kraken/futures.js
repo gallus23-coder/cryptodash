@@ -18,11 +18,16 @@ function createFuturesClient({ baseUrl = DEFAULT_BASE_URL, timeoutMs = 10000 } =
   function getFundingContext(tickers, symbol) {
     const ticker = tickers.find((t) => t.symbol === symbol);
     if (!ticker) return null;
+    // Kraken Futures reports fundingRate/fundingRatePrediction as absolute
+    // quote-currency amounts, not a fraction of price — divide by markPrice.
+    const { markPrice } = ticker;
     return {
       symbol,
       fundingRate: ticker.fundingRate,
       fundingRatePrediction: ticker.fundingRatePrediction,
       openInterest: ticker.openInterest,
+      fundingRatePct: markPrice ? (ticker.fundingRate / markPrice) * 100 : null,
+      fundingRatePredictionPct: markPrice ? (ticker.fundingRatePrediction / markPrice) * 100 : null,
     };
   }
 
