@@ -20,7 +20,7 @@ function evaluate(coin, candles4h, indicators, i, regimeLabel) {
     regime: regimeLabel,
     entry: bar.close,
     atr: indicators.atr14[i],
-    default: { action: 'take', size: 1.0, stopAtr: 2.0, trailAtr: 2.5 },
+    default: { action: 'take', size: 1.0, stopAtr: 2.0, trailAtr: 3.0 },
     exitType: 'trailing_stop',
   };
 }

@@ -28,7 +28,7 @@ test('fires when close breaks above the PRIOR bar\'s 20-bar high and ADX is risi
   assert.equal(candidate.entry, 105);
   assert.equal(candidate.atr, 3);
   assert.equal(candidate.default.stopAtr, 2.0);
-  assert.equal(candidate.default.trailAtr, 2.5);
+  assert.equal(candidate.default.trailAtr, 3.0);
   assert.equal(candidate.exitType, 'trailing_stop');
 });
 
