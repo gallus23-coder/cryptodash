@@ -214,6 +214,81 @@ test('addOrder never retries, even on HTTP 5xx', async () => {
   server.close();
 });
 
+test('queryOrders posts comma-joined txids to /0/private/QueryOrders', async () => {
+  let captured;
+  const server = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      captured = { url: req.url, body };
+      res.end(JSON.stringify({ error: [], result: { 'OABC-1': {}, 'OABC-2': {} } }));
+    });
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+    getNonce: () => 1,
+  });
+
+  const result = await client.queryOrders(['OABC-1', 'OABC-2']);
+
+  assert.equal(captured.url, '/0/private/QueryOrders');
+  assert.equal(captured.body, 'nonce=1&txid=OABC-1%2COABC-2');
+  assert.deepEqual(Object.keys(result), ['OABC-1', 'OABC-2']);
+  server.close();
+});
+
+test('getClosedOrders posts params to /0/private/ClosedOrders', async () => {
+  let captured;
+  const server = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      captured = { url: req.url, body };
+      res.end(JSON.stringify({ error: [], result: { closed: {} } }));
+    });
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+    getNonce: () => 1,
+  });
+
+  const result = await client.getClosedOrders({ start: '1700000000' });
+
+  assert.equal(captured.url, '/0/private/ClosedOrders');
+  assert.equal(captured.body, 'nonce=1&start=1700000000');
+  assert.deepEqual(result, { closed: {} });
+  server.close();
+});
+
+test('getTradesHistory posts params to /0/private/TradesHistory', async () => {
+  let captured;
+  const server = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      captured = { url: req.url, body };
+      res.end(JSON.stringify({ error: [], result: { trades: {} } }));
+    });
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+    getNonce: () => 1,
+  });
+
+  const result = await client.getTradesHistory({ start: '1700000000' });
+
+  assert.equal(captured.url, '/0/private/TradesHistory');
+  assert.equal(captured.body, 'nonce=1&start=1700000000');
+  assert.deepEqual(result, { trades: {} });
+  server.close();
+});
+
 test('default nonce generator is strictly increasing even when called twice in the same tick', () => {
   const client = createRestClient({ baseUrl: 'http://unused' });
   const a = client._getNonce();

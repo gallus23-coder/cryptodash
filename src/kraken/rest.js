@@ -141,10 +141,23 @@ function createRestClient({
     return privateRequest('OpenOrders');
   }
 
+  async function queryOrders(txids) {
+    return privateRequest('QueryOrders', { txid: txids.join(',') });
+  }
+
+  async function getClosedOrders(params = {}) {
+    return privateRequest('ClosedOrders', params);
+  }
+
+  async function getTradesHistory(params = {}) {
+    return privateRequest('TradesHistory', params);
+  }
+
   return {
     publicRequest, privateRequest, sign, _getNonce: nonceFn,
     getServerTime, getAssetPairs, getTicker, getOhlc,
     getBalance, addOrder, amendOrder, cancelOrder, getOpenOrders,
+    queryOrders, getClosedOrders, getTradesHistory,
   };
 }
 
