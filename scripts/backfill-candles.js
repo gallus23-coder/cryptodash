@@ -34,7 +34,10 @@ async function importCsvZips(db, zipPaths) {
 async function pullRecentFromRest(db, client) {
   for (const [coin, altname] of Object.entries(COINS)) {
     const { candles } = await client.getOhlc(altname, { interval: 60 });
-    const closedRows = candles.filter((c) => c.closed).map((c) => ({ coin, timeframe: '1h', ...c }));
+    const closedRows = candles.filter((c) => c.closed).map((c) => ({
+      coin, timeframe: '1h', ts: c.time,
+      open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume, trades: c.count,
+    }));
     const count = upsertCandles(db, closedRows);
     console.log(`${coin}: imported ${count} closed candles from REST OHLC`);
   }
@@ -72,12 +75,13 @@ function getFirstRestTs(db, coin, nowHour) {
 
 function reportGaps(db) {
   const nowHour = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
-  const fromTs = nowHour - SIX_MONTHS_SECONDS;
-  console.log(`\nGap report for the last 6 months (${new Date(fromTs * 1000).toISOString()} -> ${new Date(nowHour * 1000).toISOString()}):`);
+  const lastClosedHour = nowHour - HOUR; // nowHour itself is still forming — it can never have a row yet
+  const fromTs = lastClosedHour - SIX_MONTHS_SECONDS;
+  console.log(`\nGap report for the last 6 months (${new Date(fromTs * 1000).toISOString()} -> ${new Date(lastClosedHour * 1000).toISOString()}):`);
   for (const coin of Object.keys(COINS)) {
-    const existing = getExistingTimes(db, coin, '1h', fromTs, nowHour);
-    const gaps = findGapHours(existing, fromTs, nowHour, HOUR);
-    const expected = Math.floor((nowHour - fromTs) / HOUR) + 1;
+    const existing = getExistingTimes(db, coin, '1h', fromTs, lastClosedHour);
+    const gaps = findGapHours(existing, fromTs, lastClosedHour, HOUR);
+    const expected = Math.floor((lastClosedHour - fromTs) / HOUR) + 1;
     console.log(`  ${coin}: ${existing.length}/${expected} hours present, ${gaps.length} missing`);
     if (gaps.length > 0 && gaps.length <= 20) {
       console.log(`    missing: ${gaps.map((ts) => new Date(ts * 1000).toISOString()).join(', ')}`);
