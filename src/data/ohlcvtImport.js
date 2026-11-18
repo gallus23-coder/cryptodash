@@ -8,6 +8,11 @@ function extractZip(zipPath, destDir) {
   execFileSync('unzip', ['-o', zipPath, '-d', destDir]);
 }
 
+function extractSpecificFiles(zipPath, filenames, destDir) {
+  fs.mkdirSync(destDir, { recursive: true });
+  execFileSync('unzip', ['-o', zipPath, ...filenames, '-d', destDir]);
+}
+
 function walkCsvFiles(dir) {
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -29,4 +34,4 @@ function findCsvFile(destDir, altname, intervalMinutes) {
   return match;
 }
 
-module.exports = { extractZip, findCsvFile };
+module.exports = { extractZip, findCsvFile, extractSpecificFiles };

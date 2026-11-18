@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
-const { extractZip, findCsvFile } = require('../src/data/ohlcvtImport');
+const { extractZip, findCsvFile, extractSpecificFiles } = require('../src/data/ohlcvtImport');
 
 function makeFixtureZip() {
   const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ohlcvt-src-'));
@@ -46,4 +46,15 @@ test('findCsvFile throws a descriptive error when no match exists, listing what 
     () => findCsvFile(destDir, 'DOGEGBP', 60),
     (err) => err.message.includes('DOGEGBP_60.csv') && err.message.includes('XBTGBP_60.csv'),
   );
+});
+
+test('extractSpecificFiles extracts only the named entries, not the whole archive', () => {
+  const zipPath = makeFixtureZip();
+  const destDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ohlcvt-dest-'));
+
+  extractSpecificFiles(zipPath, ['XBTGBP_60.csv'], destDir);
+
+  assert.ok(fs.existsSync(path.join(destDir, 'XBTGBP_60.csv')));
+  assert.ok(!fs.existsSync(path.join(destDir, 'ETHGBP_60.csv')));
+  assert.ok(!fs.existsSync(path.join(destDir, 'XBTGBP_1440.csv')));
 });
