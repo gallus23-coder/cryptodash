@@ -29,3 +29,67 @@ test('checkFeeViability passes when ATR% is at least 4x the round-trip fee', () 
 test('checkFeeViability fails when ATR% is below 4x the round-trip fee', () => {
   assert.equal(checkFeeViability({ atrPct: 2, roundTripFeePct: 0.65 }), false);
 });
+
+const { checkGuardrails } = require('../src/engine/risk');
+
+const CONFIG = {
+  maxOpenPositions: 3, maxTotalRiskPct: 0.015, maxCoinExposurePct: 0.20,
+  maxTotalExposurePct: 0.60, cooldownHours: 6,
+};
+
+function emptyState() {
+  return { openPositions: [], cooldowns: {} };
+}
+
+test('allows a candidate when every guardrail has headroom', () => {
+  const result = checkGuardrails(emptyState(), { coin: 'BTC', riskPct: 0.005, exposurePct: 0.1, ts: 1000 }, CONFIG);
+  assert.deepEqual(result, { allowed: true, reason: null });
+});
+
+test('blocks when max open positions is already reached', () => {
+  const state = { openPositions: [
+    { coin: 'BTC', riskPct: 0.005, exposurePct: 0.1 },
+    { coin: 'ETH', riskPct: 0.005, exposurePct: 0.1 },
+    { coin: 'SOL', riskPct: 0.005, exposurePct: 0.1 },
+  ], cooldowns: {} };
+  const result = checkGuardrails(state, { coin: 'XRP', riskPct: 0.005, exposurePct: 0.1, ts: 1000 }, CONFIG);
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason, 'max_open_positions');
+});
+
+test('blocks when adding the candidate would exceed total open risk', () => {
+  const state = { openPositions: [{ coin: 'BTC', riskPct: 0.012, exposurePct: 0.1 }], cooldowns: {} };
+  const result = checkGuardrails(state, { coin: 'ETH', riskPct: 0.005, exposurePct: 0.1, ts: 1000 }, CONFIG);
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason, 'total_open_risk');
+});
+
+test('blocks when adding the candidate would exceed per-coin exposure', () => {
+  const state = { openPositions: [{ coin: 'BTC', riskPct: 0.002, exposurePct: 0.15 }], cooldowns: {} };
+  const result = checkGuardrails(state, { coin: 'BTC', riskPct: 0.002, exposurePct: 0.1, ts: 1000 }, CONFIG);
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason, 'coin_exposure');
+});
+
+test('blocks when adding the candidate would exceed total exposure', () => {
+  const state = { openPositions: [
+    { coin: 'BTC', riskPct: 0.002, exposurePct: 0.3 },
+    { coin: 'ETH', riskPct: 0.002, exposurePct: 0.25 },
+  ], cooldowns: {} };
+  const result = checkGuardrails(state, { coin: 'SOL', riskPct: 0.002, exposurePct: 0.1, ts: 1000 }, CONFIG);
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason, 'total_exposure');
+});
+
+test('blocks a coin still inside its post-stop cooldown window', () => {
+  const state = { openPositions: [], cooldowns: { BTC: 5000 } };
+  const result = checkGuardrails(state, { coin: 'BTC', riskPct: 0.005, exposurePct: 0.1, ts: 4000 }, CONFIG);
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason, 'cooldown');
+});
+
+test('allows the same coin again once its cooldown has elapsed', () => {
+  const state = { openPositions: [], cooldowns: { BTC: 5000 } };
+  const result = checkGuardrails(state, { coin: 'BTC', riskPct: 0.005, exposurePct: 0.1, ts: 5001 }, CONFIG);
+  assert.equal(result.allowed, true);
+});

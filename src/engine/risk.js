@@ -12,4 +12,34 @@ function checkFeeViability({ atrPct, roundTripFeePct, minMultiple = 4 }) {
   return atrPct >= minMultiple * roundTripFeePct;
 }
 
-module.exports = { sizePosition, checkFeeViability };
+function checkGuardrails(state, candidate, config) {
+  if (state.openPositions.length >= config.maxOpenPositions) {
+    return { allowed: false, reason: 'max_open_positions' };
+  }
+
+  const totalRisk = state.openPositions.reduce((sum, p) => sum + p.riskPct, 0) + candidate.riskPct;
+  if (totalRisk > config.maxTotalRiskPct) {
+    return { allowed: false, reason: 'total_open_risk' };
+  }
+
+  const coinExposure = state.openPositions
+    .filter((p) => p.coin === candidate.coin)
+    .reduce((sum, p) => sum + p.exposurePct, 0) + candidate.exposurePct;
+  if (coinExposure > config.maxCoinExposurePct) {
+    return { allowed: false, reason: 'coin_exposure' };
+  }
+
+  const totalExposure = state.openPositions.reduce((sum, p) => sum + p.exposurePct, 0) + candidate.exposurePct;
+  if (totalExposure > config.maxTotalExposurePct) {
+    return { allowed: false, reason: 'total_exposure' };
+  }
+
+  const cooldownUntil = state.cooldowns[candidate.coin];
+  if (cooldownUntil !== undefined && candidate.ts < cooldownUntil) {
+    return { allowed: false, reason: 'cooldown' };
+  }
+
+  return { allowed: true, reason: null };
+}
+
+module.exports = { sizePosition, checkFeeViability, checkGuardrails };
