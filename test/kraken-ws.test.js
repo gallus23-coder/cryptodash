@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const WebSocket = require('ws');
-const { KrakenPublicWs } = require('../src/kraken/ws');
+const { KrakenPublicWs, computeReconnectDelay } = require('../src/kraken/ws');
 
 function startWsServer() {
   return new Promise((resolve) => {
@@ -61,4 +61,76 @@ test('emits channel-named events keyed off msg.channel', async () => {
   wss.close();
 
   assert.equal(msg.data[0].symbol, 'BTC/GBP');
+});
+
+test('computeReconnectDelay doubles each attempt and caps at maxMs', () => {
+  assert.equal(computeReconnectDelay(0, { baseMs: 100, maxMs: 5000 }), 100);
+  assert.equal(computeReconnectDelay(1, { baseMs: 100, maxMs: 5000 }), 200);
+  assert.equal(computeReconnectDelay(2, { baseMs: 100, maxMs: 5000 }), 400);
+  assert.equal(computeReconnectDelay(10, { baseMs: 100, maxMs: 1000 }), 1000);
+});
+
+test('reconnects on heartbeat silence even without the server dropping the connection', async () => {
+  const wss = await startWsServer();
+  const port = wss.address().port;
+  let connectionCount = 0;
+  wss.on('connection', () => { connectionCount += 1; });
+
+  const client = new KrakenPublicWs({
+    url: `ws://127.0.0.1:${port}`, reconnectDelayMs: 50, heartbeatTimeoutMs: 100,
+  });
+  client.connect();
+  await new Promise((resolve) => client.once('open', resolve));
+
+  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  client.close();
+  wss.close();
+
+  assert.ok(connectionCount >= 2, `expected at least 2 connections from heartbeat timeout, got ${connectionCount}`);
+});
+
+test('does not re-send an identical subscription twice', async () => {
+  const wss = await startWsServer();
+  const port = wss.address().port;
+  const received = [];
+  wss.on('connection', (socket) => {
+    socket.on('message', (raw) => received.push(JSON.parse(raw.toString())));
+  });
+
+  const client = new KrakenPublicWs({ url: `ws://127.0.0.1:${port}` });
+  client.connect();
+  await new Promise((resolve) => client.once('open', resolve));
+
+  client.subscribeTicker(['BTC/GBP']);
+  client.subscribeTicker(['BTC/GBP']);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  client.close();
+  wss.close();
+
+  assert.equal(client.subscriptions.length, 1);
+  assert.equal(received.length, 1);
+});
+
+test('emits an error when a subscribe ack reports success:false', async () => {
+  const wss = await startWsServer();
+  const port = wss.address().port;
+  wss.on('connection', (socket) => {
+    socket.on('message', () => {
+      socket.send(JSON.stringify({ method: 'subscribe', success: false, error: 'Currency pair not supported' }));
+    });
+  });
+
+  const client = new KrakenPublicWs({ url: `ws://127.0.0.1:${port}` });
+  client.connect();
+  await new Promise((resolve) => client.once('open', resolve));
+  client.subscribeTicker(['NOPE/GBP']);
+
+  const err = await new Promise((resolve) => client.once('error', resolve));
+
+  client.close();
+  wss.close();
+
+  assert.match(err.message, /Currency pair not supported/);
 });
