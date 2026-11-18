@@ -102,3 +102,22 @@ test('aggregateCandles treats a null trades value as contagious only when every 
 
   assert.equal(result[0].trades, null);
 });
+
+const { findGapHours } = require('../src/data/candles');
+
+test('findGapHours returns every expected step when nothing exists', () => {
+  const hour = 3600;
+  assert.deepEqual(findGapHours([], 0, 2 * hour, hour), [0, hour, 2 * hour]);
+});
+
+test('findGapHours returns nothing when every step is present', () => {
+  const hour = 3600;
+  assert.deepEqual(findGapHours([0, hour, 2 * hour], 0, 2 * hour, hour), []);
+});
+
+test('findGapHours reports only the missing steps, honoring real no-trade gaps', () => {
+  const hour = 3600;
+  // Hour 1 genuinely has no candle (e.g. a thin pair with zero trades that hour).
+  const existing = [0, 2 * hour, 3 * hour];
+  assert.deepEqual(findGapHours(existing, 0, 3 * hour, hour), [hour]);
+});

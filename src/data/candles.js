@@ -54,4 +54,13 @@ function aggregateCandles(candles1h, bucketSeconds) {
   return result.sort((a, b) => a.ts - b.ts);
 }
 
-module.exports = { parseOhlcvtCsv, aggregateCandles };
+function findGapHours(existingTs, fromTs, toTs, stepSeconds = 3600) {
+  const existing = new Set(existingTs);
+  const gaps = [];
+  for (let ts = fromTs; ts <= toTs; ts += stepSeconds) {
+    if (!existing.has(ts)) gaps.push(ts);
+  }
+  return gaps;
+}
+
+module.exports = { parseOhlcvtCsv, aggregateCandles, findGapHours };
