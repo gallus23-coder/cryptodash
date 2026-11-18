@@ -93,3 +93,29 @@ test('allows the same coin again once its cooldown has elapsed', () => {
   const result = checkGuardrails(state, { coin: 'BTC', riskPct: 0.005, exposurePct: 0.1, ts: 5001 }, CONFIG);
   assert.equal(result.allowed, true);
 });
+
+const { isDailyLossLimitHit, isKillSwitchTriggered } = require('../src/engine/risk');
+
+const LOSS_CONFIG = { dailyLossLimitPct: 0.03, weeklyKillSwitchPct: 0.08 };
+
+test('isDailyLossLimitHit is false while losses are under the limit', () => {
+  assert.equal(isDailyLossLimitHit(-0.02, LOSS_CONFIG), false);
+});
+
+test('isDailyLossLimitHit is true once losses reach or exceed the limit', () => {
+  assert.equal(isDailyLossLimitHit(-0.03, LOSS_CONFIG), true);
+  assert.equal(isDailyLossLimitHit(-0.05, LOSS_CONFIG), true);
+});
+
+test('isDailyLossLimitHit is false on a profitable day', () => {
+  assert.equal(isDailyLossLimitHit(0.02, LOSS_CONFIG), false);
+});
+
+test('isKillSwitchTriggered is false while weekly drawdown is under 8%', () => {
+  assert.equal(isKillSwitchTriggered(0.05, LOSS_CONFIG), false);
+});
+
+test('isKillSwitchTriggered is true once weekly drawdown reaches or exceeds 8%', () => {
+  assert.equal(isKillSwitchTriggered(0.08, LOSS_CONFIG), true);
+  assert.equal(isKillSwitchTriggered(0.12, LOSS_CONFIG), true);
+});

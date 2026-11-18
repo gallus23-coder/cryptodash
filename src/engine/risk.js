@@ -42,4 +42,15 @@ function checkGuardrails(state, candidate, config) {
   return { allowed: true, reason: null };
 }
 
-module.exports = { sizePosition, checkFeeViability, checkGuardrails };
+function isDailyLossLimitHit(dailyPnlPct, config) {
+  return dailyPnlPct <= -config.dailyLossLimitPct;
+}
+
+function isKillSwitchTriggered(weeklyDrawdownPct, config) {
+  return weeklyDrawdownPct >= config.weeklyKillSwitchPct;
+}
+
+module.exports = {
+  sizePosition, checkFeeViability, checkGuardrails,
+  isDailyLossLimitHit, isKillSwitchTriggered,
+};
