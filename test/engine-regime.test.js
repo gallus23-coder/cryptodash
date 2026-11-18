@@ -110,6 +110,38 @@ test('computeRegimeSeries looks up breadth by timestamp, so a gap in one coin do
   assert.equal(afterGap.metrics.breadthPct, 100); // both BTC and ETH are trending up, both above their EMA50
 });
 
+test('computeRegimeSeries uses the most recently CLOSED daily candle, never one still open at the 4h bar (no look-ahead)', () => {
+  const { ema: emaFn } = require('../src/engine/indicators');
+  const DAY = 24 * 3600;
+  const FOUR_H = 4 * 3600;
+  const DAYS = 230;
+  const dailyCloses = Array.from({ length: DAYS }, (_, i) => 100 + i); // steadily rising -> ema200 strictly increases day over day
+  const btcDaily = dailyCloses.map((close, i) => ({ ts: i * DAY, close }));
+  const dailyEma200 = emaFn(dailyCloses, 200);
+  const lastClosedIdx = DAYS - 2; // day 228: the last day fully elapsed as of a bar early in day 229
+  const stillOpenIdx = DAYS - 1; // day 229: "today", not yet closed
+  const midpoint = (dailyEma200[lastClosedIdx] + dailyEma200[stillOpenIdx]) / 2;
+
+  const btc4h = [];
+  for (let i = 0; i < DAYS * 6; i += 1) {
+    const dayIdx = Math.floor(i / 6);
+    const price = 100 + dayIdx;
+    btc4h.push({ ts: i * FOUR_H, high: price + 1, low: price - 1, close: price });
+  }
+  const probeBarIndex = stillOpenIdx * 6 + 1; // 4h into "today" (day 229), well before day229 closes
+  btc4h[probeBarIndex] = { ts: probeBarIndex * FOUR_H, high: midpoint + 1, low: midpoint - 1, close: midpoint };
+
+  const watchlistBy4h = { BTC: btc4h.map((c) => ({ ts: c.ts, close: c.close })) };
+  const result = computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h });
+  const probe = result.find((r) => r.ts === btc4h[probeBarIndex].ts);
+
+  assert.ok(probe, 'expected a regime point at the probe bar');
+  // Correct: compare against the last CLOSED day's EMA200 (day 228) — the midpoint price
+  // sits above that -> btcAboveEma200 true. Using the still-open day 229's EMA200 instead
+  // (the look-ahead bug) would put the same price below it -> false.
+  assert.equal(probe.metrics.btcAboveEma200, true);
+});
+
 test('computeRegimeSeries never produces NaN or Infinity in any numeric metric', () => {
   const btcDaily = makeDailySeries(225, (i) => 100 + i * 0.1);
   const btc4h = make4hSeries(225 * 6, (i) => 100 + Math.sin(i / 10)); // oscillating, exercises choppiness/ADX edge cases

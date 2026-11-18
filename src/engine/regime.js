@@ -22,6 +22,7 @@ const DAILY_EMA_PERIOD = 200;
 const DAILY_SLOPE_LOOKBACK = 20;
 const ADX_PERIOD = 14;
 const VOLATILITY_WINDOW_BARS = 90 * 6; // 90 days of 4h bars
+const DAY_SECONDS = 24 * 3600;
 
 function computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h }) {
   const dailyCloses = btcDaily.map((c) => c.close);
@@ -50,10 +51,12 @@ function computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h }) {
   for (let i = 0; i < btc4h.length; i += 1) {
     const bar = btc4h[i];
 
-    while (dailyPointer + 1 < btcDaily.length && btcDaily[dailyPointer + 1].ts <= bar.ts) {
+    // Use the daily candle's CLOSE time (ts + a full day), never its open time —
+    // a bar partway through "today" must not see today's not-yet-closed EMA200.
+    while (dailyPointer + 1 < btcDaily.length && btcDaily[dailyPointer + 1].ts + DAY_SECONDS <= bar.ts) {
       dailyPointer += 1;
     }
-    if (btcDaily[dailyPointer].ts > bar.ts) continue; // no completed daily candle yet at all
+    if (btcDaily[dailyPointer].ts + DAY_SECONDS > bar.ts) continue; // no completed daily candle yet at all
     const ema200Now = dailyEma200[dailyPointer];
     const slopeIdx = dailyPointer - DAILY_SLOPE_LOOKBACK;
     if (ema200Now === null || slopeIdx < 0 || dailyEma200[slopeIdx] === null) continue;
