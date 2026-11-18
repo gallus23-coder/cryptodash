@@ -93,3 +93,29 @@ test('default nonce generator is strictly increasing even when called twice in t
   const b = client._getNonce();
   assert.ok(b > a, `expected ${b} > ${a}`);
 });
+
+test('getOhlc marks the last candle as not closed and the rest as closed', async () => {
+  const server = await startMockServer((req, res) => {
+    res.end(JSON.stringify({
+      error: [],
+      result: {
+        XXBTZGBP: [
+          [1000, '10', '11', '9', '10.5', '10.2', '5', 3],
+          [1060, '10.5', '12', '10', '11.5', '11', '6', 4],
+        ],
+        last: 1060,
+      },
+    }));
+  });
+  const { port } = server.address();
+  const client = createRestClient({ baseUrl: `http://127.0.0.1:${port}` });
+
+  const { candles, last } = await client.getOhlc('XXBTZGBP', { interval: 1 });
+
+  assert.equal(candles.length, 2);
+  assert.equal(candles[0].closed, true);
+  assert.equal(candles[1].closed, false);
+  assert.equal(candles[1].time, 1060);
+  assert.equal(last, 1060);
+  server.close();
+});

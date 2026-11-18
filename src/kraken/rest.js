@@ -69,7 +69,36 @@ function createRestClient({ apiKey, apiSecret, baseUrl = DEFAULT_BASE_URL, getNo
     return body.result;
   }
 
-  return { publicRequest, privateRequest, sign, _getNonce: nonceFn };
+  async function getServerTime() {
+    return publicRequest('Time');
+  }
+
+  async function getAssetPairs(pairs) {
+    return publicRequest('AssetPairs', pairs ? { pair: pairs.join(',') } : {});
+  }
+
+  async function getTicker(pairs) {
+    return publicRequest('Ticker', { pair: pairs.join(',') });
+  }
+
+  async function getOhlc(pair, { interval = 1, since } = {}) {
+    const params = { pair, interval: String(interval) };
+    if (since !== undefined) params.since = String(since);
+    const result = await publicRequest('OHLC', params);
+    const { last, ...rest } = result;
+    const rows = rest[Object.keys(rest)[0]];
+    const candles = rows.map(([time, open, high, low, close, vwap, volume, count], i) => ({
+      time, open: Number(open), high: Number(high), low: Number(low), close: Number(close),
+      vwap: Number(vwap), volume: Number(volume), count,
+      closed: i < rows.length - 1,
+    }));
+    return { candles, last };
+  }
+
+  return {
+    publicRequest, privateRequest, sign, _getNonce: nonceFn,
+    getServerTime, getAssetPairs, getTicker, getOhlc,
+  };
 }
 
 module.exports = { createRestClient, KrakenApiError, sign };
