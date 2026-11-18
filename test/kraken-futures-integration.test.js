@@ -3,7 +3,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFuturesClient } = require('../src/kraken/futures');
 
-test('real Kraken Futures tickers include PF_XBTUSD funding/OI', async () => {
+const RUN_INTEGRATION = process.env.KRAKEN_INTEGRATION === '1';
+const SKIP = !RUN_INTEGRATION && 'set KRAKEN_INTEGRATION=1 to run against the real Kraken API';
+
+test('real Kraken Futures tickers include PF_XBTUSD funding/OI', { skip: SKIP }, async () => {
   const client = createFuturesClient({});
   const tickers = await client.getTickers();
   const ctx = client.getFundingContext(tickers, 'PF_XBTUSD');

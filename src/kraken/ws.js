@@ -23,6 +23,7 @@ class KrakenPublicWs extends EventEmitter {
     this.reconnectAttempts = 0;
     this.ws = null;
     this.heartbeatTimer = null;
+    this.reconnectTimer = null;
   }
 
   connect() {
@@ -60,7 +61,10 @@ class KrakenPublicWs extends EventEmitter {
           baseMs: this.reconnectDelayMs, maxMs: this.maxReconnectDelayMs,
         });
         this.reconnectAttempts += 1;
-        setTimeout(() => this.connect(), delay);
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this.connect();
+        }, delay);
       }
     });
 
@@ -103,6 +107,10 @@ class KrakenPublicWs extends EventEmitter {
   close() {
     this.closedByUser = true;
     this._clearHeartbeat();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) this.ws.close();
   }
 }

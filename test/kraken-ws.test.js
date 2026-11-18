@@ -63,6 +63,29 @@ test('emits channel-named events keyed off msg.channel', async () => {
   assert.equal(msg.data[0].symbol, 'BTC/GBP');
 });
 
+test('close() cancels a pending reconnect instead of letting it fire later', async () => {
+  const wss = await startWsServer();
+  const port = wss.address().port;
+  let openCount = 0;
+  wss.on('connection', (socket) => {
+    // Every connection is dropped immediately, forcing a reconnect to be scheduled.
+    socket.close();
+  });
+
+  const client = new KrakenPublicWs({ url: `ws://127.0.0.1:${port}`, reconnectDelayMs: 100 });
+  client.on('open', () => { openCount += 1; });
+  client.connect();
+  await new Promise((resolve) => client.once('close', resolve)); // the drop that schedules a reconnect
+  const openCountAfterDrop = openCount;
+
+  client.close(); // must cancel that pending reconnect
+  wss.close();
+
+  await new Promise((resolve) => setTimeout(resolve, 300)); // longer than reconnectDelayMs
+
+  assert.equal(openCount, openCountAfterDrop, 'close() should have cancelled the pending reconnect before it could open again');
+});
+
 test('computeReconnectDelay doubles each attempt and caps at maxMs', () => {
   assert.equal(computeReconnectDelay(0, { baseMs: 100, maxMs: 5000 }), 100);
   assert.equal(computeReconnectDelay(1, { baseMs: 100, maxMs: 5000 }), 200);
