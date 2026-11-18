@@ -30,14 +30,14 @@ function makeDefaultNonce() {
   };
 }
 
-function createRestClient({ apiKey, apiSecret, baseUrl = DEFAULT_BASE_URL, getNonce } = {}) {
+function createRestClient({ apiKey, apiSecret, baseUrl = DEFAULT_BASE_URL, getNonce, timeoutMs = 10000 } = {}) {
   const nonceFn = getNonce || makeDefaultNonce();
 
   async function publicRequest(endpoint, params = {}) {
     const qs = new URLSearchParams(params).toString();
     const path = `/0/public/${endpoint}`;
     const url = `${baseUrl}${path}${qs ? `?${qs}` : ''}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     return parseResponse(res);
   }
 
@@ -54,6 +54,7 @@ function createRestClient({ apiKey, apiSecret, baseUrl = DEFAULT_BASE_URL, getNo
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: postdata,
+      signal: AbortSignal.timeout(timeoutMs),
     });
     return parseResponse(res);
   }

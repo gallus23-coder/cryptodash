@@ -2,9 +2,9 @@
 
 const DEFAULT_BASE_URL = 'https://futures.kraken.com/derivatives/api/v3';
 
-function createFuturesClient({ baseUrl = DEFAULT_BASE_URL } = {}) {
+function createFuturesClient({ baseUrl = DEFAULT_BASE_URL, timeoutMs = 10000 } = {}) {
   async function getTickers() {
-    const res = await fetch(`${baseUrl}/tickers`);
+    const res = await fetch(`${baseUrl}/tickers`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) {
       const err = new Error(`Kraken Futures HTTP ${res.status}`);
       err.status = res.status;

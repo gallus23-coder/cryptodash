@@ -48,6 +48,20 @@ test('getFundingContext extracts funding/OI fields for a known symbol', () => {
   assert.deepEqual(ctx, { symbol: 'PF_XBTUSD', fundingRate: 0.0001, fundingRatePrediction: 0.0002, openInterest: 12345 });
 });
 
+test('getTickers aborts with a TimeoutError when the server is too slow', async () => {
+  const server = await startMockServer((req, res) => {
+    setTimeout(() => res.end(JSON.stringify({ result: 'success', tickers: [] })), 300);
+  });
+  const { port } = server.address();
+  const client = createFuturesClient({ baseUrl: `http://127.0.0.1:${port}`, timeoutMs: 50 });
+
+  await assert.rejects(
+    () => client.getTickers(),
+    (err) => err.name === 'TimeoutError',
+  );
+  server.close();
+});
+
 test('getFundingContext returns null for an unknown symbol', () => {
   const client = createFuturesClient({});
   assert.equal(client.getFundingContext([], 'PF_XBTUSD'), null);

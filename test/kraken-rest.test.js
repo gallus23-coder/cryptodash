@@ -87,6 +87,38 @@ test('privateRequest rejects with KrakenApiError when Kraken returns errors', as
   server.close();
 });
 
+test('publicRequest aborts with a TimeoutError when the server is too slow', async () => {
+  const server = await startMockServer((req, res) => {
+    setTimeout(() => res.end(JSON.stringify({ error: [], result: {} })), 300);
+  });
+  const { port } = server.address();
+  const client = createRestClient({ baseUrl: `http://127.0.0.1:${port}`, timeoutMs: 50 });
+
+  await assert.rejects(
+    () => client.publicRequest('Time', {}),
+    (err) => err.name === 'TimeoutError',
+  );
+  server.close();
+});
+
+test('privateRequest aborts with a TimeoutError when the server is too slow', async () => {
+  const server = await startMockServer((req, res) => {
+    req.on('data', () => {});
+    req.on('end', () => setTimeout(() => res.end(JSON.stringify({ error: [], result: {} })), 300));
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`, timeoutMs: 50,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+  });
+
+  await assert.rejects(
+    () => client.privateRequest('Balance', {}),
+    (err) => err.name === 'TimeoutError',
+  );
+  server.close();
+});
+
 test('default nonce generator is strictly increasing even when called twice in the same tick', () => {
   const client = createRestClient({ baseUrl: 'http://unused' });
   const a = client._getNonce();
