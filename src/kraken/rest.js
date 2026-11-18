@@ -95,9 +95,30 @@ function createRestClient({ apiKey, apiSecret, baseUrl = DEFAULT_BASE_URL, getNo
     return { candles, last };
   }
 
+  async function getBalance() {
+    return privateRequest('Balance');
+  }
+
+  async function addOrder(params) {
+    return privateRequest('AddOrder', params);
+  }
+
+  async function amendOrder(params) {
+    return privateRequest('AmendOrder', params);
+  }
+
+  async function cancelOrder(txid) {
+    return privateRequest('CancelOrder', { txid });
+  }
+
+  async function getOpenOrders() {
+    return privateRequest('OpenOrders');
+  }
+
   return {
     publicRequest, privateRequest, sign, _getNonce: nonceFn,
     getServerTime, getAssetPairs, getTicker, getOhlc,
+    getBalance, addOrder, amendOrder, cancelOrder, getOpenOrders,
   };
 }
 

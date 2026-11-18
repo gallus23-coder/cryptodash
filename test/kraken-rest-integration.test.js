@@ -2,8 +2,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createRestClient } = require('../src/kraken/rest');
+const { getKrakenCredentials } = require('../src/config/env');
 
 const client = createRestClient({});
+const creds = getKrakenCredentials();
+const hasCreds = Boolean(creds.apiKey && creds.apiSecret);
 
 test('getServerTime returns a plausible unixtime', async () => {
   const { unixtime } = await client.getServerTime();
@@ -24,4 +27,10 @@ test('getTicker for XBT/GBP returns a bid/ask', async () => {
   const ticker = result.XXBTZGBP;
   assert.ok(Number(ticker.a[0]) > 0);
   assert.ok(Number(ticker.b[0]) > 0);
+});
+
+test('getBalance returns the account balance (requires configured Kraken keys)', { skip: !hasCreds && 'no Kraken keys configured in ~/.config/cryptodash/env' }, async () => {
+  const authedClient = createRestClient(creds);
+  const balance = await authedClient.getBalance();
+  assert.equal(typeof balance, 'object');
 });

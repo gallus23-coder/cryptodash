@@ -119,3 +119,79 @@ test('getOhlc marks the last candle as not closed and the rest as closed', async
   assert.equal(last, 1060);
   server.close();
 });
+
+test('addOrder posts to /0/private/AddOrder with the given params plus nonce', async () => {
+  let captured;
+  const server = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      captured = body;
+      res.end(JSON.stringify({ error: [], result: { txid: ['OABC-TEST'], descr: { order: 'buy 0.001 XXBTZGBP' } } }));
+    });
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+    getNonce: () => 1,
+  });
+
+  const result = await client.addOrder({
+    pair: 'XXBTZGBP', type: 'buy', ordertype: 'limit', price: '10000', volume: '0.001',
+    cl_ord_id: 'c_test_001', validate: true,
+  });
+
+  assert.equal(captured, 'nonce=1&pair=XXBTZGBP&type=buy&ordertype=limit&price=10000&volume=0.001&cl_ord_id=c_test_001&validate=true');
+  assert.deepEqual(result.txid, ['OABC-TEST']);
+  server.close();
+});
+
+test('amendOrder posts to /0/private/AmendOrder with trigger_price', async () => {
+  let captured;
+  const server = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      captured = { url: req.url, body };
+      res.end(JSON.stringify({ error: [], result: { amend_id: 'AMEND-1' } }));
+    });
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+    getNonce: () => 1,
+  });
+
+  const result = await client.amendOrder({ txid: 'OABC-TEST', trigger_price: '-50' });
+
+  assert.equal(captured.url, '/0/private/AmendOrder');
+  assert.equal(captured.body, 'nonce=1&txid=OABC-TEST&trigger_price=-50');
+  assert.equal(result.amend_id, 'AMEND-1');
+  server.close();
+});
+
+test('cancelOrder posts txid to /0/private/CancelOrder', async () => {
+  let captured;
+  const server = await startMockServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      captured = body;
+      res.end(JSON.stringify({ error: [], result: { count: 1 } }));
+    });
+  });
+  const { port } = server.address();
+  const client = createRestClient({
+    baseUrl: `http://127.0.0.1:${port}`,
+    apiKey: 'k', apiSecret: Buffer.from('s').toString('base64'),
+    getNonce: () => 1,
+  });
+
+  const result = await client.cancelOrder('OABC-TEST');
+
+  assert.equal(captured, 'nonce=1&txid=OABC-TEST');
+  assert.equal(result.count, 1);
+  server.close();
+});
