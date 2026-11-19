@@ -32,13 +32,13 @@ function buildCoinData({ candles4h, candles1h, candlesDaily }) {
 
 const { openDb, getCandles } = require('../data/db');
 const { computeRegimeSeries } = require('../engine/regime');
-const { sizePosition, checkFeeViability, checkGuardrails, isDailyLossLimitHit, isKillSwitchTriggered } = require('../engine/risk');
+const { isDailyLossLimitHit, isKillSwitchTriggered } = require('../engine/risk');
 const trendBreakout = require('../engine/playbook/trendBreakout');
 const trendPullback = require('../engine/playbook/trendPullback');
 const rangeReversion = require('../engine/playbook/rangeReversion');
 const oversoldBounce = require('../engine/playbook/oversoldBounce');
-const { fillEntry, fillExit, evaluateExit } = require('../broker/paper');
-const { computeTradeR, computeExpectancy, computeDrawdown } = require('./stats');
+const { evaluateExit, tryOpenPosition, closePosition } = require('../broker/paper');
+const { computeExpectancy, computeDrawdown } = require('./stats');
 
 const COINS = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'LINK'];
 const HOUR = 3600, FOUR_H = 4 * 3600, DAY = 24 * 3600;
@@ -60,55 +60,6 @@ const SETUPS_BY_REGIME = {
   downtrend: ['oversold_bounce'],
   risk_off: [],
 };
-
-function tryOpenPosition(state, candidate, data, i, config) {
-  const atrPct = (candidate.atr / candidate.entry) * 100;
-  if (!checkFeeViability({ atrPct, roundTripFeePct: config.roundTripFeePct })) return;
-
-  const stopPrice = candidate.entry - candidate.default.stopAtr * candidate.atr;
-  const riskPct = config.baseRiskPct * candidate.default.size;
-  const sizing = sizePosition({ balance: state.balance, riskPct, entryPrice: candidate.entry, stopPrice });
-  const exposurePct = sizing.stakeValue / state.balance;
-  const barTs = data.candles4h[i].ts;
-
-  const gate = checkGuardrails(
-    {
-      openPositions: state.openPositions.map((p) => ({ coin: p.coin, riskPct: p.riskPct, exposurePct: p.exposurePct })),
-      cooldowns: state.cooldowns,
-    },
-    { coin: candidate.coin, riskPct, exposurePct, ts: barTs },
-    config,
-  );
-  if (!gate.allowed) return;
-
-  const fill = fillEntry({ candidate, sizing });
-  const position = {
-    coin: candidate.coin, setup: candidate.setup, entryTs: barTs,
-    entryPrice: fill.fillPrice, units: sizing.units, riskAmount: sizing.riskAmount,
-    riskPct, exposurePct, initialStopPrice: stopPrice, atrAtEntry: candidate.atr,
-    exitType: candidate.exitType, trailAtr: candidate.default.trailAtr,
-    targetPrice: candidate.exitType === 'target_or_time' ? data.indicators.bollinger20.middle[i] : undefined,
-    timeStopTs: candidate.timeStopHours !== undefined ? barTs + candidate.timeStopHours * 3600 : undefined,
-    entryFee: fill.feeAmount,
-  };
-  // Don't deduct the entry fee from balance here — closePosition's pnl already
-  // subtracts position.entryFee once when the trade realizes. Deducting it here
-  // too double-counted it.
-  state.openPositions.push(position);
-}
-
-function closePosition(state, position, exit, config) {
-  const stakeValue = position.units * position.entryPrice;
-  const fill = fillExit({ exitPrice: exit.exitPrice, stakeValue });
-  const pnl = (fill.fillPrice - position.entryPrice) * position.units - position.entryFee - fill.feeAmount;
-  const r = computeTradeR(pnl, position.riskAmount);
-
-  state.balance += pnl;
-  state.dailyPnl += pnl;
-  state.openPositions = state.openPositions.filter((p) => p !== position);
-  state.cooldowns[position.coin] = exit.exitTs + config.cooldownHours * 3600;
-  state.closedTrades.push({ ...position, exitTs: exit.exitTs, exitPrice: fill.fillPrice, pnl, r, exitReason: exit.reason });
-}
 
 // fromTs=0 runs over every coin's full available history. Each coin's data naturally
 // starts whenever its own earliest candle appears — the walk-forward loop below already

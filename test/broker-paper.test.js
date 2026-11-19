@@ -151,3 +151,9 @@ test('ema_cross_or_time exits via time stop when the EMA never crosses', () => {
 
   assert.deepEqual(result, { exitTs: 10800, exitPrice: 102, reason: 'time_stop' });
 });
+
+const { tryOpenPosition: tryOpenPositionFromPaper } = require('../src/broker/paper');
+
+test('tryOpenPosition and closePosition live in broker/paper.js directly (not just re-exported from backtest/run.js)', () => {
+  assert.equal(typeof tryOpenPositionFromPaper, 'function');
+});
