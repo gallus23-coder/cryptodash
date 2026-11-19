@@ -1,8 +1,28 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { openDb } = require('../src/data/db');
+const { openDb, insertCandidate, insertDecision } = require('../src/data/db');
 const { createApp } = require('../src/server/app');
+
+function seedCandidate(db, overrides = {}) {
+  insertCandidate(db, {
+    id: 'c_20261118_10_SOL_trend_pullback', ts: 1700000000, mode: 'paper', coin: 'SOL', setup: 'trend_pullback', regime: 'trend_up',
+    entry: 98.40, atr: 3.10,
+    default: { action: 'take', size: 1.0, stopAtr: 1.5, trailAtr: 2.5 },
+    ranges: { size: [0, 1], stopAtr: [1.0, 3.0], trailAtr: [1.5, 4.0] },
+    context: { rsi14: 47.2, adx4h: 26.1 },
+    ...overrides,
+  });
+}
+
+function seedDecision(db, overrides = {}) {
+  insertDecision(db, {
+    candidateId: 'c_20261118_10_SOL_trend_pullback', ts: 1700000000, mode: 'paper', action: 'take',
+    size: 1.0, stopAtr: 1.5, trailAtr: 2.5, reason: 'r', plainReason: 'p',
+    defaultAction: 'take', diverged: false, model: 'claude-sonnet-5', latencyMs: 1200, rawResponse: '{}',
+    ...overrides,
+  });
+}
 
 function startTestServer(password) {
   const db = openDb(':memory:');
@@ -48,6 +68,69 @@ test('with no password configured, every request is allowed through', async () =
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/health`);
     assert.equal(res.status, 200);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/decisions returns decisions for the default mode (paper), joined with coin/setup/regime', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    seedCandidate(db);
+    seedDecision(db);
+    const res = await fetch(`http://127.0.0.1:${port}/api/decisions`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.length, 1);
+    assert.equal(body[0].coin, 'SOL');
+    assert.equal(body[0].setup, 'trend_pullback');
+    assert.equal(body[0].regime, 'trend_up');
+    assert.equal(body[0].action, 'take');
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/decisions does not mix modes when mode is unspecified (defaults to paper)', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    seedCandidate(db, { id: 'c_live_1' });
+    seedDecision(db, { candidateId: 'c_live_1', mode: 'live' });
+    const res = await fetch(`http://127.0.0.1:${port}/api/decisions`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.length, 0); // the 'live' decision must not appear under the implicit paper default
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/decisions?diverged=true filters to the stored diverged column', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    seedCandidate(db, { id: 'c_a' });
+    seedCandidate(db, { id: 'c_b' });
+    seedDecision(db, { candidateId: 'c_a', diverged: false });
+    seedDecision(db, { candidateId: 'c_b', diverged: true });
+    const res = await fetch(`http://127.0.0.1:${port}/api/decisions?diverged=true`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.length, 1);
+    assert.equal(body[0].candidateId, 'c_b');
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/decisions?coin=&setup= filters correctly', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    seedCandidate(db, { id: 'c_sol', coin: 'SOL' });
+    seedCandidate(db, { id: 'c_btc', coin: 'BTC' });
+    seedDecision(db, { candidateId: 'c_sol' });
+    seedDecision(db, { candidateId: 'c_btc' });
+    const res = await fetch(`http://127.0.0.1:${port}/api/decisions?coin=BTC`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.length, 1);
+    assert.equal(body[0].coin, 'BTC');
   } finally {
     server.close();
   }

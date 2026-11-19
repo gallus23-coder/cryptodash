@@ -14,6 +14,20 @@ function createApp(db, { password } = {}) {
 
   app.get('/api/health', (req, res) => res.json({ ok: true }));
 
+  const { getDecisionsFiltered } = require('../data/db');
+
+  app.get('/api/decisions', (req, res) => {
+    const { mode, from, to, coin, setup, diverged } = req.query;
+    const rows = getDecisionsFiltered(db, {
+      mode: mode || 'paper',
+      from: from !== undefined ? Number(from) : undefined,
+      to: to !== undefined ? Number(to) : undefined,
+      coin, setup,
+      diverged: diverged !== undefined ? diverged === 'true' : undefined,
+    });
+    res.json(rows);
+  });
+
   return app;
 }
 

@@ -135,6 +135,27 @@ function getDecisions(db, mode, limit = 50) {
   `).all(mode, limit).map((row) => ({ ...row, diverged: !!row.diverged }));
 }
 
+function getDecisionsFiltered(db, { mode = 'paper', from, to, coin, setup, diverged } = {}) {
+  const clauses = ['d.mode = @mode'];
+  const params = { mode };
+  if (from !== undefined) { clauses.push('d.ts >= @from'); params.from = from; }
+  if (to !== undefined) { clauses.push('d.ts <= @to'); params.to = to; }
+  if (coin !== undefined) { clauses.push('c.coin = @coin'); params.coin = coin; }
+  if (setup !== undefined) { clauses.push('c.setup = @setup'); params.setup = setup; }
+  if (diverged !== undefined) { clauses.push('d.diverged = @diverged'); params.diverged = diverged ? 1 : 0; }
+
+  return db.prepare(`
+    SELECT d.candidate_id AS candidateId, d.ts, d.mode, d.action,
+      d.size, d.stop_atr AS stopAtr, d.trail_atr AS trailAtr,
+      d.reason, d.plain_reason AS plainReason, d.default_action AS defaultAction,
+      d.diverged, d.model, d.latency_ms AS latencyMs,
+      c.coin, c.setup, c.regime
+    FROM decisions d JOIN candidates c ON c.id = d.candidate_id
+    WHERE ${clauses.join(' AND ')}
+    ORDER BY d.ts DESC
+  `).all(params).map((row) => ({ ...row, diverged: !!row.diverged }));
+}
+
 function saveSchedulerState(db, mode, state) {
   db.prepare(`
     INSERT INTO scheduler_state (mode, state_json, updated_ts) VALUES (@mode, @stateJson, @updatedTs)
@@ -198,4 +219,5 @@ module.exports = {
   openDb, upsertCandles, getCandles, getLastCandleTime, getExistingTimes, DEFAULT_DB_PATH,
   insertTrade, getTrades, saveSchedulerState, loadSchedulerState, insertCycleLog, getCycleLog,
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
+  getDecisionsFiltered,
 };
