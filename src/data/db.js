@@ -187,6 +187,18 @@ function getDecisionByCandidateId(db, candidateId) {
   return row ? { ...row, diverged: !!row.diverged } : null;
 }
 
+function getScorecardData(db, mode, sinceTs) {
+  return db.prepare(`
+    SELECT c.id AS candidateId, c.shadow_r AS shadowR,
+      d.diverged, d.action AS decisionAction,
+      t.r AS tradeR
+    FROM candidates c
+    LEFT JOIN decisions d ON d.candidate_id = c.id
+    LEFT JOIN trades t ON t.candidate_id = c.id
+    WHERE c.mode = ? AND c.ts >= ? AND c.shadow_status = 'resolved'
+  `).all(mode, sinceTs).map((row) => ({ ...row, diverged: !!row.diverged }));
+}
+
 function saveSchedulerState(db, mode, state) {
   db.prepare(`
     INSERT INTO scheduler_state (mode, state_json, updated_ts) VALUES (@mode, @stateJson, @updatedTs)
@@ -251,4 +263,5 @@ module.exports = {
   insertTrade, getTrades, saveSchedulerState, loadSchedulerState, insertCycleLog, getCycleLog,
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
   getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
+  getScorecardData,
 };

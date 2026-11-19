@@ -45,6 +45,36 @@ function createApp(db, { password } = {}) {
     res.json({ cycle, candidates });
   });
 
+  const { getScorecardData } = require('../data/db');
+
+  app.get('/api/scorecard', (req, res) => {
+    const days = Number(req.query.days) || 30;
+    const mode = req.query.mode || 'paper';
+    const sinceTs = Math.floor(Date.now() / 1000) - days * 86400;
+    const rows = getScorecardData(db, mode, sinceTs);
+
+    const diverged = rows.filter((r) => r.diverged);
+    const claudeRs = diverged.filter((r) => r.decisionAction === 'take' && r.tradeR !== null).map((r) => r.tradeR);
+    const defaultRs = diverged.map((r) => r.shadowR).filter((r) => r !== null);
+
+    const mean = (arr) => (arr.length === 0 ? 0 : arr.reduce((a, b) => a + b, 0) / arr.length);
+    const stderr = (arr) => {
+      if (arr.length < 2) return 0;
+      const m = mean(arr);
+      const variance = arr.reduce((sum, x) => sum + (x - m) ** 2, 0) / (arr.length - 1);
+      return Math.sqrt(variance / arr.length);
+    };
+
+    const claudeMeanR = mean(claudeRs);
+    const se = stderr(claudeRs);
+
+    res.json({
+      days, divergedCount: diverged.length, notEnoughData: diverged.length < 100,
+      claudeMeanR, defaultMeanR: mean(defaultRs),
+      confidenceRange: [claudeMeanR - 1.96 * se, claudeMeanR + 1.96 * se],
+    });
+  });
+
   return app;
 }
 

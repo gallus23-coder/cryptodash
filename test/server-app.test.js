@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { openDb, insertCandidate, insertDecision, insertCycleLog, insertTrade } = require('../src/data/db');
+const { openDb, insertCandidate, insertDecision, insertCycleLog, insertTrade, updateCandidateShadow: updateCandidateShadowForTest } = require('../src/data/db');
 const { createApp } = require('../src/server/app');
 
 function seedCandidate(db, overrides = {}) {
@@ -179,6 +179,46 @@ test('GET /api/decisions/:cycleId for a ts with no cycle_log row at all returns 
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/decisions/9999999999`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
     assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/scorecard reports notEnoughData when fewer than 100 diverged decisions exist', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    const recentTs = Math.floor(Date.now() / 1000) - 3600; // must fall within the scorecard's real days=30 window
+    seedCandidate(db, { ts: recentTs });
+    seedDecision(db, { diverged: true, ts: recentTs });
+    updateCandidateShadowForTest(db, 'c_20261118_10_SOL_trend_pullback', { status: 'resolved', exitTs: recentTs + 50000, pnl: 5, r: 1.0, exitReason: 'target' });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/scorecard?days=30`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.notEnoughData, true);
+    assert.equal(body.divergedCount, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/scorecard compares real R (for a taken, diverged decision) against the shadow R', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    const recentTs = Math.floor(Date.now() / 1000) - 3600; // must fall within the scorecard's real days=30 window
+    seedCandidate(db, { ts: recentTs });
+    seedDecision(db, { diverged: true, action: 'take', ts: recentTs });
+    updateCandidateShadowForTest(db, 'c_20261118_10_SOL_trend_pullback', { status: 'resolved', exitTs: recentTs + 50000, pnl: 5, r: 1.0, exitReason: 'target' });
+    insertTrade(db, {
+      mode: 'paper', coin: 'SOL', setup: 'trend_pullback', entryTs: recentTs, exitTs: recentTs + 50000,
+      entryPrice: 98.40, exitPrice: 102.0, units: 0.5, riskAmount: 2.5, pnl: 1.8, r: 0.72, exitReason: 'target',
+      candidateId: 'c_20261118_10_SOL_trend_pullback',
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/scorecard?days=30`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.claudeMeanR, 0.72); // the real trade's R (Claude resized to 0.5x, taken)
+    assert.equal(body.defaultMeanR, 1.0); // the shadow's R (what the untouched default would have made)
   } finally {
     server.close();
   }
