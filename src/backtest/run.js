@@ -34,18 +34,11 @@ const { openDb, getCandles } = require('../data/db');
 const { computeRegimeSeries } = require('../engine/regime');
 const { isDailyLossLimitHit, isKillSwitchTriggered } = require('../engine/risk');
 const { SETUPS, SETUPS_BY_REGIME } = require('../engine/playbook');
+const { DEFAULT_RISK_CONFIG, COINS } = require('../engine/config');
 const { evaluateExit, tryOpenPosition, closePosition } = require('../broker/paper');
 const { computeExpectancy, computeDrawdown } = require('./stats');
 
-const COINS = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'LINK'];
 const HOUR = 3600, FOUR_H = 4 * 3600, DAY = 24 * 3600;
-
-const CONFIG = {
-  baseRiskPct: 0.005, maxOpenPositions: 3, maxTotalRiskPct: 0.015,
-  maxCoinExposurePct: 0.20, maxTotalExposurePct: 0.60, cooldownHours: 6,
-  dailyLossLimitPct: 0.03, weeklyKillSwitchPct: 0.08,
-  roundTripFeePct: 0.65, // percent, matches checkFeeViability's expected units
-};
 
 // fromTs=0 runs over every coin's full available history. Each coin's data naturally
 // starts whenever its own earliest candle appears — the walk-forward loop below already
@@ -64,7 +57,7 @@ function loadFilteredCandles(db, coin, timeframe, fromTs, toTs) {
   return candles;
 }
 
-function runBacktest(db, config = CONFIG, fromTs = 0) {
+function runBacktest(db, config = DEFAULT_RISK_CONFIG, fromTs = 0) {
   const nowHour = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
 
   const btcDaily = loadFilteredCandles(db, 'BTC', '1d', 0, nowHour);
