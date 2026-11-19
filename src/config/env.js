@@ -44,4 +44,10 @@ function getKrakenCredentials(filePath) {
   };
 }
 
-module.exports = { loadEnvFile, getKrakenCredentials, DEFAULT_PATH };
+function getDashboardPassword(filePath) {
+  if (process.env.DASHBOARD_PASSWORD) return process.env.DASHBOARD_PASSWORD;
+  const resolvedPath = filePath || process.env.CRYPTODASH_ENV_FILE || DEFAULT_PATH;
+  return loadEnvFile(resolvedPath).DASHBOARD_PASSWORD;
+}
+
+module.exports = { loadEnvFile, getKrakenCredentials, getDashboardPassword, DEFAULT_PATH };
