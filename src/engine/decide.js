@@ -148,4 +148,15 @@ function callClaudeCli(promptPair, config) {
   });
 }
 
-module.exports = { buildDecisionPrompt, parseDecisionResponse, buildCliArgs, stripMarkdownFences, callClaudeCli };
+async function decide(input, config, deps = { callClaudeCli }) {
+  const promptPair = buildDecisionPrompt(input);
+  let rawText;
+  try {
+    rawText = await deps.callClaudeCli(promptPair, config);
+  } catch (err) {
+    return { decisions: [], positionActions: [], setupToggles: [], marketNote: '', plainNote: null, fallback: true, error: err.message };
+  }
+  return parseDecisionResponse(rawText, { candidates: input.candidates, openPositions: input.openPositions, setupNames: input.setupNames });
+}
+
+module.exports = { buildDecisionPrompt, parseDecisionResponse, buildCliArgs, stripMarkdownFences, callClaudeCli, decide };
