@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { buildCliArgs, stripMarkdownFences } = require('../src/engine/decide');
+const { buildCliArgs, stripMarkdownFences, buildCliEnv } = require('../src/engine/decide');
 
 function sampleConfig() {
   return { claudeModel: 'claude-sonnet-5', claudeEffort: 'low', claudeTimeoutMs: 30000 };
@@ -36,4 +36,24 @@ test('stripMarkdownFences removes a plain ``` fence (no language tag)', () => {
 
 test('stripMarkdownFences passes unfenced text through unchanged (aside from trimming)', () => {
   assert.equal(stripMarkdownFences('  {"a":1}  '), '{"a":1}');
+});
+
+test('buildCliEnv excludes Kraken and Anthropic secrets from the subprocess environment', () => {
+  const env = buildCliEnv({
+    PATH: '/usr/bin', HOME: '/home/gallus23',
+    KRAKEN_API_KEY: 'secret-key', KRAKEN_API_SECRET: 'secret-sig',
+    ANTHROPIC_API_KEY: 'sk-ant-secret', TELEGRAM_BOT_TOKEN: 'secret-token',
+  });
+  assert.equal(env.KRAKEN_API_KEY, undefined);
+  assert.equal(env.KRAKEN_API_SECRET, undefined);
+  assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  assert.equal(env.TELEGRAM_BOT_TOKEN, undefined);
+});
+
+test('buildCliEnv keeps the allowlisted vars the CLI needs for OAuth and basic operation', () => {
+  const env = buildCliEnv({ PATH: '/usr/bin', HOME: '/home/gallus23', LANG: 'en_US.UTF-8', SOME_RANDOM_VAR: 'x' });
+  assert.equal(env.PATH, '/usr/bin');
+  assert.equal(env.HOME, '/home/gallus23');
+  assert.equal(env.LANG, 'en_US.UTF-8');
+  assert.equal(env.SOME_RANDOM_VAR, undefined);
 });
