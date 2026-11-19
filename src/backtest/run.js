@@ -33,10 +33,7 @@ function buildCoinData({ candles4h, candles1h, candlesDaily }) {
 const { openDb, getCandles } = require('../data/db');
 const { computeRegimeSeries } = require('../engine/regime');
 const { isDailyLossLimitHit, isKillSwitchTriggered } = require('../engine/risk');
-const trendBreakout = require('../engine/playbook/trendBreakout');
-const trendPullback = require('../engine/playbook/trendPullback');
-const rangeReversion = require('../engine/playbook/rangeReversion');
-const oversoldBounce = require('../engine/playbook/oversoldBounce');
+const { SETUPS, SETUPS_BY_REGIME } = require('../engine/playbook');
 const { evaluateExit, tryOpenPosition, closePosition } = require('../broker/paper');
 const { computeExpectancy, computeDrawdown } = require('./stats');
 
@@ -48,17 +45,6 @@ const CONFIG = {
   maxCoinExposurePct: 0.20, maxTotalExposurePct: 0.60, cooldownHours: 6,
   dailyLossLimitPct: 0.03, weeklyKillSwitchPct: 0.08,
   roundTripFeePct: 0.65, // percent, matches checkFeeViability's expected units
-};
-
-const SETUPS = {
-  trend_breakout: trendBreakout, trend_pullback: trendPullback,
-  range_reversion: rangeReversion, oversold_bounce: oversoldBounce,
-};
-const SETUPS_BY_REGIME = {
-  trend_up: ['trend_breakout', 'trend_pullback'],
-  range: ['range_reversion'],
-  downtrend: ['oversold_bounce'],
-  risk_off: [],
 };
 
 // fromTs=0 runs over every coin's full available history. Each coin's data naturally
