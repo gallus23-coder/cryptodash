@@ -38,8 +38,8 @@ function createApp(db, { password } = {}) {
 
     const candidates = getCandidatesByTs(db, mode, ts).map((candidate) => ({
       ...candidate,
-      decision: getDecisionByCandidateId(db, candidate.id),
-      trade: getTradeByCandidateId(db, candidate.id),
+      decision: getDecisionByCandidateId(db, candidate.id, mode),
+      trade: getTradeByCandidateId(db, candidate.id, mode),
     }));
 
     res.json({ cycle, candidates });

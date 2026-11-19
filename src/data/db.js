@@ -168,22 +168,22 @@ function getCandidatesByTs(db, mode, ts) {
   return db.prepare('SELECT * FROM candidates WHERE mode = ? AND ts = ?').all(mode, ts).map(rowToCandidate);
 }
 
-function getTradeByCandidateId(db, candidateId) {
+function getTradeByCandidateId(db, candidateId, mode) {
   const row = db.prepare(`
     SELECT id, mode, coin, setup, entry_ts AS entryTs, exit_ts AS exitTs,
       entry_price AS entryPrice, exit_price AS exitPrice, units, risk_amount AS riskAmount,
       pnl, r, exit_reason AS exitReason, candidate_id AS candidateId
-    FROM trades WHERE candidate_id = ?
-  `).get(candidateId);
+    FROM trades WHERE candidate_id = ? AND mode = ?
+  `).get(candidateId, mode);
   return row || null;
 }
 
-function getDecisionByCandidateId(db, candidateId) {
+function getDecisionByCandidateId(db, candidateId, mode) {
   const row = db.prepare(`
     SELECT candidate_id AS candidateId, ts, mode, action, size, stop_atr AS stopAtr, trail_atr AS trailAtr,
       reason, plain_reason AS plainReason, default_action AS defaultAction, diverged, model, latency_ms AS latencyMs
-    FROM decisions WHERE candidate_id = ?
-  `).get(candidateId);
+    FROM decisions WHERE candidate_id = ? AND mode = ?
+  `).get(candidateId, mode);
   return row ? { ...row, diverged: !!row.diverged } : null;
 }
 
@@ -193,8 +193,8 @@ function getScorecardData(db, mode, sinceTs) {
       d.diverged, d.action AS decisionAction,
       t.r AS tradeR
     FROM candidates c
-    LEFT JOIN decisions d ON d.candidate_id = c.id
-    LEFT JOIN trades t ON t.candidate_id = c.id
+    LEFT JOIN decisions d ON d.candidate_id = c.id AND d.mode = c.mode
+    LEFT JOIN trades t ON t.candidate_id = c.id AND t.mode = c.mode
     WHERE c.mode = ? AND c.ts >= ? AND c.shadow_status = 'resolved'
   `).all(mode, sinceTs).map((row) => ({ ...row, diverged: !!row.diverged }));
 }

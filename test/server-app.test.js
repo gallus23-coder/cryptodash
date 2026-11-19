@@ -202,6 +202,46 @@ test('GET /api/scorecard reports notEnoughData when fewer than 100 diverged deci
   }
 });
 
+test('GET /api/scorecard does not double-count a candidate whose candidate_id has both a paper and a live decision', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    const recentTs = Math.floor(Date.now() / 1000) - 3600;
+    seedCandidate(db, { ts: recentTs }); // mode: paper
+    // Both diverged:true — if the join isn't mode-scoped, this single candidate's shadow_r joins
+    // against BOTH decision rows, producing divergedCount=2 for what is really one paper decision.
+    seedDecision(db, { diverged: true, action: 'take', ts: recentTs });
+    seedDecision(db, { diverged: true, action: 'take', ts: recentTs, mode: 'live' });
+    updateCandidateShadowForTest(db, 'c_20261118_10_SOL_trend_pullback', { status: 'resolved', exitTs: recentTs + 50000, pnl: 5, r: 1.0, exitReason: 'target' });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/scorecard?days=30&mode=paper`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.divergedCount, 1); // only the paper decision counts, not both
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/decisions/:cycleId with mode=paper does not return a live decision for the same candidate_id', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1700000000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 500 });
+    seedCandidate(db);
+    // Insert the LIVE decision FIRST: an unfiltered `.get()` with no ORDER BY returns rows in
+    // insertion (rowid) order by default in SQLite, so this ordering is what makes an unfixed
+    // (mode-unaware) query return the live row — asserting on row order alone would be fragile,
+    // but combined with a mode filter this is deterministic either way.
+    seedDecision(db, { action: 'take', mode: 'live' });
+    seedDecision(db, { action: 'skip' }); // the real paper decision, inserted second
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/decisions/1700000000?mode=paper`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.candidates[0].decision.mode, 'paper');
+    assert.equal(body.candidates[0].decision.action, 'skip'); // must not pick up the live "take"
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/scorecard compares real R (for a taken, diverged decision) against the shadow R', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {
