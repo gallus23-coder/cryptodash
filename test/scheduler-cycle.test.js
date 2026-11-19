@@ -1,7 +1,8 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { isFourHourBoundary, utcDayKey, freshState } = require('../src/scheduler/cycle');
+const { isFourHourBoundary, utcDayKey, freshState, persistCycleResults } = require('../src/scheduler/cycle');
+const { openDb, getTrades, loadSchedulerState } = require('../src/data/db');
 
 test('isFourHourBoundary is true exactly at 00/04/08/12/16/20 UTC', () => {
   const HOUR = 3600;
@@ -35,4 +36,18 @@ test('freshState defaults to a £1000 starting balance with no open positions', 
 
 test('freshState accepts a custom starting balance', () => {
   assert.equal(freshState(500).balance, 500);
+});
+
+test('persistCycleResults rolls back all trade inserts if a later one fails, so trades and scheduler_state stay consistent', () => {
+  const db = openDb(':memory:');
+  const state = freshState();
+  state.closedTrades = [
+    { coin: 'BTC', setup: 'trend_pullback', entryTs: 0, exitTs: 3600, entryPrice: 100, exitPrice: 110, units: 1, riskAmount: 5, pnl: 10, r: 2, exitReason: 'target' },
+    { setup: 'trend_pullback', entryTs: 3600, exitTs: 7200, entryPrice: 100, exitPrice: 90, units: 1, riskAmount: 5, pnl: -10, r: -2, exitReason: 'stop' }, // missing `coin` — throws on insert
+  ];
+
+  assert.throws(() => persistCycleResults(db, 'paper', state));
+
+  assert.equal(getTrades(db, 'paper').length, 0); // first trade's insert must not survive the second's failure
+  assert.equal(loadSchedulerState(db, 'paper'), null); // state must never be saved if the drain didn't fully commit
 });

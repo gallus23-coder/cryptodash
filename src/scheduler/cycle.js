@@ -27,6 +27,18 @@ const { SETUPS, SETUPS_BY_REGIME } = require('../engine/playbook');
 const { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS } = require('../engine/config');
 const { evaluateExit, tryOpenPosition, closePosition } = require('../broker/paper');
 
+const persistCycleResults = (db, mode, state) => db.transaction(() => {
+  for (const trade of state.closedTrades) {
+    insertTrade(db, {
+      mode, coin: trade.coin, setup: trade.setup, entryTs: trade.entryTs, exitTs: trade.exitTs,
+      entryPrice: trade.entryPrice, exitPrice: trade.exitPrice, units: trade.units,
+      riskAmount: trade.riskAmount, pnl: trade.pnl, r: trade.r, exitReason: trade.exitReason,
+    });
+  }
+  state.closedTrades = [];
+  saveSchedulerState(db, mode, state);
+})();
+
 async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, now = Date.now()) {
   const startedAt = Date.now();
   const nowHour = Math.floor(now / 1000 / HOUR) * HOUR;
@@ -92,16 +104,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
       }
     }
 
-    for (const trade of state.closedTrades) {
-      insertTrade(db, {
-        mode, coin: trade.coin, setup: trade.setup, entryTs: trade.entryTs, exitTs: trade.exitTs,
-        entryPrice: trade.entryPrice, exitPrice: trade.exitPrice, units: trade.units,
-        riskAmount: trade.riskAmount, pnl: trade.pnl, r: trade.r, exitReason: trade.exitReason,
-      });
-    }
-    state.closedTrades = [];
-
-    saveSchedulerState(db, mode, state);
+    persistCycleResults(db, mode, state);
     insertCycleLog(db, {
       ts: nowHour, mode, regimeLabel, candidatesCount, openedCount, closedCount,
       durationMs: Date.now() - startedAt,
@@ -117,4 +120,4 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
   }
 }
 
-module.exports = { isFourHourBoundary, utcDayKey, freshState, runCycle };
+module.exports = { isFourHourBoundary, utcDayKey, freshState, persistCycleResults, runCycle };
