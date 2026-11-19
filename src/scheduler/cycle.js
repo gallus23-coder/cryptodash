@@ -15,10 +15,11 @@ function freshState(startingBalance = 1000) {
     balance: startingBalance, dailyPnl: 0, currentDay: null,
     weeklyPeakBalance: startingBalance, killSwitchActive: false,
     openPositions: [], cooldowns: {}, closedTrades: [],
+    shadowPositions: [], disabledSetups: {}, lastRegimeLabel: null,
   };
 }
 
-const { getCandles, loadSchedulerState, saveSchedulerState, insertTrade, insertCycleLog } = require('../data/db');
+const { getCandles, loadSchedulerState, saveSchedulerState, insertTrade, insertCycleLog, insertCandidate, updateCandidateShadow } = require('../data/db');
 const { ingestAllCoins } = require('../data/ingest');
 const { computeRegimeSeries } = require('../engine/regime');
 const { isDailyLossLimitHit, isKillSwitchTriggered } = require('../engine/risk');
@@ -26,6 +27,8 @@ const { buildCoinData } = require('../backtest/run');
 const { SETUPS, SETUPS_BY_REGIME } = require('../engine/playbook');
 const { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS } = require('../engine/config');
 const { evaluateExit, tryOpenPosition, closePosition } = require('../broker/paper');
+const { buildCandidateId, attachContext } = require('../engine/candidates');
+const { openShadowPosition, resolveShadowPositions } = require('../broker/shadow');
 
 const persistCycleResults = (db, mode, state) => db.transaction(() => {
   for (const trade of state.closedTrades) {
@@ -66,10 +69,18 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
     regimeLabel = currentRegime ? currentRegime.label : null;
 
     const state = loadSchedulerState(db, mode) || freshState();
+    state.shadowPositions = state.shadowPositions || [];
+    state.disabledSetups = state.disabledSetups || {};
+    if (state.lastRegimeLabel === undefined) state.lastRegimeLabel = null;
+
     const dayKey = utcDayKey(nowHour);
     if (state.currentDay !== dayKey) {
       state.currentDay = dayKey;
       state.dailyPnl = 0;
+    }
+    if (state.lastRegimeLabel !== regimeLabel) {
+      state.disabledSetups = {}; // "disable for the rest of the current regime" — a new regime clears it
+      state.lastRegimeLabel = regimeLabel;
     }
 
     for (const position of [...state.openPositions]) {
@@ -80,6 +91,14 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
         closePosition(state, position, exit, config);
         closedCount += 1;
       }
+    }
+
+    const { stillOpen, resolved } = resolveShadowPositions(state.shadowPositions, coinData);
+    state.shadowPositions = stillOpen;
+    for (const outcome of resolved) {
+      updateCandidateShadow(db, outcome.candidateId, {
+        status: 'resolved', exitTs: outcome.exitTs, pnl: outcome.pnl, r: outcome.r, exitReason: outcome.exitReason,
+      });
     }
 
     state.weeklyPeakBalance = Math.max(state.weeklyPeakBalance, state.balance);
@@ -94,9 +113,20 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
         const i = data.candles4h.findIndex((c) => c.ts === nowHour);
         if (i === -1) continue;
         for (const setupName of SETUPS_BY_REGIME[regimeLabel] || []) {
+          if (state.disabledSetups[setupName] === regimeLabel) continue; // setup disabled for the rest of this regime
           const candidate = SETUPS[setupName].evaluate(coin, data.candles4h, data.indicators, i, regimeLabel);
           if (!candidate) continue;
+
+          const withContext = attachContext(candidate, data.indicators, i);
+          const fullCandidate = { ...withContext, id: buildCandidateId(nowHour, coin, setupName), mode, regime: regimeLabel, ts: nowHour };
+          insertCandidate(db, fullCandidate);
           candidatesCount += 1;
+
+          const alreadyHasShadow = state.shadowPositions.some((p) => p.candidateId === fullCandidate.id);
+          if (!alreadyHasShadow) {
+            state.shadowPositions.push(openShadowPosition(fullCandidate, data, i));
+          }
+
           const before = state.openPositions.length;
           tryOpenPosition(state, candidate, data, i, config);
           if (state.openPositions.length > before) openedCount += 1;
