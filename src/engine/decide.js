@@ -106,4 +106,46 @@ function parseDecisionResponse(rawText, { candidates, openPositions, setupNames 
   };
 }
 
-module.exports = { buildDecisionPrompt, parseDecisionResponse };
+const { execFile } = require('child_process');
+const os = require('os');
+
+function buildCliArgs(promptPair, config) {
+  return [
+    '-p', '--output-format', 'json',
+    '--model', config.claudeModel,
+    '--effort', config.claudeEffort,
+    '--allowedTools', '',
+    '--system-prompt', promptPair.system,
+    promptPair.user,
+  ];
+}
+
+function stripMarkdownFences(text) {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^```(?:json)?\n([\s\S]*)\n```$/);
+  return match ? match[1] : trimmed;
+}
+
+function callClaudeCli(promptPair, config) {
+  return new Promise((resolve, reject) => {
+    // cwd is deliberately NOT this repo, so the call never discovers this project's own CLAUDE.md —
+    // defense in depth, since this repo's CLAUDE.md is irrelevant to a decision call and only adds tokens.
+    // Note: user-level SessionStart hooks (e.g. a terse-response-style hook) still fire regardless of cwd —
+    // confirmed by a real call. They don't corrupt the response as long as the user prompt is directive
+    // ("respond now with X"); a prompt inviting the model to describe its own context (e.g. "confirm you
+    // understood") can surface that hook text instead of the task — a prompt-design pitfall, not a cwd bug.
+    execFile('claude', buildCliArgs(promptPair, config), { cwd: os.tmpdir(), timeout: config.claudeTimeoutMs, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+      if (err) return reject(new Error(`claude cli failed: ${err.message}`));
+      let wrapper;
+      try {
+        wrapper = JSON.parse(stdout);
+      } catch (parseErr) {
+        return reject(new Error(`claude cli returned non-JSON output: ${parseErr.message}`));
+      }
+      if (wrapper.is_error) return reject(new Error(`claude cli reported an error: ${wrapper.result}`));
+      resolve(stripMarkdownFences(wrapper.result));
+    });
+  });
+}
+
+module.exports = { buildDecisionPrompt, parseDecisionResponse, buildCliArgs, stripMarkdownFences, callClaudeCli };
