@@ -39,6 +39,20 @@ function openDb(dbPath = process.env.CRYPTODASH_DB_PATH || DEFAULT_DB_PATH) {
       candidates_count INTEGER NOT NULL, opened_count INTEGER NOT NULL, closed_count INTEGER NOT NULL,
       duration_ms INTEGER NOT NULL, error TEXT
     );
+    CREATE TABLE IF NOT EXISTS candidates (
+      id TEXT PRIMARY KEY, ts INTEGER NOT NULL, mode TEXT NOT NULL,
+      coin TEXT NOT NULL, setup TEXT NOT NULL, regime TEXT NOT NULL,
+      entry REAL NOT NULL, atr REAL NOT NULL,
+      default_json TEXT NOT NULL, ranges_json TEXT NOT NULL, context_json TEXT NOT NULL,
+      shadow_status TEXT NOT NULL DEFAULT 'open',
+      shadow_exit_ts INTEGER, shadow_pnl REAL, shadow_r REAL, shadow_exit_reason TEXT
+    );
+    CREATE TABLE IF NOT EXISTS decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL, ts INTEGER NOT NULL, mode TEXT NOT NULL,
+      action TEXT NOT NULL, size REAL, stop_atr REAL, trail_atr REAL,
+      reason TEXT, plain_reason TEXT, default_action TEXT NOT NULL, diverged INTEGER NOT NULL,
+      model TEXT NOT NULL, latency_ms INTEGER NOT NULL, raw_response TEXT NOT NULL
+    );
   `);
   return db;
 }
@@ -58,6 +72,60 @@ function getTrades(db, mode) {
       units, risk_amount AS riskAmount, pnl, r, exit_reason AS exitReason
     FROM trades WHERE mode = ? ORDER BY exit_ts ASC
   `).all(mode);
+}
+
+function insertCandidate(db, candidate) {
+  db.prepare(`
+    INSERT INTO candidates (id, ts, mode, coin, setup, regime, entry, atr, default_json, ranges_json, context_json)
+    VALUES (@id, @ts, @mode, @coin, @setup, @regime, @entry, @atr, @defaultJson, @rangesJson, @contextJson)
+    ON CONFLICT(id) DO UPDATE SET
+      ts = excluded.ts, mode = excluded.mode, coin = excluded.coin, setup = excluded.setup, regime = excluded.regime,
+      entry = excluded.entry, atr = excluded.atr, default_json = excluded.default_json,
+      ranges_json = excluded.ranges_json, context_json = excluded.context_json
+  `).run({
+    id: candidate.id, ts: candidate.ts, mode: candidate.mode, coin: candidate.coin, setup: candidate.setup,
+    regime: candidate.regime, entry: candidate.entry, atr: candidate.atr,
+    defaultJson: JSON.stringify(candidate.default), rangesJson: JSON.stringify(candidate.ranges),
+    contextJson: JSON.stringify(candidate.context),
+  });
+}
+
+function rowToCandidate(row) {
+  if (!row) return null;
+  return {
+    id: row.id, ts: row.ts, mode: row.mode, coin: row.coin, setup: row.setup, regime: row.regime,
+    entry: row.entry, atr: row.atr,
+    default: JSON.parse(row.default_json), ranges: JSON.parse(row.ranges_json), context: JSON.parse(row.context_json),
+    shadowStatus: row.shadow_status, shadowExitTs: row.shadow_exit_ts,
+    shadowPnl: row.shadow_pnl, shadowR: row.shadow_r, shadowExitReason: row.shadow_exit_reason,
+  };
+}
+
+function getCandidate(db, id) {
+  return rowToCandidate(db.prepare('SELECT * FROM candidates WHERE id = ?').get(id));
+}
+
+function updateCandidateShadow(db, id, { status, exitTs, pnl, r, exitReason }) {
+  db.prepare(`
+    UPDATE candidates SET shadow_status = @status, shadow_exit_ts = @exitTs,
+      shadow_pnl = @pnl, shadow_r = @r, shadow_exit_reason = @exitReason
+    WHERE id = @id
+  `).run({ id, status, exitTs, pnl, r, exitReason });
+}
+
+function insertDecision(db, decision) {
+  db.prepare(`
+    INSERT INTO decisions (candidate_id, ts, mode, action, size, stop_atr, trail_atr, reason, plain_reason, default_action, diverged, model, latency_ms, raw_response)
+    VALUES (@candidateId, @ts, @mode, @action, @size, @stopAtr, @trailAtr, @reason, @plainReason, @defaultAction, @diverged, @model, @latencyMs, @rawResponse)
+  `).run({ ...decision, diverged: decision.diverged ? 1 : 0 });
+}
+
+function getDecisions(db, mode, limit = 50) {
+  return db.prepare(`
+    SELECT candidate_id AS candidateId, ts, mode, action, size, stop_atr AS stopAtr, trail_atr AS trailAtr,
+      reason, plain_reason AS plainReason, default_action AS defaultAction, diverged, model, latency_ms AS latencyMs, raw_response AS rawResponse
+    FROM decisions WHERE mode = ? ORDER BY ts DESC LIMIT ?
+  `).all(mode, limit).map((row) => ({ ...row, diverged: !!row.diverged }));
 }
 
 function saveSchedulerState(db, mode, state) {
@@ -122,4 +190,5 @@ function getExistingTimes(db, coin, timeframe, fromTs, toTs) {
 module.exports = {
   openDb, upsertCandles, getCandles, getLastCandleTime, getExistingTimes, DEFAULT_DB_PATH,
   insertTrade, getTrades, saveSchedulerState, loadSchedulerState, insertCycleLog, getCycleLog,
+  insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
 };
