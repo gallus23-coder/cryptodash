@@ -15,4 +15,23 @@ function fillExit({ exitPrice, stakeValue, fees = DEFAULT_FEES, slippagePct = DE
   return { fillPrice, feeAmount };
 }
 
-module.exports = { fillEntry, fillExit, DEFAULT_FEES, DEFAULT_SLIPPAGE_PCT };
+function evaluateExit(position, { candles1h, ema20By4hTs }) {
+  let highestHigh = position.entryPrice;
+
+  for (const candle of candles1h) {
+    if (position.exitType === 'trailing_stop') {
+      highestHigh = Math.max(highestHigh, candle.high);
+    }
+    const currentStopPrice = position.exitType === 'trailing_stop'
+      ? Math.max(position.initialStopPrice, highestHigh - position.trailAtr * position.atrAtEntry)
+      : position.initialStopPrice;
+
+    if (candle.low <= currentStopPrice) {
+      return { exitTs: candle.ts, exitPrice: currentStopPrice, reason: 'stop' };
+    }
+  }
+
+  return null;
+}
+
+module.exports = { fillEntry, fillExit, evaluateExit, DEFAULT_FEES, DEFAULT_SLIPPAGE_PCT };
