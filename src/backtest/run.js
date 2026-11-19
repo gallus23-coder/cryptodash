@@ -91,7 +91,9 @@ function tryOpenPosition(state, candidate, data, i, config) {
     timeStopTs: candidate.timeStopHours !== undefined ? barTs + candidate.timeStopHours * 3600 : undefined,
     entryFee: fill.feeAmount,
   };
-  state.balance -= fill.feeAmount;
+  // Don't deduct the entry fee from balance here — closePosition's pnl already
+  // subtracts position.entryFee once when the trade realizes. Deducting it here
+  // too double-counted it.
   state.openPositions.push(position);
 }
 
@@ -211,4 +213,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { buildCoinData, runBacktest, printReport };
+module.exports = { buildCoinData, runBacktest, printReport, tryOpenPosition, closePosition };

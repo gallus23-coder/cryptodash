@@ -41,3 +41,25 @@ test('buildCoinData builds ema20By4hTs keyed by each 4h candle\'s own ts, skippi
   assert.equal(data.ema20By4hTs.get(lastBar.ts), data.indicators.ema20[candles4h.length - 1]);
   assert.equal(data.ema20By4hTs.has(candles4h[0].ts), false); // index 0 is warm-up, should be skipped
 });
+
+const { tryOpenPosition, closePosition } = require('../src/backtest/run');
+
+test("closing the only open position leaves balance equal to starting balance plus that trade's pnl, exactly once", () => {
+  const state = { balance: 1000, dailyPnl: 0, openPositions: [], cooldowns: {}, closedTrades: [] };
+  const config = {
+    baseRiskPct: 0.005, maxOpenPositions: 3, maxTotalRiskPct: 0.015,
+    maxCoinExposurePct: 0.20, maxTotalExposurePct: 0.60, cooldownHours: 6, roundTripFeePct: 0.01,
+  };
+  const candidate = {
+    coin: 'BTC', setup: 'trend_breakout', entry: 100, atr: 10,
+    default: { action: 'take', size: 1, stopAtr: 1 }, exitType: 'trailing_stop',
+  };
+  const data = { candles4h: [{ ts: 0, close: 100 }], indicators: { bollinger20: { middle: [null] } } };
+
+  tryOpenPosition(state, candidate, data, 0, config);
+  const position = state.openPositions[0];
+  closePosition(state, position, { exitTs: 3600, exitPrice: 100, reason: 'stop' }, config);
+
+  const trade = state.closedTrades[0];
+  assert.equal(state.balance, 1000 + trade.pnl);
+});
