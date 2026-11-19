@@ -80,7 +80,7 @@ function tryOpenPosition(state, candidate, data, i, config) {
 
   const fill = fillEntry({ candidate, sizing });
   const position = {
-    coin: candidate.coin, setup: candidate.setup, entryTs: barTs,
+    coin: candidate.coin, setup: candidate.setup, entryTs: barTs, candidateId: candidate.id,
     entryPrice: fill.fillPrice, units: sizing.units, riskAmount: sizing.riskAmount,
     riskPct, exposurePct, initialStopPrice: stopPrice, atrAtEntry: candidate.atr,
     exitType: candidate.exitType, trailAtr: candidate.default.trailAtr,

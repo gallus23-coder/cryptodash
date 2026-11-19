@@ -37,6 +37,7 @@ const persistCycleResults = (db, mode, state) => db.transaction(() => {
       mode, coin: trade.coin, setup: trade.setup, entryTs: trade.entryTs, exitTs: trade.exitTs,
       entryPrice: trade.entryPrice, exitPrice: trade.exitPrice, units: trade.units,
       riskAmount: trade.riskAmount, pnl: trade.pnl, r: trade.r, exitReason: trade.exitReason,
+      candidateId: trade.candidateId,
     });
   }
   state.closedTrades = [];

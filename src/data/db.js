@@ -54,14 +54,20 @@ function openDb(dbPath = process.env.CRYPTODASH_DB_PATH || DEFAULT_DB_PATH) {
       model TEXT NOT NULL, latency_ms INTEGER NOT NULL, raw_response TEXT NOT NULL
     );
   `);
+
+  const tradeColumns = db.prepare("PRAGMA table_info(trades)").all().map((c) => c.name);
+  if (!tradeColumns.includes('candidate_id')) {
+    db.exec('ALTER TABLE trades ADD COLUMN candidate_id TEXT');
+  }
+
   return db;
 }
 
 function insertTrade(db, trade) {
   db.prepare(`
-    INSERT INTO trades (mode, coin, setup, entry_ts, exit_ts, entry_price, exit_price, units, risk_amount, pnl, r, exit_reason)
-    VALUES (@mode, @coin, @setup, @entryTs, @exitTs, @entryPrice, @exitPrice, @units, @riskAmount, @pnl, @r, @exitReason)
-  `).run(trade);
+    INSERT INTO trades (mode, coin, setup, entry_ts, exit_ts, entry_price, exit_price, units, risk_amount, pnl, r, exit_reason, candidate_id)
+    VALUES (@mode, @coin, @setup, @entryTs, @exitTs, @entryPrice, @exitPrice, @units, @riskAmount, @pnl, @r, @exitReason, @candidateId)
+  `).run({ candidateId: null, ...trade });
 }
 
 function getTrades(db, mode) {
@@ -69,7 +75,8 @@ function getTrades(db, mode) {
     SELECT id, mode, coin, setup,
       entry_ts AS entryTs, exit_ts AS exitTs,
       entry_price AS entryPrice, exit_price AS exitPrice,
-      units, risk_amount AS riskAmount, pnl, r, exit_reason AS exitReason
+      units, risk_amount AS riskAmount, pnl, r, exit_reason AS exitReason,
+      candidate_id AS candidateId
     FROM trades WHERE mode = ? ORDER BY exit_ts ASC
   `).all(mode);
 }
