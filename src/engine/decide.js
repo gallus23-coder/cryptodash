@@ -37,6 +37,7 @@ function validateTopLevelShape(parsed) {
 }
 
 function sanitizeDecision(raw, candidatesById) {
+  if (!isPlainObject(raw)) return null;
   const candidate = candidatesById.get(raw.candidateId);
   if (!candidate) return null;
   if (raw.action !== 'take' && raw.action !== 'skip') return null;
@@ -53,6 +54,7 @@ function sanitizeDecision(raw, candidatesById) {
 }
 
 function sanitizePositionAction(raw, openPositionsByKey) {
+  if (!isPlainObject(raw)) return null;
   const position = openPositionsByKey.get(`${raw.coin}:${raw.setup}`);
   if (!position) return null;
   if (raw.action === 'close') return { coin: raw.coin, setup: raw.setup, action: 'close' };
@@ -69,6 +71,7 @@ function sanitizePositionAction(raw, openPositionsByKey) {
 }
 
 function sanitizeSetupToggle(raw, setupNameSet) {
+  if (!isPlainObject(raw)) return null;
   if (!setupNameSet.has(raw.setup)) return null;
   if (raw.action !== 'disable_setup') return null;
   return { setup: raw.setup, action: 'disable_setup' };

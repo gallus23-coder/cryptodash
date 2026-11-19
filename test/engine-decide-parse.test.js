@@ -91,6 +91,19 @@ test('a setupToggles entry naming an unknown setup is dropped', () => {
   assert.equal(result.setupToggles.length, 0);
 });
 
+test('a null entry in decisions/positionActions/setupToggles is dropped rather than throwing', () => {
+  const raw = JSON.stringify({
+    decisions: [null], positionActions: [null], setupToggles: [null], marketNote: '', plainNote: null,
+  });
+  const result = parseDecisionResponse(raw, {
+    candidates: sampleCandidates(), openPositions: [{ coin: 'BTC', setup: 'trend_breakout', currentStopPrice: 100 }], setupNames: ['trend_pullback'],
+  });
+  assert.equal(result.fallback, false);
+  assert.deepEqual(result.decisions, []);
+  assert.deepEqual(result.positionActions, []);
+  assert.deepEqual(result.setupToggles, []);
+});
+
 test('invalid JSON falls back to skip-all for the whole cycle', () => {
   const result = parseDecisionResponse('not json at all', { candidates: sampleCandidates(), openPositions: [], setupNames: [] });
   assert.equal(result.fallback, true);

@@ -44,3 +44,27 @@ test('resolveShadowPositions keeps a position open if no 1h candle has arrived t
   assert.equal(stillOpen.length, 1);
   assert.equal(resolved.length, 0);
 });
+
+function sampleRangeReversionCandidate() {
+  return {
+    id: 'c_x', coin: 'SOL', setup: 'range_reversion', entry: 100, atr: 4, exitType: 'target_or_time',
+    default: { action: 'take', size: 1.0, stopAtr: 1.5 }, timeStopHours: 24,
+  };
+}
+
+test('openShadowPosition computes targetPrice/timeStopTs for target_or_time setups the same way tryOpenPosition does', () => {
+  const data = { candles4h: [{ ts: 1000 }], indicators: { bollinger20: { middle: [105] } } };
+  const position = openShadowPosition(sampleRangeReversionCandidate(), data, 0);
+  assert.equal(position.targetPrice, 105);
+  assert.equal(position.timeStopTs, 1000 + 24 * 3600);
+});
+
+test('resolveShadowPositions resolves a target_or_time shadow when price touches the target', () => {
+  const data = { candles4h: [{ ts: 0 }], indicators: { bollinger20: { middle: [105] } } };
+  const position = openShadowPosition(sampleRangeReversionCandidate(), data, 0);
+  const coinData = { SOL: { candles1h: [{ ts: 3600, high: 106, low: 99, close: 105 }], ema20By4hTs: new Map() } };
+  const { stillOpen, resolved } = resolveShadowPositions([{ ...position, entryTs: 0 }], coinData);
+  assert.equal(stillOpen.length, 0);
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].exitReason, 'target');
+});
