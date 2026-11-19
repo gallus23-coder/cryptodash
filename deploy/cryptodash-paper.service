@@ -1,0 +1,16 @@
+[Unit]
+Description=Cryptodash v2 paper-trading scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gallus23
+WorkingDirectory=/home/gallus23/crypto-dashboard
+ExecStart=/usr/bin/node /home/gallus23/crypto-dashboard/scheduler.js
+Restart=on-failure
+RestartSec=30
+EnvironmentFile=-/home/gallus23/.config/cryptodash/env
+
+[Install]
+WantedBy=multi-user.target
