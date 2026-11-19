@@ -21,6 +21,7 @@ function evaluate(coin, candles4h, indicators, i, regimeLabel) {
     entry: bar.close,
     atr: indicators.atr14[i],
     default: { action: 'take', size: 1.0, stopAtr: 1.5 },
+    ranges: { size: [0, 1], stopAtr: [1.0, 2.5] },
     exitType: 'target_or_time',
     targetType: 'bollinger_middle',
     timeStopHours: 24,

@@ -21,6 +21,15 @@ test('fires when the bar dips to EMA20/50 and closes back above it, with RSI(14)
   assert.equal(candidate.default.trailAtr, 2.5);
 });
 
+test('candidate includes a ranges object bounding size/stopAtr/trailAtr', () => {
+  const candles4h = [{ ts: 0, open: 100, high: 101, low: 94, close: 97 }];
+  const indicators = makeIndicators({ ema20: [95], ema50: [90], rsi14: [48], atr14: [3] });
+
+  const candidate = evaluate('ETH', candles4h, indicators, 0, 'trend_up');
+
+  assert.deepEqual(candidate.ranges, { size: [0, 1], stopAtr: [1.0, 3.0], trailAtr: [1.5, 4.0] });
+});
+
 test('does not fire when RSI(14) is outside the 40-55 band', () => {
   const candles4h = [{ ts: 0, open: 100, high: 101, low: 94, close: 97 }];
   const indicators = makeIndicators({ ema20: [95], ema50: [90], rsi14: [70] });

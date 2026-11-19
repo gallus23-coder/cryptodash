@@ -32,6 +32,18 @@ test('fires when RSI(2)<5 on a 4h close after a 3-day fall, in downtrend', () =>
   assert.equal(candidate.timeStopHours, 12);
 });
 
+test('candidate includes a ranges object bounding size/stopAtr (no trailAtr for this exit type)', () => {
+  const candles4h = makeCandles4hWith3DayFall();
+  const rsi2 = new Array(candles4h.length).fill(50);
+  rsi2[18] = 3;
+  const ema20 = new Array(candles4h.length).fill(90);
+  const atr14 = new Array(candles4h.length).fill(2.5);
+
+  const candidate = evaluate('ADA', candles4h, { rsi2, ema20, atr14 }, 18, 'downtrend');
+
+  assert.deepEqual(candidate.ranges, { size: [0, 0.5], stopAtr: [0.5, 2.0] });
+});
+
 test('does not fire when RSI(2) is 5 or above', () => {
   const candles4h = makeCandles4hWith3DayFall();
   const rsi2 = new Array(candles4h.length).fill(50);

@@ -21,6 +21,7 @@ function evaluate(coin, candles4h, indicators, i, regimeLabel) {
     entry: bar.close,
     atr: indicators.atr14[i],
     default: { action: 'take', size: 0.5, stopAtr: 1.0 },
+    ranges: { size: [0, 0.5], stopAtr: [0.5, 2.0] },
     exitType: 'ema_cross_or_time',
     emaPeriod: 20,
     timeStopHours: 12,

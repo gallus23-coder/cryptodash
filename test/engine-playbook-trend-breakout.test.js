@@ -32,6 +32,18 @@ test('fires when close breaks above the PRIOR bar\'s 20-bar high and ADX is risi
   assert.equal(candidate.exitType, 'trailing_stop');
 });
 
+test('candidate includes a ranges object bounding size/stopAtr/trailAtr', () => {
+  const candles4h = [
+    { ts: 0, open: 100, high: 101, low: 99, close: 100 },
+    { ts: 1, open: 100, high: 106, low: 99, close: 105 },
+  ];
+  const indicators = makeIndicators({ donchianUpper: [100, 110], adx: [20, 25], atr14: [2, 3] });
+
+  const candidate = evaluate('BTC', candles4h, indicators, 1, 'trend_up');
+
+  assert.deepEqual(candidate.ranges, { size: [0, 1], stopAtr: [1.0, 3.0], trailAtr: [2.0, 4.0] });
+});
+
 test('does not fire when close is below the prior 20-bar high', () => {
   const candles4h = [
     { ts: 0, open: 100, high: 101, low: 99, close: 100 },

@@ -26,6 +26,15 @@ test('fires when close is below the lower Bollinger band, RSI(2)<10, and price i
   assert.equal(candidate.timeStopHours, 24);
 });
 
+test('candidate includes a ranges object bounding size/stopAtr (no trailAtr for this exit type)', () => {
+  const candles4h = [{ ts: 0, open: 100, high: 101, low: 94, close: 95 }];
+  const indicators = makeIndicators({ bollingerLower: [96], bollingerMiddle: [100], rsi2: [5], dailyEma200Aligned: [80], atr14: [4] });
+
+  const candidate = evaluate('SOL', candles4h, indicators, 0, 'range');
+
+  assert.deepEqual(candidate.ranges, { size: [0, 1], stopAtr: [1.0, 2.5] });
+});
+
 test('does not fire when close is above the lower Bollinger band', () => {
   const candles4h = [{ ts: 0, open: 100, high: 101, low: 94, close: 98 }];
   const indicators = makeIndicators({ bollingerLower: [96], bollingerMiddle: [100], rsi2: [5], dailyEma200Aligned: [80] });
