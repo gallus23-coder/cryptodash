@@ -76,3 +76,78 @@ test('trailing_stop returns null (stays open) if neither the trail nor the initi
 
   assert.equal(evaluateExit(position, { candles1h, ema20By4hTs: new Map() }), null);
 });
+
+test('target_or_time exits at the target when a candle high touches it', () => {
+  const position = { exitType: 'target_or_time', initialStopPrice: 50, targetPrice: 110, timeStopTs: 100000 };
+  const candles1h = [
+    { ts: 3600, high: 105, low: 95, close: 102 },
+    { ts: 7200, high: 111, low: 100, close: 108 }, // high touches target 110
+  ];
+
+  const result = evaluateExit(position, { candles1h, ema20By4hTs: new Map() });
+
+  assert.deepEqual(result, { exitTs: 7200, exitPrice: 110, reason: 'target' });
+});
+
+test('target_or_time exits via time stop when neither stop nor target is hit in time', () => {
+  const position = { exitType: 'target_or_time', initialStopPrice: 50, targetPrice: 110, timeStopTs: 7200 };
+  const candles1h = [
+    { ts: 3600, high: 105, low: 95, close: 102 },
+    { ts: 7200, high: 106, low: 96, close: 104 }, // reaches the time stop here
+  ];
+
+  const result = evaluateExit(position, { candles1h, ema20By4hTs: new Map() });
+
+  assert.deepEqual(result, { exitTs: 7200, exitPrice: 104, reason: 'time_stop' });
+});
+
+test('stop-loss takes priority over target/ema-cross within the same candle', () => {
+  const position = { exitType: 'target_or_time', initialStopPrice: 100, targetPrice: 100, timeStopTs: 100000 };
+  const candles1h = [{ ts: 3600, high: 105, low: 99, close: 101 }]; // low breaches stop AND high touches target
+
+  const result = evaluateExit(position, { candles1h, ema20By4hTs: new Map() });
+
+  assert.equal(result.reason, 'stop');
+});
+
+test('ema_cross_or_time exits when the 4h close crosses above EMA20', () => {
+  // A full 4h period: 4 consecutive 1h bars starting at ts=0; the 4h candle's own
+  // ts is 0 (its last constituent 1h bar has ts=10800, which is 0+10800).
+  const position = { exitType: 'ema_cross_or_time', initialStopPrice: 50, timeStopTs: 100000 };
+  const candles1h = [
+    { ts: 0, high: 101, low: 99, close: 100 },
+    { ts: 3600, high: 102, low: 99, close: 101 },
+    { ts: 7200, high: 103, low: 99, close: 102 },
+    { ts: 10800, high: 106, low: 99, close: 105 }, // last hour of the 4h period, close=105
+  ];
+  const ema20By4hTs = new Map([[0, 100]]); // the 4h candle at ts=0 has EMA20=100; close 105 > 100
+
+  const result = evaluateExit(position, { candles1h, ema20By4hTs });
+
+  assert.deepEqual(result, { exitTs: 10800, exitPrice: 105, reason: 'ema_cross' });
+});
+
+test('ema_cross_or_time does not exit on a mid-4h-period hour, only on the 4h close', () => {
+  const position = { exitType: 'ema_cross_or_time', initialStopPrice: 50, timeStopTs: 100000 };
+  // This single candle is NOT the last hour of its 4h period (ts=3600 % 14400 !== 10800),
+  // so even though its close is above the mapped EMA20, it must not trigger an exit.
+  const candles1h = [{ ts: 3600, high: 102, low: 99, close: 101 }];
+  const ema20By4hTs = new Map([[0, 50]]);
+
+  assert.equal(evaluateExit(position, { candles1h, ema20By4hTs }), null);
+});
+
+test('ema_cross_or_time exits via time stop when the EMA never crosses', () => {
+  const position = { exitType: 'ema_cross_or_time', initialStopPrice: 50, timeStopTs: 10800 };
+  const candles1h = [
+    { ts: 0, high: 101, low: 99, close: 100 },
+    { ts: 3600, high: 102, low: 99, close: 101 },
+    { ts: 7200, high: 103, low: 99, close: 102 },
+    { ts: 10800, high: 103, low: 99, close: 102 }, // close 102 stays below EMA20=150
+  ];
+  const ema20By4hTs = new Map([[0, 150]]);
+
+  const result = evaluateExit(position, { candles1h, ema20By4hTs });
+
+  assert.deepEqual(result, { exitTs: 10800, exitPrice: 102, reason: 'time_stop' });
+});

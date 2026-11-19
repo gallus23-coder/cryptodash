@@ -29,6 +29,29 @@ function evaluateExit(position, { candles1h, ema20By4hTs }) {
     if (candle.low <= currentStopPrice) {
       return { exitTs: candle.ts, exitPrice: currentStopPrice, reason: 'stop' };
     }
+
+    if (position.exitType === 'target_or_time') {
+      if (candle.high >= position.targetPrice) {
+        return { exitTs: candle.ts, exitPrice: position.targetPrice, reason: 'target' };
+      }
+      if (candle.ts >= position.timeStopTs) {
+        return { exitTs: candle.ts, exitPrice: candle.close, reason: 'time_stop' };
+      }
+    }
+
+    if (position.exitType === 'ema_cross_or_time') {
+      const isLastHourOfFourHourPeriod = candle.ts % 14400 === 10800;
+      if (isLastHourOfFourHourPeriod) {
+        const fourHourTs = candle.ts - 10800;
+        const ema20 = ema20By4hTs.get(fourHourTs);
+        if (ema20 !== undefined && candle.close > ema20) {
+          return { exitTs: candle.ts, exitPrice: candle.close, reason: 'ema_cross' };
+        }
+      }
+      if (candle.ts >= position.timeStopTs) {
+        return { exitTs: candle.ts, exitPrice: candle.close, reason: 'time_stop' };
+      }
+    }
   }
 
   return null;
