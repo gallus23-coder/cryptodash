@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -19,4 +19,17 @@ test('formatScorecardMessage shows the Claude vs default comparison once there i
   assert.match(msg, /\+0\.30R/);
   assert.match(msg, /\+0\.10R/);
   assert.doesNotMatch(msg, /not enough data/i);
+});
+
+test('classifyRow marks a cycle with an error as "error"', () => {
+  assert.equal(classifyRow({ error: 'claude cli failed', candidatesCount: 0, openedCount: 0, closedCount: 0 }), 'error');
+});
+
+test('classifyRow marks a cycle with opened/closed positions as "activity"', () => {
+  assert.equal(classifyRow({ error: null, candidatesCount: 1, openedCount: 1, closedCount: 0 }), 'activity');
+  assert.equal(classifyRow({ error: null, candidatesCount: 0, openedCount: 0, closedCount: 1 }), 'activity');
+});
+
+test('classifyRow marks a quiet cycle (no error, nothing opened or closed) as "quiet"', () => {
+  assert.equal(classifyRow({ error: null, candidatesCount: 0, openedCount: 0, closedCount: 0 }), 'quiet');
 });

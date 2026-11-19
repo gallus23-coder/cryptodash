@@ -9,3 +9,9 @@ export function formatScorecardMessage({ notEnoughData, divergedCount, claudeMea
   }
   return `Over the last ${days} days: Claude averaged ${formatR(claudeMeanR)} per overridden trade vs ${formatR(defaultMeanR)} for the untouched default.`;
 }
+
+export function classifyRow({ error, candidatesCount, openedCount, closedCount }) {
+  if (error) return 'error';
+  if (openedCount > 0 || closedCount > 0) return 'activity';
+  return 'quiet';
+}
