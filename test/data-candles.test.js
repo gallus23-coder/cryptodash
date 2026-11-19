@@ -178,3 +178,43 @@ test('buildCandlesFromTrades buckets trades into hourly OHLCV, dropping the trai
 test('buildCandlesFromTrades returns nothing for an empty trades list', () => {
   assert.deepEqual(buildCandlesFromTrades([], 10000), []);
 });
+
+const { filterOutlierCandles } = require('../src/data/candles');
+
+test('filterOutlierCandles drops a candle whose high/low ratio is implausibly large', () => {
+  // Real data artifact seen in Kraken's historical export: BTC/GBP 2018-01-09 02:00
+  // printed high=13000, low=close=4.1 in a single hour — a >3000x intra-bar range.
+  const candles = [
+    { ts: 0, open: 9800, high: 9800, low: 9800, close: 9800, volume: 0.05 },
+    { ts: 3600, open: 9300.1, high: 13000, low: 4.1, close: 4.1, volume: 21.6 },
+    { ts: 7200, open: 9400, high: 9500, low: 9300, close: 9450, volume: 0.1 },
+  ];
+
+  const { candles: filtered, dropped } = filterOutlierCandles(candles);
+
+  assert.equal(dropped, 1);
+  assert.deepEqual(filtered.map((c) => c.ts), [0, 7200]);
+});
+
+test('filterOutlierCandles keeps every candle when none are implausible', () => {
+  const candles = [
+    { ts: 0, open: 100, high: 102, low: 99, close: 101, volume: 1 },
+    { ts: 3600, open: 101, high: 103, low: 100, close: 102, volume: 1 },
+  ];
+
+  const { candles: filtered, dropped } = filterOutlierCandles(candles);
+
+  assert.equal(dropped, 0);
+  assert.equal(filtered.length, 2);
+});
+
+test('filterOutlierCandles treats a zero or negative low as implausible too', () => {
+  const candles = [
+    { ts: 0, open: 100, high: 102, low: 0, close: 101, volume: 1 },
+  ];
+
+  const { candles: filtered, dropped } = filterOutlierCandles(candles);
+
+  assert.equal(dropped, 1);
+  assert.equal(filtered.length, 0);
+});

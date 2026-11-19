@@ -1,5 +1,6 @@
 'use strict';
 const { ema, rsi, atr, adx, donchian, bollinger } = require('../engine/indicators');
+const { filterOutlierCandles } = require('../data/candles');
 const { alignDailyIndices } = require('../engine/regime');
 
 function buildCoinData({ candles4h, candles1h, candlesDaily }) {
@@ -41,7 +42,6 @@ const { computeTradeR, computeExpectancy, computeDrawdown } = require('./stats')
 
 const COINS = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'LINK'];
 const HOUR = 3600, FOUR_H = 4 * 3600, DAY = 24 * 3600;
-const SIX_MONTHS_SECONDS = 186 * DAY;
 
 const CONFIG = {
   baseRiskPct: 0.005, maxOpenPositions: 3, maxTotalRiskPct: 0.015,
@@ -110,24 +110,42 @@ function closePosition(state, position, exit, config) {
   state.closedTrades.push({ ...position, exitTs: exit.exitTs, exitPrice: fill.fillPrice, pnl, r, exitReason: exit.reason });
 }
 
-function runBacktest(db, config = CONFIG) {
-  const nowHour = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
-  const fromTs = nowHour - SIX_MONTHS_SECONDS;
+// fromTs=0 runs over every coin's full available history. Each coin's data naturally
+// starts whenever its own earliest candle appears — the walk-forward loop below already
+// skips a coin at any ts it has no candle for (findIndex returns -1), so coins with
+// shorter histories (e.g. SOL from 2021) just sit out earlier bars without special-casing.
+// Kraken's historical export has occasional bad ticks (e.g. a real one seen in this
+// data: BTC/GBP 2018-01-09 02:00 printed high=13000, low=close=4.1 in one hour) that
+// corrupt ATR/volatility and benchmark figures if left in. Every candle array this
+// backtest touches goes through the same filter before use.
+function loadFilteredCandles(db, coin, timeframe, fromTs, toTs) {
+  const raw = getCandles(db, coin, timeframe, fromTs, toTs);
+  const { candles, dropped } = filterOutlierCandles(raw);
+  if (dropped > 0) {
+    console.log(`  (dropped ${dropped} outlier ${timeframe} candle(s) for ${coin})`);
+  }
+  return candles;
+}
 
-  const btcDaily = getCandles(db, 'BTC', '1d', 0, nowHour);
-  const btc4h = getCandles(db, 'BTC', '4h', fromTs, nowHour);
+function runBacktest(db, config = CONFIG, fromTs = 0) {
+  const nowHour = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
+
+  const btcDaily = loadFilteredCandles(db, 'BTC', '1d', 0, nowHour);
+  const btc4h = loadFilteredCandles(db, 'BTC', '4h', fromTs, nowHour);
   const watchlistBy4h = {};
+  const coinCandles4h = {};
   for (const coin of COINS) {
-    watchlistBy4h[coin] = getCandles(db, coin, '4h', fromTs, nowHour).map((c) => ({ ts: c.ts, close: c.close }));
+    coinCandles4h[coin] = coin === 'BTC' ? btc4h : loadFilteredCandles(db, coin, '4h', fromTs, nowHour);
+    watchlistBy4h[coin] = coinCandles4h[coin].map((c) => ({ ts: c.ts, close: c.close }));
   }
   const regimeByTs = new Map(computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h }).map((r) => [r.ts, r.label]));
 
   const coinData = {};
   for (const coin of COINS) {
     coinData[coin] = buildCoinData({
-      candles4h: getCandles(db, coin, '4h', fromTs, nowHour),
-      candles1h: getCandles(db, coin, '1h', fromTs, nowHour + FOUR_H),
-      candlesDaily: getCandles(db, coin, '1d', 0, nowHour),
+      candles4h: coinCandles4h[coin],
+      candles1h: loadFilteredCandles(db, coin, '1h', fromTs, nowHour + FOUR_H),
+      candlesDaily: coin === 'BTC' ? btcDaily : loadFilteredCandles(db, coin, '1d', 0, nowHour),
     });
   }
 

@@ -90,4 +90,16 @@ function buildCandlesFromTrades(trades, rangeEndTs) {
   return result.sort((a, b) => a.ts - b.ts);
 }
 
-module.exports = { parseOhlcvtCsv, aggregateCandles, findGapHours, buildCandlesFromTrades };
+function filterOutlierCandles(candles, maxHighLowRatio = 10) {
+  let dropped = 0;
+  const filtered = candles.filter((c) => {
+    if (c.low <= 0 || c.high / c.low > maxHighLowRatio) {
+      dropped += 1;
+      return false;
+    }
+    return true;
+  });
+  return { candles: filtered, dropped };
+}
+
+module.exports = { parseOhlcvtCsv, aggregateCandles, findGapHours, buildCandlesFromTrades, filterOutlierCandles };
