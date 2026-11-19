@@ -64,3 +64,65 @@ test('getExistingTimes returns just the ts column in range, ascending', () => {
 
   assert.deepEqual(getExistingTimes(db, 'BTC', '1h', 0, 4000), [1000, 3000]);
 });
+
+const { insertTrade, getTrades, saveSchedulerState, loadSchedulerState, insertCycleLog, getCycleLog } = require('../src/data/db');
+
+test('insertTrade/getTrades round-trips a closed trade, filtered by mode', () => {
+  const db = openDb(':memory:');
+  insertTrade(db, {
+    mode: 'paper', coin: 'BTC', setup: 'trend_pullback', entryTs: 1000, exitTs: 2000,
+    entryPrice: 100, exitPrice: 105, units: 1, riskAmount: 10, pnl: 5, r: 0.5, exitReason: 'stop',
+  });
+  insertTrade(db, {
+    mode: 'live', coin: 'ETH', setup: 'range_reversion', entryTs: 1500, exitTs: 2500,
+    entryPrice: 50, exitPrice: 48, units: 2, riskAmount: 8, pnl: -4, r: -0.5, exitReason: 'target',
+  });
+
+  const paperTrades = getTrades(db, 'paper');
+
+  assert.equal(paperTrades.length, 1);
+  assert.equal(paperTrades[0].coin, 'BTC');
+  assert.equal(paperTrades[0].r, 0.5);
+});
+
+test('getTrades orders by exitTs ascending', () => {
+  const db = openDb(':memory:');
+  insertTrade(db, { mode: 'paper', coin: 'BTC', setup: 'trend_pullback', entryTs: 1, exitTs: 300, entryPrice: 1, exitPrice: 1, units: 1, riskAmount: 1, pnl: 0, r: 0, exitReason: 'stop' });
+  insertTrade(db, { mode: 'paper', coin: 'BTC', setup: 'trend_pullback', entryTs: 1, exitTs: 100, entryPrice: 1, exitPrice: 1, units: 1, riskAmount: 1, pnl: 0, r: 0, exitReason: 'stop' });
+
+  assert.deepEqual(getTrades(db, 'paper').map((t) => t.exitTs), [100, 300]);
+});
+
+test('saveSchedulerState/loadSchedulerState round-trips the full state shape, per mode', () => {
+  const db = openDb(':memory:');
+  const state = {
+    balance: 987.65, dailyPnl: -12.3, currentDay: 20261, weeklyPeakBalance: 1000,
+    killSwitchActive: false, openPositions: [{ coin: 'BTC', entryPrice: 100 }], cooldowns: { ETH: 123456 },
+  };
+
+  saveSchedulerState(db, 'paper', state);
+
+  assert.deepEqual(loadSchedulerState(db, 'paper'), state);
+  assert.equal(loadSchedulerState(db, 'live'), null); // different mode, never saved
+});
+
+test('saveSchedulerState overwrites the previous state for the same mode', () => {
+  const db = openDb(':memory:');
+  saveSchedulerState(db, 'paper', { balance: 1000 });
+  saveSchedulerState(db, 'paper', { balance: 950 });
+
+  assert.deepEqual(loadSchedulerState(db, 'paper'), { balance: 950 });
+});
+
+test('insertCycleLog/getCycleLog round-trips and orders by ts descending', () => {
+  const db = openDb(':memory:');
+  insertCycleLog(db, { ts: 100, mode: 'paper', regimeLabel: 'range', candidatesCount: 2, openedCount: 1, closedCount: 0, durationMs: 50 });
+  insertCycleLog(db, { ts: 200, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 0, openedCount: 0, closedCount: 1, durationMs: 40 });
+
+  const rows = getCycleLog(db, 'paper', 10);
+
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((r) => r.ts), [200, 100]);
+  assert.equal(rows[0].regime_label, 'trend_up');
+  assert.equal(rows[0].error, null);
+});
