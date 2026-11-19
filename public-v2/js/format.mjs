@@ -15,3 +15,13 @@ export function classifyRow({ error, candidatesCount, openedCount, closedCount }
   if (openedCount > 0 || closedCount > 0) return 'activity';
   return 'quiet';
 }
+
+export function formatOutcome(candidate) {
+  if (candidate.trade) {
+    return `Real trade: ${formatR(candidate.trade.r)} (${candidate.trade.exitReason}).`;
+  }
+  if (candidate.shadowStatus === 'open') {
+    return 'Shadow (what the default would have done) is still open, pending.';
+  }
+  return `Shadow outcome (not actually taken): ${formatR(candidate.shadowR)} (${candidate.shadowExitReason}).`;
+}

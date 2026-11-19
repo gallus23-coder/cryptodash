@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -32,4 +32,21 @@ test('classifyRow marks a cycle with opened/closed positions as "activity"', () 
 
 test('classifyRow marks a quiet cycle (no error, nothing opened or closed) as "quiet"', () => {
   assert.equal(classifyRow({ error: null, candidatesCount: 0, openedCount: 0, closedCount: 0 }), 'quiet');
+});
+
+test('formatOutcome shows the real trade R when a trade was taken', () => {
+  const candidate = { trade: { r: 0.72, exitReason: 'target' }, shadowStatus: 'resolved', shadowR: 1.0 };
+  assert.match(formatOutcome(candidate), /\+0\.72R/);
+  assert.match(formatOutcome(candidate), /target/);
+});
+
+test('formatOutcome shows the shadow R when the candidate was skipped (no real trade)', () => {
+  const candidate = { trade: null, shadowStatus: 'resolved', shadowR: 1.0, shadowExitReason: 'target' };
+  assert.match(formatOutcome(candidate), /shadow/i);
+  assert.match(formatOutcome(candidate), /\+1\.00R/);
+});
+
+test('formatOutcome says the shadow is still open when shadowStatus is "open"', () => {
+  const candidate = { trade: null, shadowStatus: 'open' };
+  assert.match(formatOutcome(candidate), /still open|pending/i);
 });
