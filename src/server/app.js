@@ -28,6 +28,23 @@ function createApp(db, { password } = {}) {
     res.json(rows);
   });
 
+  const { getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId } = require('../data/db');
+
+  app.get('/api/decisions/:cycleId', (req, res) => {
+    const ts = Number(req.params.cycleId);
+    const mode = req.query.mode || 'paper';
+    const cycle = getCycleLogByTs(db, mode, ts);
+    if (!cycle) return res.status(404).json({ error: 'no cycle at that ts' });
+
+    const candidates = getCandidatesByTs(db, mode, ts).map((candidate) => ({
+      ...candidate,
+      decision: getDecisionByCandidateId(db, candidate.id),
+      trade: getTradeByCandidateId(db, candidate.id),
+    }));
+
+    res.json({ cycle, candidates });
+  });
+
   return app;
 }
 

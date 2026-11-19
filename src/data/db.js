@@ -156,6 +156,37 @@ function getDecisionsFiltered(db, { mode = 'paper', from, to, coin, setup, diver
   `).all(params).map((row) => ({ ...row, diverged: !!row.diverged }));
 }
 
+function getCycleLogByTs(db, mode, ts) {
+  return db.prepare(`
+    SELECT ts, mode, regime_label AS regimeLabel, candidates_count AS candidatesCount,
+      opened_count AS openedCount, closed_count AS closedCount, duration_ms AS durationMs, error
+    FROM cycle_log WHERE mode = ? AND ts = ?
+  `).get(mode, ts) || null;
+}
+
+function getCandidatesByTs(db, mode, ts) {
+  return db.prepare('SELECT * FROM candidates WHERE mode = ? AND ts = ?').all(mode, ts).map(rowToCandidate);
+}
+
+function getTradeByCandidateId(db, candidateId) {
+  const row = db.prepare(`
+    SELECT id, mode, coin, setup, entry_ts AS entryTs, exit_ts AS exitTs,
+      entry_price AS entryPrice, exit_price AS exitPrice, units, risk_amount AS riskAmount,
+      pnl, r, exit_reason AS exitReason, candidate_id AS candidateId
+    FROM trades WHERE candidate_id = ?
+  `).get(candidateId);
+  return row || null;
+}
+
+function getDecisionByCandidateId(db, candidateId) {
+  const row = db.prepare(`
+    SELECT candidate_id AS candidateId, ts, mode, action, size, stop_atr AS stopAtr, trail_atr AS trailAtr,
+      reason, plain_reason AS plainReason, default_action AS defaultAction, diverged, model, latency_ms AS latencyMs
+    FROM decisions WHERE candidate_id = ?
+  `).get(candidateId);
+  return row ? { ...row, diverged: !!row.diverged } : null;
+}
+
 function saveSchedulerState(db, mode, state) {
   db.prepare(`
     INSERT INTO scheduler_state (mode, state_json, updated_ts) VALUES (@mode, @stateJson, @updatedTs)
@@ -219,5 +250,5 @@ module.exports = {
   openDb, upsertCandles, getCandles, getLastCandleTime, getExistingTimes, DEFAULT_DB_PATH,
   insertTrade, getTrades, saveSchedulerState, loadSchedulerState, insertCycleLog, getCycleLog,
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
-  getDecisionsFiltered,
+  getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
 };

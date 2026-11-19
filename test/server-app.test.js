@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { openDb, insertCandidate, insertDecision } = require('../src/data/db');
+const { openDb, insertCandidate, insertDecision, insertCycleLog, insertTrade } = require('../src/data/db');
 const { createApp } = require('../src/server/app');
 
 function seedCandidate(db, overrides = {}) {
@@ -131,6 +131,54 @@ test('GET /api/decisions?coin=&setup= filters correctly', async () => {
     const body = await res.json();
     assert.equal(body.length, 1);
     assert.equal(body[0].coin, 'BTC');
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/decisions/:cycleId returns the cycle_log row plus its candidates, decisions, and linked trades', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1700000000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 1, closedCount: 0, durationMs: 500 });
+    seedCandidate(db);
+    seedDecision(db);
+    insertTrade(db, {
+      mode: 'paper', coin: 'SOL', setup: 'trend_pullback', entryTs: 1700000000, exitTs: 1700050000,
+      entryPrice: 98.40, exitPrice: 102.0, units: 1, riskAmount: 5, pnl: 3.6, r: 0.72, exitReason: 'target',
+      candidateId: 'c_20261118_10_SOL_trend_pullback',
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/decisions/1700000000`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.cycle.regimeLabel, 'trend_up');
+    assert.equal(body.candidates.length, 1);
+    assert.equal(body.candidates[0].decision.action, 'take');
+    assert.equal(body.candidates[0].trade.r, 0.72);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/decisions/:cycleId for a cycle with zero candidates returns an empty array, not an error', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1700003600, mode: 'paper', regimeLabel: 'risk_off', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 200 });
+    const res = await fetch(`http://127.0.0.1:${port}/api/decisions/1700003600`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.cycle.regimeLabel, 'risk_off');
+    assert.deepEqual(body.candidates, []);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/decisions/:cycleId for a ts with no cycle_log row at all returns 404', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/decisions/9999999999`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 404);
   } finally {
     server.close();
   }
