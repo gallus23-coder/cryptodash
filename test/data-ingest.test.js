@@ -54,3 +54,31 @@ test('ingestCoin drops an outlier candle before storing it', async () => {
   assert.equal(result.inserted, 1);
   assert.equal(result.dropped, 1);
 });
+
+test('ingestCoin does not corrupt an already-correct trailing-edge daily candle when the rebuild window is not day-aligned', async () => {
+  const db = openDb(':memory:');
+  const DAY = 86400;
+  // Days 0 and 1, every hour volume=1 — a correctly-built day1 1d candle has volume=24.
+  const rows = Array.from({ length: 48 }, (_, i) => ({
+    coin: 'BTC', timeframe: '1h', ts: i * 3600, open: 100, high: 100, low: 100, close: 100, volume: 1, trades: 1,
+  }));
+  upsertCandles(db, rows);
+  // Pretend a previous ingestCoin run already correctly built day1's 1d candle.
+  upsertCandles(db, [{ coin: 'BTC', timeframe: '1d', ts: DAY, open: 100, high: 100, low: 100, close: 100, volume: 24, trades: 24 }]);
+
+  const fakeClient = {
+    getOhlc: async () => ({
+      candles: [{ time: 15 * DAY, open: 100, high: 100, low: 100, close: 100, volume: 1, count: 1, closed: false }],
+      last: 0,
+    }),
+  };
+
+  // now = 1 hour into day15. The real 14-day rebuild window reaches back to
+  // nowHour - 14*DAY = 1 hour into day1 — not day-aligned, so a naive window
+  // would exclude day1's very first hour from the rebuild.
+  const now = (15 * DAY + 3600) * 1000;
+  await ingestCoin(db, fakeClient, 'BTC', 'XBTGBP', now);
+
+  const day1Candle = getCandles(db, 'BTC', '1d', DAY, DAY)[0];
+  assert.equal(day1Candle.volume, 24); // must still be the full day, not truncated to 23
+});

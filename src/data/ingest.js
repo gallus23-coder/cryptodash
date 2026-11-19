@@ -14,7 +14,10 @@ async function ingestCoin(db, krakenClient, coin, altname, now = Date.now()) {
   const inserted = upsertCandles(db, clean.map((c) => ({ coin, timeframe: '1h', ...c })));
 
   const nowHour = Math.floor(now / 1000 / HOUR) * HOUR;
-  const rebuildFrom = nowHour - REBUILD_WINDOW_SECONDS;
+  // Snap down to a day boundary — otherwise the oldest bucket in the window gets
+  // rebuilt from a truncated set of hourly children and overwrites an
+  // already-correct stored candle with a short one.
+  const rebuildFrom = Math.floor((nowHour - REBUILD_WINDOW_SECONDS) / DAY) * DAY;
   const hourly = getCandles(db, coin, '1h', rebuildFrom, nowHour);
 
   const fourHourRows = aggregateCandles(hourly, FOUR_H, { nowTs: nowHour }).filter((c) => c.closed);
