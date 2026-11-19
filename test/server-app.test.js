@@ -263,3 +263,17 @@ test('GET /api/scorecard compares real R (for a taken, diverged decision) agains
     server.close();
   }
 });
+
+test('GET /api/cycles returns cycle_log rows with a plain-English one-liner', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1700000000, mode: 'paper', regimeLabel: 'risk_off', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 100 });
+    const res = await fetch(`http://127.0.0.1:${port}/api/cycles`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.length, 1);
+    assert.ok(body[0].oneLiner);
+  } finally {
+    server.close();
+  }
+});

@@ -199,6 +199,28 @@ function getScorecardData(db, mode, sinceTs) {
   `).all(mode, sinceTs).map((row) => ({ ...row, diverged: !!row.diverged }));
 }
 
+function buildCycleOneLiner({ regimeLabel, candidatesCount, openedCount, closedCount, error }) {
+  if (error) return `Problem this hour: ${error}`;
+  if (closedCount > 0) return `Closed ${closedCount} position${closedCount === 1 ? '' : 's'} (${regimeLabel}).`;
+  if (openedCount > 0) return `Opened ${openedCount} position${openedCount === 1 ? '' : 's'} (${regimeLabel}).`;
+  if (candidatesCount > 0) return `${candidatesCount} candidate${candidatesCount === 1 ? '' : 's'} found, none taken (${regimeLabel}).`;
+  return `No candidates this hour (${regimeLabel}).`;
+}
+
+function getCycleLogFiltered(db, { mode = 'paper', from, to, regime, limit = 100 } = {}) {
+  const clauses = ['mode = @mode'];
+  const params = { mode, limit };
+  if (from !== undefined) { clauses.push('ts >= @from'); params.from = from; }
+  if (to !== undefined) { clauses.push('ts <= @to'); params.to = to; }
+  if (regime !== undefined) { clauses.push('regime_label = @regime'); params.regime = regime; }
+
+  return db.prepare(`
+    SELECT ts, mode, regime_label AS regimeLabel, candidates_count AS candidatesCount,
+      opened_count AS openedCount, closed_count AS closedCount, duration_ms AS durationMs, error
+    FROM cycle_log WHERE ${clauses.join(' AND ')} ORDER BY ts DESC LIMIT @limit
+  `).all(params).map((row) => ({ ...row, oneLiner: buildCycleOneLiner(row) }));
+}
+
 function saveSchedulerState(db, mode, state) {
   db.prepare(`
     INSERT INTO scheduler_state (mode, state_json, updated_ts) VALUES (@mode, @stateJson, @updatedTs)
@@ -263,5 +285,5 @@ module.exports = {
   insertTrade, getTrades, saveSchedulerState, loadSchedulerState, insertCycleLog, getCycleLog,
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
   getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
-  getScorecardData,
+  getScorecardData, buildCycleOneLiner, getCycleLogFiltered,
 };
