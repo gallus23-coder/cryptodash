@@ -22,6 +22,11 @@
   #expand { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 14px; margin-top: 10px; display: none; }
   .candidate-block { border-top: 1px solid var(--border); padding: 10px 0; }
   .plain-panel { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25); border-radius: 6px; padding: 8px 10px; margin-top: 6px; }
+  .panel { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+  .panel table { width: 100%; border-collapse: collapse; }
+  .panel td, .panel th { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+  .guardrail-bar-track { background: var(--border); border-radius: 4px; height: 8px; overflow: hidden; margin-top: 4px; }
+  .guardrail-bar-fill { background: var(--accent); height: 100%; }
 </style>
 </head>
 <body>
@@ -67,9 +72,18 @@
     <div id="regime-band" style="height: 20px;"></div>
     <div id="indicator-panel" style="height: 150px;"></div>
   </section>
+
+  <section id="strategy-tab">
+    <div id="regime-card" class="panel">Loading regime…</div>
+    <div id="market-note" class="panel">Loading market note…</div>
+    <div id="setups-table" class="panel">Loading setups…</div>
+    <div id="open-positions" class="panel">Loading positions…</div>
+    <div id="guardrails-panel" class="panel">Loading guardrails…</div>
+  </section>
 </main>
 <script type="module" src="/js/scorecard.mjs"></script>
 <script type="module" src="/js/timeline.mjs"></script>
 <script type="module" src="/js/chart.mjs"></script>
+<script type="module" src="/js/strategy.mjs"></script>
 </body>
 </html>
