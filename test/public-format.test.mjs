@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -58,4 +58,43 @@ test('escapeHtml neutralizes HTML special characters so a Claude-authored reason
 
 test('escapeHtml passes plain text through unchanged', () => {
   assert.equal(escapeHtml('Setup valid, breadth falling, half size.'), 'Setup valid, breadth falling, half size.');
+});
+
+test('computeTrailStopLevel mirrors evaluateExit: ratchets up with the highest high, never below the initial stop', () => {
+  const position = { initialStopPrice: 58000, atrAtEntry: 800, trailAtr: 2.5 };
+  const candles = [{ high: 61000 }, { high: 62000 }, { high: 60500 }]; // peak 62000, then pulls back
+  const level = computeTrailStopLevel(position, candles);
+  assert.equal(level, 62000 - 2.5 * 800); // ratchets to the peak's trail level, doesn't fall back with price
+});
+
+test('computeTrailStopLevel never goes below the initial stop even with no favorable movement', () => {
+  const position = { initialStopPrice: 58000, atrAtEntry: 800, trailAtr: 2.5 };
+  const level = computeTrailStopLevel(position, []); // no candles since entry yet
+  assert.equal(level, 58000);
+});
+
+test('buildTradeMarker shows an up arrow for an entry-shaped point and a result-colored down arrow for an exit', () => {
+  const trade = { entryTs: 1000, exitTs: 2000, r: 0.72, exitReason: 'target' };
+  const markers = buildTradeMarker(trade);
+  assert.equal(markers.length, 2);
+  assert.equal(markers[0].time, 1000);
+  assert.equal(markers[0].position, 'belowBar');
+  assert.equal(markers[1].time, 2000);
+  assert.equal(markers[1].color, '#22c55e'); // positive R -> green
+});
+
+test('buildTradeMarker colors a losing exit red', () => {
+  const markers = buildTradeMarker({ entryTs: 1000, exitTs: 2000, r: -0.5, exitReason: 'stop' });
+  assert.equal(markers[1].color, '#ef4444');
+});
+
+test('buildCandidateMarker labels whether Claude took it, skipped it, or a fallback left it undecided', () => {
+  const taken = buildCandidateMarker({ ts: 1000, setup: 'trend_pullback', decision: { action: 'take', model: 'claude-sonnet-5' } });
+  assert.match(taken.text, /took|take/i);
+
+  const skipped = buildCandidateMarker({ ts: 1000, setup: 'trend_pullback', decision: { action: 'skip', model: 'claude-sonnet-5' } });
+  assert.match(skipped.text, /skip/i);
+
+  const fallback = buildCandidateMarker({ ts: 1000, setup: 'trend_pullback', decision: { action: 'skip', model: 'fallback' } });
+  assert.match(fallback.text, /fallback/i);
 });

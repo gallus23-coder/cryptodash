@@ -34,3 +34,27 @@ export function formatOutcome(candidate) {
   }
   return `Shadow outcome (not actually taken): ${formatR(candidate.shadowR)} (${candidate.shadowExitReason}).`;
 }
+
+export function computeTrailStopLevel(position, candlesSinceEntry) {
+  const highestHigh = candlesSinceEntry.reduce((max, c) => Math.max(max, c.high), -Infinity);
+  if (highestHigh === -Infinity) return position.initialStopPrice;
+  return Math.max(position.initialStopPrice, highestHigh - position.trailAtr * position.atrAtEntry);
+}
+
+export function buildTradeMarker(trade) {
+  const color = trade.r >= 0 ? '#22c55e' : '#ef4444';
+  return [
+    { time: trade.entryTs, position: 'belowBar', shape: 'arrowUp', color: '#8b92a5', text: 'entry' },
+    { time: trade.exitTs, position: 'aboveBar', shape: 'arrowDown', color, text: `${trade.exitReason} ${formatR(trade.r)}` },
+  ];
+}
+
+export function buildCandidateMarker(candidate) {
+  const { decision } = candidate;
+  let text;
+  if (!decision) text = `${candidate.setup}: no decision recorded`;
+  else if (decision.model === 'fallback') text = `${candidate.setup}: fallback (Claude call failed)`;
+  else if (decision.action === 'take') text = `${candidate.setup}: Claude took it`;
+  else text = `${candidate.setup}: Claude skipped it`;
+  return { time: candidate.ts, position: 'inBar', shape: 'circle', color: '#8b92a5', size: 0.5, text };
+}

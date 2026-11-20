@@ -1,5 +1,6 @@
 import { fetchJson } from './api.mjs';
 import { createChart, CandlestickSeries, LineSeries } from '/vendor/lightweight-charts.standalone.production.mjs';
+import { renderMarkersAndPositions } from './positions.mjs';
 
 let chart;
 let candleSeries;
@@ -56,11 +57,15 @@ export async function renderIndicatorOverlays() {
   }
 }
 
-['toggle-ema20', 'toggle-ema50', 'toggle-ema200', 'toggle-bollinger', 'coin-select', 'tf-select'].forEach((id) => {
+['toggle-ema20', 'toggle-ema50', 'toggle-ema200', 'toggle-bollinger'].forEach((id) => {
   document.getElementById(id).addEventListener('change', renderIndicatorOverlays);
 });
 
-document.getElementById('coin-select').addEventListener('change', renderChart);
-document.getElementById('tf-select').addEventListener('change', renderChart);
-renderChart();
-renderIndicatorOverlays();
+async function renderAll() {
+  await renderChart();
+  await renderIndicatorOverlays();
+  await renderMarkersAndPositions(chart, candleSeries, getCoin());
+}
+
+['coin-select', 'tf-select'].forEach((id) => document.getElementById(id).addEventListener('change', renderAll));
+renderAll();
