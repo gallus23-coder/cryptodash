@@ -19,13 +19,13 @@ function freshState(startingBalance = 1000) {
   };
 }
 
-const { getCandles, loadSchedulerState, saveSchedulerState, insertTrade, insertCycleLog, insertCandidate, updateCandidateShadow, insertDecision, getTrades } = require('../data/db');
+const { getCandles, loadSchedulerState, saveSchedulerState, insertTrade, insertCycleLog, insertCandidate, updateCandidateShadow, insertDecision, getTrades, getActiveConfigVersion } = require('../data/db');
 const { ingestAllCoins } = require('../data/ingest');
 const { computeRegimeSeries } = require('../engine/regime');
 const { isDailyLossLimitHit, isKillSwitchTriggered } = require('../engine/risk');
 const { buildCoinData } = require('../backtest/run');
 const { SETUPS, SETUPS_BY_REGIME } = require('../engine/playbook');
-const { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS } = require('../engine/config');
+const { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS, resolveEffectiveConfig } = require('../engine/config');
 const { evaluateExit, tryOpenPosition, closePosition } = require('../broker/paper');
 const { buildCandidateId, attachContext } = require('../engine/candidates');
 const { openShadowPosition, resolveShadowPositions } = require('../broker/shadow');
@@ -51,6 +51,9 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
 
   try {
     await ingestAllCoins(db, krakenClient, COIN_ALTNAMES, now);
+
+    const activeVersion = getActiveConfigVersion(db, mode);
+    const { config: effectiveConfig, setupsByRegime: effectiveSetupsByRegime } = resolveEffectiveConfig(config, activeVersion.config, SETUPS_BY_REGIME);
 
     const btcDaily = getCandles(db, 'BTC', '1d', 0, nowHour);
     const btc4h = getCandles(db, 'BTC', '4h', 0, nowHour);
@@ -90,7 +93,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
       const candles1hSlice = data.candles1h.filter((c) => c.ts > position.entryTs && c.ts <= nowHour);
       const exit = evaluateExit(position, { candles1h: candles1hSlice, ema20By4hTs: data.ema20By4hTs });
       if (exit) {
-        closePosition(state, position, exit, config);
+        closePosition(state, position, exit, effectiveConfig);
         closedCount += 1;
       }
     }
@@ -105,9 +108,9 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
 
     state.weeklyPeakBalance = Math.max(state.weeklyPeakBalance, state.balance);
     const weeklyDrawdownPct = (state.weeklyPeakBalance - state.balance) / state.weeklyPeakBalance;
-    if (isKillSwitchTriggered(weeklyDrawdownPct, config)) state.killSwitchActive = true;
+    if (isKillSwitchTriggered(weeklyDrawdownPct, effectiveConfig)) state.killSwitchActive = true;
     const balanceAtDayStart = state.balance - state.dailyPnl;
-    const dailyLossHit = isDailyLossLimitHit(state.dailyPnl / balanceAtDayStart, config);
+    const dailyLossHit = isDailyLossLimitHit(state.dailyPnl / balanceAtDayStart, effectiveConfig);
 
     if (regimeLabel && isFourHourBoundary(nowHour) && !state.killSwitchActive && !dailyLossHit && regimeLabel !== 'risk_off') {
       const cycleCandidates = [];
@@ -116,7 +119,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
         const data = coinData[coin];
         const i = data.candles4h.findIndex((c) => c.ts === nowHour);
         if (i === -1) continue;
-        for (const setupName of SETUPS_BY_REGIME[regimeLabel] || []) {
+        for (const setupName of effectiveSetupsByRegime[regimeLabel] || []) {
           if (state.disabledSetups[setupName] === regimeLabel) continue; // setup disabled for the rest of this regime
           const candidate = SETUPS[setupName].evaluate(coin, data.candles4h, data.indicators, i, regimeLabel);
           if (!candidate) continue;
@@ -139,8 +142,8 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
       if (cycleCandidates.length > 0 || state.openPositions.length > 0) {
         const recentTrades = getTrades(db, mode).slice(-20);
         const guardrailHeadroom = {
-          openPositionsRemaining: config.maxOpenPositions - state.openPositions.length,
-          totalRiskPctRemaining: config.maxTotalRiskPct - state.openPositions.reduce((sum, p) => sum + p.riskPct, 0),
+          openPositionsRemaining: effectiveConfig.maxOpenPositions - state.openPositions.length,
+          totalRiskPctRemaining: effectiveConfig.maxTotalRiskPct - state.openPositions.reduce((sum, p) => sum + p.riskPct, 0),
         };
         const decisionInput = {
           regime: regimeLabel, regimeMetrics: {}, candidates: cycleCandidates,
@@ -153,7 +156,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
           guardrailHeadroom, setupNames: Object.keys(SETUPS),
         };
 
-        const result = await decide(decisionInput, config);
+        const result = await decide(decisionInput, effectiveConfig);
         decideResult = result;
         const decidedIds = new Set();
 
@@ -168,7 +171,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
             candidateId: candidate.id, ts: nowHour, mode, action: decision.action,
             size: decision.size ?? null, stopAtr: decision.stopAtr ?? null, trailAtr: decision.trailAtr ?? null,
             reason: decision.reason, plainReason: decision.plainReason, defaultAction: candidate.default.action,
-            diverged, model: config.claudeModel, latencyMs: 0, rawResponse: JSON.stringify(decision),
+            diverged, model: effectiveConfig.claudeModel, latencyMs: 0, rawResponse: JSON.stringify(decision),
           });
 
           if (decision.action === 'take') {
@@ -178,7 +181,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
             };
             const { data, i } = candidateContextById.get(candidate.id);
             const before = state.openPositions.length;
-            tryOpenPosition(state, adjustedCandidate, data, i, config);
+            tryOpenPosition(state, adjustedCandidate, data, i, effectiveConfig);
             if (state.openPositions.length > before) openedCount += 1;
           }
         }
@@ -191,7 +194,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
             reason: result.fallback ? (result.error || 'fallback') : 'not in decisions (unknown id or invalid action, dropped by parseDecisionResponse)',
             plainReason: result.fallback ? 'Sat out this hour after a problem talking to the decision model.' : 'Sat out.',
             defaultAction: candidate.default.action, diverged: false,
-            model: result.fallback ? 'fallback' : config.claudeModel, latencyMs: 0, rawResponse: JSON.stringify(result),
+            model: result.fallback ? 'fallback' : effectiveConfig.claudeModel, latencyMs: 0, rawResponse: JSON.stringify(result),
           });
         }
 
@@ -201,7 +204,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
           if (action.action === 'close') {
             const closingBar = coinData[position.coin].candles4h.find((c) => c.ts === nowHour);
             if (!closingBar) continue; // no 4h candle at this exact ts for this coin — skip rather than crash on undefined.close
-            closePosition(state, position, { exitTs: nowHour, exitPrice: closingBar.close, reason: 'claude_close' }, config);
+            closePosition(state, position, { exitTs: nowHour, exitPrice: closingBar.close, reason: 'claude_close' }, effectiveConfig);
             closedCount += 1;
           } else if (action.action === 'tighten_stop') {
             position.initialStopPrice = Math.max(position.initialStopPrice, action.newStopPrice);
@@ -222,7 +225,10 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
       plainNote: decideResult && !decideResult.fallback ? decideResult.plainNote : null,
     });
 
-    return { regimeLabel, candidatesCount, openedCount, closedCount };
+    return {
+      regimeLabel, candidatesCount, openedCount, closedCount,
+      appliedConfig: { riskLevel: activeVersion.config.riskLevel, disabledSetups: activeVersion.config.disabledSetups },
+    };
   } catch (err) {
     insertCycleLog(db, {
       ts: nowHour, mode, regimeLabel, candidatesCount, openedCount, closedCount,
