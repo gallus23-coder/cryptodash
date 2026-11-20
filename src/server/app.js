@@ -212,6 +212,56 @@ function createApp(db, { password } = {}) {
     });
   });
 
+  const { applyRiskLevel } = require('../engine/config');
+  const { runBacktest } = require('../backtest/run');
+  const { computeExpectancy } = require('../backtest/stats');
+  const { SETUPS_BY_REGIME } = require('../engine/playbook');
+
+  function validateDraft(body) {
+    const { riskLevel, disabledSetups, rangeOverrides } = body || {};
+    if (!['cautious', 'normal', 'bold'].includes(riskLevel)) return { error: `invalid riskLevel: ${riskLevel}` };
+    const validSetupNames = Object.keys(SETUPS);
+    for (const name of disabledSetups || []) {
+      if (!validSetupNames.includes(name)) return { error: `unknown setup in disabledSetups: ${name}` };
+    }
+    return { draft: { riskLevel, disabledSetups: disabledSetups || [], rangeOverrides: rangeOverrides || {} } };
+  }
+
+  app.post('/api/config/draft', (req, res) => {
+    const { error, draft } = validateDraft(req.body);
+    if (error) return res.status(400).json({ error });
+    res.json(draft);
+  });
+
+  app.post('/api/config/draft/backtest', (req, res) => {
+    const { error, draft } = validateDraft(req.body);
+    if (error) return res.status(400).json({ error });
+
+    const scaledConfig = applyRiskLevel(DEFAULT_RISK_CONFIG, draft.riskLevel);
+    const setupsByRegimeForDraft = Object.fromEntries(
+      Object.entries(SETUPS_BY_REGIME).map(([regime, names]) => [regime, names.filter((n) => !draft.disabledSetups.includes(n))])
+    );
+
+    const nowTs = Math.floor(Date.now() / 1000);
+    const result = runBacktest(db, scaledConfig, nowTs - 90 * 86400, setupsByRegimeForDraft);
+
+    const bySetupTrades = {};
+    for (const trade of result.state.closedTrades) {
+      (bySetupTrades[trade.setup] = bySetupTrades[trade.setup] || []).push(trade);
+    }
+    const bySetup = Object.fromEntries(Object.entries(bySetupTrades).map(([name, trades]) => [name, computeExpectancy(trades)]));
+
+    res.json({
+      draft,
+      backtestSummary: {
+        totalTrades: result.state.closedTrades.length,
+        finalBalance: result.state.balance,
+        bySetup,
+      },
+      note: 'rangeOverrides do not affect this backtest — the backtest is deterministic and never calls Claude, so Claude\'s adjustment ranges have nothing to act on here. Only riskLevel and disabledSetups change this result.',
+    });
+  });
+
   return app;
 }
 

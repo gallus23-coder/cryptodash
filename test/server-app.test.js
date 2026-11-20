@@ -554,3 +554,49 @@ test('GET /api/strategy includes the latest market note when one exists, null ot
     server.close();
   }
 });
+
+test('POST /api/config/draft validates and echoes back a well-formed draft', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config/draft`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ riskLevel: 'cautious', disabledSetups: ['trend_breakout'], rangeOverrides: {} }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.riskLevel, 'cautious');
+    assert.deepEqual(body.disabledSetups, ['trend_breakout']);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/config/draft rejects an unknown setup name in disabledSetups with 400', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config/draft`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ riskLevel: 'normal', disabledSetups: ['not_a_real_setup'], rangeOverrides: {} }),
+    });
+    assert.equal(res.status, 400);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/config/draft/backtest returns a well-shaped summary even against an empty database', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config/draft/backtest`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ riskLevel: 'normal', disabledSetups: ['trend_pullback'], rangeOverrides: {} }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.backtestSummary.totalTrades, 0); // no candles seeded — no history to trade on
+    assert.deepEqual(body.backtestSummary.bySetup, {});
+    assert.match(body.note, /range/i);
+  } finally {
+    server.close();
+  }
+});

@@ -57,7 +57,7 @@ function loadFilteredCandles(db, coin, timeframe, fromTs, toTs) {
   return candles;
 }
 
-function runBacktest(db, config = DEFAULT_RISK_CONFIG, fromTs = 0) {
+function runBacktest(db, config = DEFAULT_RISK_CONFIG, fromTs = 0, setupsByRegime = SETUPS_BY_REGIME) {
   const nowHour = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
 
   const btcDaily = loadFilteredCandles(db, 'BTC', '1d', 0, nowHour);
@@ -114,7 +114,7 @@ function runBacktest(db, config = DEFAULT_RISK_CONFIG, fromTs = 0) {
         const data = coinData[coin];
         const i = data.candles4h.findIndex((c) => c.ts === ts);
         if (i === -1) continue;
-        for (const setupName of SETUPS_BY_REGIME[regimeLabel] || []) {
+        for (const setupName of setupsByRegime[regimeLabel] || []) {
           const candidate = SETUPS[setupName].evaluate(coin, data.candles4h, data.indicators, i, regimeLabel);
           if (candidate) tryOpenPosition(state, candidate, data, i, config);
         }
