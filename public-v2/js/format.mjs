@@ -58,3 +58,18 @@ export function buildCandidateMarker(candidate) {
   else text = `${candidate.setup}: Claude skipped it`;
   return { time: candidate.ts, position: 'inBar', shape: 'circle', color: '#8b92a5', size: 0.5, text };
 }
+
+export const REGIME_COLORS = { trend_up: '#22c55e', range: '#d97706', downtrend: '#ef4444', risk_off: '#6b7280' };
+
+export function buildRegimeSegments(historyRows) {
+  const segments = [];
+  for (const row of historyRows) {
+    const last = segments[segments.length - 1];
+    if (last && last.label === row.label) {
+      last.toTs = row.ts;
+    } else {
+      segments.push({ fromTs: row.ts, toTs: row.ts, label: row.label });
+    }
+  }
+  return segments;
+}

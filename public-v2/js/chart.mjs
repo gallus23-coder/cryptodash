@@ -1,6 +1,7 @@
 import { fetchJson } from './api.mjs';
 import { createChart, CandlestickSeries, LineSeries } from '/vendor/lightweight-charts.standalone.production.mjs';
 import { renderMarkersAndPositions } from './positions.mjs';
+import { renderIndicatorPanel } from './regime-band.mjs';
 
 let chart;
 let candleSeries;
@@ -65,6 +66,7 @@ async function renderAll() {
   await renderChart();
   await renderIndicatorOverlays();
   await renderMarkersAndPositions(chart, candleSeries, getCoin());
+  await renderIndicatorPanel(getCoin(), getTf());
 }
 
 ['coin-select', 'tf-select'].forEach((id) => document.getElementById(id).addEventListener('change', renderAll));

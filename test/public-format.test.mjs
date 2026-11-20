@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -97,4 +97,27 @@ test('buildCandidateMarker labels whether Claude took it, skipped it, or a fallb
 
   const fallback = buildCandidateMarker({ ts: 1000, setup: 'trend_pullback', decision: { action: 'skip', model: 'fallback' } });
   assert.match(fallback.text, /fallback/i);
+});
+
+test('buildRegimeSegments collapses consecutive same-label rows into one segment', () => {
+  const rows = [
+    { ts: 1000, label: 'risk_off' }, { ts: 2000, label: 'risk_off' },
+    { ts: 3000, label: 'trend_up' },
+    { ts: 4000, label: 'risk_off' },
+  ];
+  const segments = buildRegimeSegments(rows);
+  assert.equal(segments.length, 3);
+  assert.equal(segments[0].label, 'risk_off');
+  assert.equal(segments[0].fromTs, 1000);
+  assert.equal(segments[0].toTs, 2000);
+  assert.equal(segments[1].label, 'trend_up');
+  assert.equal(segments[2].label, 'risk_off');
+});
+
+test('REGIME_COLORS has a distinct, defined color for every regime label including risk_off', () => {
+  for (const label of ['trend_up', 'range', 'downtrend', 'risk_off']) {
+    assert.ok(REGIME_COLORS[label], `missing color for ${label}`);
+  }
+  const colors = Object.values(REGIME_COLORS);
+  assert.equal(new Set(colors).size, colors.length); // all distinct
 });
