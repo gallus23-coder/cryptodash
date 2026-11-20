@@ -164,6 +164,14 @@ function createApp(db, { password } = {}) {
     });
   });
 
+  const { loadSchedulerState } = require('../data/db');
+
+  app.get('/api/positions', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const state = loadSchedulerState(db, mode);
+    res.json(state ? state.openPositions : []);
+  });
+
   return app;
 }
 

@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { openDb, insertCandidate, insertDecision, insertCycleLog, insertTrade, updateCandidateShadow: updateCandidateShadowForTest, upsertCandles } = require('../src/data/db');
+const { openDb, insertCandidate, insertDecision, insertCycleLog, insertTrade, updateCandidateShadow: updateCandidateShadowForTest, upsertCandles, saveSchedulerState } = require('../src/data/db');
 const { createApp } = require('../src/server/app');
 
 function seedCandidate(db, overrides = {}) {
@@ -414,6 +414,37 @@ test('GET /api/indicators/:coin rejects an unsupported timeframe with 400', asyn
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/indicators/BTC?tf=5m`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
     assert.equal(res.status, 400);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/positions returns the openPositions array from scheduler_state for the given mode', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    saveSchedulerState(db, 'paper', {
+      balance: 1000, dailyPnl: 0, currentDay: null, weeklyPeakBalance: 1000, killSwitchActive: false,
+      openPositions: [{ coin: 'BTC', setup: 'trend_pullback', entryPrice: 61000, initialStopPrice: 59000, atrAtEntry: 800, trailAtr: 2.5, exitType: 'trailing_stop', entryTs: 1700000000 }],
+      cooldowns: {}, closedTrades: [], shadowPositions: [], disabledSetups: {}, lastRegimeLabel: 'trend_up',
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/positions`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.length, 1);
+    assert.equal(body[0].coin, 'BTC');
+    assert.equal(body[0].initialStopPrice, 59000);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/positions returns an empty array when no scheduler_state has been saved yet', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/positions`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), []);
   } finally {
     server.close();
   }
