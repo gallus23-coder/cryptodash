@@ -61,16 +61,28 @@ test('escapeHtml passes plain text through unchanged', () => {
 });
 
 test('computeTrailStopLevel mirrors evaluateExit: ratchets up with the highest high, never below the initial stop', () => {
-  const position = { initialStopPrice: 58000, atrAtEntry: 800, trailAtr: 2.5 };
+  const position = { entryPrice: 60000, initialStopPrice: 58000, atrAtEntry: 800, trailAtr: 2.5 };
   const candles = [{ high: 61000 }, { high: 62000 }, { high: 60500 }]; // peak 62000, then pulls back
   const level = computeTrailStopLevel(position, candles);
   assert.equal(level, 62000 - 2.5 * 800); // ratchets to the peak's trail level, doesn't fall back with price
 });
 
 test('computeTrailStopLevel never goes below the initial stop even with no favorable movement', () => {
-  const position = { initialStopPrice: 58000, atrAtEntry: 800, trailAtr: 2.5 };
+  const position = { entryPrice: 58500, initialStopPrice: 58000, atrAtEntry: 800, trailAtr: 2.5 };
   const level = computeTrailStopLevel(position, []); // no candles since entry yet
   assert.equal(level, 58000);
+});
+
+test('computeTrailStopLevel seeds the highest-high with entryPrice, matching evaluateExit exactly (not just candle highs)', () => {
+  // All post-entry candle highs are below entryPrice — evaluateExit's own highestHigh starts at
+  // entryPrice (src/broker/paper.js), so the trail level must be computed from entryPrice here too,
+  // not from -Infinity seeded only by candle highs. initialStopPrice is set to 0 so the floor
+  // (Math.max(initialStopPrice, ...)) can never mask the difference between the two seeds —
+  // a fixture where the floor binds either way would pass regardless of which seed is used.
+  const position = { entryPrice: 60000, initialStopPrice: 0, atrAtEntry: 800, trailAtr: 2.5 };
+  const candles = [{ high: 59000 }]; // below entryPrice
+  const level = computeTrailStopLevel(position, candles);
+  assert.equal(level, 60000 - 2.5 * 800); // trails off entryPrice (60000), not off the lower candle high (59000)
 });
 
 test('buildTradeMarker shows an up arrow for an entry-shaped point and a result-colored down arrow for an exit', () => {

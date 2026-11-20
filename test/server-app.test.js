@@ -345,6 +345,23 @@ test('GET /api/markers/:coin returns trades and candidates for that coin, scoped
   }
 });
 
+test('GET /api/markers/:coin attaches each candidate\'s decision, so the UI can distinguish take/skip/fallback', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    seedCandidate(db, { coin: 'SOL', ts: 1700000000 });
+    seedDecision(db, { action: 'take', model: 'claude-sonnet-5' });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/markers/SOL`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.candidates.length, 1);
+    assert.ok(body.candidates[0].decision, 'candidate is missing its decision field');
+    assert.equal(body.candidates[0].decision.action, 'take');
+    assert.equal(body.candidates[0].decision.model, 'claude-sonnet-5');
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/markers/:coin for a coin with no activity returns empty arrays, not an error', async () => {
   const { server, port } = await startTestServer('sekrit');
   try {

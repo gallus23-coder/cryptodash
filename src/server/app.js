@@ -111,9 +111,13 @@ function createApp(db, { password } = {}) {
     const mode = req.query.mode || 'paper';
     const fromTs = req.query.from !== undefined ? Number(req.query.from) : 0;
     const toTs = req.query.to !== undefined ? Number(req.query.to) : Math.floor(Date.now() / 1000);
+    const candidates = getCandidatesByCoin(db, mode, req.params.coin, fromTs, toTs).map((candidate) => ({
+      ...candidate,
+      decision: getDecisionByCandidateId(db, candidate.id, mode),
+    }));
     res.json({
       trades: getTradesByCoin(db, mode, req.params.coin, fromTs, toTs),
-      candidates: getCandidatesByCoin(db, mode, req.params.coin, fromTs, toTs),
+      candidates,
     });
   });
 

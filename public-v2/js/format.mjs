@@ -36,8 +36,10 @@ export function formatOutcome(candidate) {
 }
 
 export function computeTrailStopLevel(position, candlesSinceEntry) {
-  const highestHigh = candlesSinceEntry.reduce((max, c) => Math.max(max, c.high), -Infinity);
-  if (highestHigh === -Infinity) return position.initialStopPrice;
+  // Seeded with entryPrice, matching evaluateExit's own highestHigh seed (src/broker/paper.js) —
+  // seeding at -Infinity would understate the trail level whenever every post-entry candle high
+  // stays below entryPrice, showing a lower stop on the chart than the position would actually use.
+  const highestHigh = candlesSinceEntry.reduce((max, c) => Math.max(max, c.high), position.entryPrice);
   return Math.max(position.initialStopPrice, highestHigh - position.trailAtr * position.atrAtEntry);
 }
 
