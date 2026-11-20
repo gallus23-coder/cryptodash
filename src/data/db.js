@@ -53,6 +53,12 @@ function openDb(dbPath = process.env.CRYPTODASH_DB_PATH || DEFAULT_DB_PATH) {
       reason TEXT, plain_reason TEXT, default_action TEXT NOT NULL, diverged INTEGER NOT NULL,
       model TEXT NOT NULL, latency_ms INTEGER NOT NULL, raw_response TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS config_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mode TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+      config_json TEXT NOT NULL, backtest_json TEXT,
+      created_ts INTEGER NOT NULL, decided_ts INTEGER
+    );
   `);
 
   const tradeColumns = db.prepare("PRAGMA table_info(trades)").all().map((c) => c.name);
@@ -258,6 +264,58 @@ function getSetupStats(db, mode, setupName, sinceTs) {
   return computeExpectancy(trades);
 }
 
+const DEFAULT_CONFIG_VERSION = { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {} };
+
+function rowToConfigVersion(row) {
+  if (!row) return null;
+  return {
+    id: row.id, mode: row.mode, status: row.status,
+    config: JSON.parse(row.config_json),
+    backtest: row.backtest_json ? JSON.parse(row.backtest_json) : null,
+    createdTs: row.created_ts, decidedTs: row.decided_ts,
+  };
+}
+
+function insertConfigVersion(db, { mode, configJson, backtestJson }) {
+  const result = db.prepare(`
+    INSERT INTO config_versions (mode, status, config_json, backtest_json, created_ts)
+    VALUES (@mode, 'pending', @configJson, @backtestJson, @createdTs)
+  `).run({
+    mode, configJson: JSON.stringify(configJson), backtestJson: JSON.stringify(backtestJson), createdTs: Date.now(),
+  });
+  return result.lastInsertRowid;
+}
+
+function getActiveConfigVersion(db, mode) {
+  const row = db.prepare("SELECT * FROM config_versions WHERE mode = ? AND status = 'active' ORDER BY decided_ts DESC LIMIT 1").get(mode);
+  if (row) return rowToConfigVersion(row);
+  return { id: null, mode, status: 'active', config: DEFAULT_CONFIG_VERSION, backtest: null, createdTs: null, decidedTs: null };
+}
+
+function getPendingConfigVersion(db, mode) {
+  const row = db.prepare("SELECT * FROM config_versions WHERE mode = ? AND status = 'pending' ORDER BY created_ts DESC LIMIT 1").get(mode);
+  return rowToConfigVersion(row);
+}
+
+function supersedePendingConfigVersions(db, mode) {
+  db.prepare("UPDATE config_versions SET status = 'superseded' WHERE mode = ? AND status = 'pending'").run(mode);
+}
+
+function approveConfigVersion(db, mode, id) {
+  const row = db.prepare('SELECT * FROM config_versions WHERE id = ? AND mode = ?').get(id, mode);
+  if (!row || row.status !== 'pending') throw new Error(`config version ${id} is not pending`);
+  db.transaction(() => {
+    db.prepare("UPDATE config_versions SET status = 'superseded' WHERE mode = ? AND status = 'active'").run(mode);
+    db.prepare("UPDATE config_versions SET status = 'active', decided_ts = ? WHERE id = ?").run(Date.now(), id);
+  })();
+}
+
+function rejectConfigVersion(db, mode, id) {
+  const row = db.prepare('SELECT * FROM config_versions WHERE id = ? AND mode = ?').get(id, mode);
+  if (!row || row.status !== 'pending') throw new Error(`config version ${id} is not pending`);
+  db.prepare("UPDATE config_versions SET status = 'rejected', decided_ts = ? WHERE id = ?").run(Date.now(), id);
+}
+
 function saveSchedulerState(db, mode, state) {
   db.prepare(`
     INSERT INTO scheduler_state (mode, state_json, updated_ts) VALUES (@mode, @stateJson, @updatedTs)
@@ -337,4 +395,6 @@ module.exports = {
   getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
   getScorecardData, buildCycleOneLiner, getCycleLogFiltered,
   getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote, getSetupStats,
+  insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
+  approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions,
 };
