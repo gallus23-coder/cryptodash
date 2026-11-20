@@ -262,6 +262,50 @@ function createApp(db, { password } = {}) {
     });
   });
 
+  const {
+    insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
+    approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions,
+  } = require('../data/db');
+
+  app.post('/api/config/draft/submit', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const { draft, backtestSummary } = req.body || {};
+    if (!draft) return res.status(400).json({ error: 'missing draft' });
+
+    supersedePendingConfigVersions(db, mode);
+    const id = insertConfigVersion(db, { mode, configJson: draft, backtestJson: backtestSummary });
+    res.json({ id });
+  });
+
+  app.get('/api/config/pending', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    res.json({ active: getActiveConfigVersion(db, mode), pending: getPendingConfigVersion(db, mode) });
+  });
+
+  app.post('/api/config/:id/approve', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const id = Number(req.params.id);
+    try {
+      approveConfigVersion(db, mode, id);
+      res.json({ ok: true });
+    } catch (err) {
+      const exists = db.prepare('SELECT 1 FROM config_versions WHERE id = ? AND mode = ?').get(id, mode);
+      res.status(exists ? 409 : 404).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/config/:id/reject', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const id = Number(req.params.id);
+    try {
+      rejectConfigVersion(db, mode, id);
+      res.json({ ok: true });
+    } catch (err) {
+      const exists = db.prepare('SELECT 1 FROM config_versions WHERE id = ? AND mode = ?').get(id, mode);
+      res.status(exists ? 409 : 404).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

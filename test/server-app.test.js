@@ -600,3 +600,88 @@ test('POST /api/config/draft/backtest returns a well-shaped summary even against
     server.close();
   }
 });
+
+test('POST /api/config/draft/submit creates a pending version, superseding any existing one', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const firstRes = await fetch(`http://127.0.0.1:${port}/api/config/draft/submit`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft: { riskLevel: 'cautious', disabledSetups: [], rangeOverrides: {} }, backtestSummary: { totalTrades: 0 } }),
+    });
+    const firstBody = await firstRes.json();
+
+    const secondRes = await fetch(`http://127.0.0.1:${port}/api/config/draft/submit`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft: { riskLevel: 'normal', disabledSetups: ['trend_breakout'], rangeOverrides: {} }, backtestSummary: { totalTrades: 5 } }),
+    });
+    const secondBody = await secondRes.json();
+
+    const pendingRes = await fetch(`http://127.0.0.1:${port}/api/config/pending`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const pendingBody = await pendingRes.json();
+    assert.equal(pendingBody.pending.id, secondBody.id);
+    assert.notEqual(firstBody.id, secondBody.id);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/config/pending returns a synthetic default active version when nothing has ever been approved', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config/pending`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.active.id, null);
+    assert.equal(body.active.config.riskLevel, 'normal');
+    assert.equal(body.pending, null);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/config/:id/approve promotes a pending version to active', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const submitRes = await fetch(`http://127.0.0.1:${port}/api/config/draft/submit`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft: { riskLevel: 'cautious', disabledSetups: [], rangeOverrides: {} }, backtestSummary: {} }),
+    });
+    const { id } = await submitRes.json();
+
+    const approveRes = await fetch(`http://127.0.0.1:${port}/api/config/${id}/approve`, { method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(approveRes.status, 200);
+
+    const pendingRes = await fetch(`http://127.0.0.1:${port}/api/config/pending`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await pendingRes.json();
+    assert.equal(body.active.id, id);
+    assert.equal(body.pending, null);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/config/:id/approve on an already-decided version returns 409', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const submitRes = await fetch(`http://127.0.0.1:${port}/api/config/draft/submit`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft: { riskLevel: 'cautious', disabledSetups: [], rangeOverrides: {} }, backtestSummary: {} }),
+    });
+    const { id } = await submitRes.json();
+    await fetch(`http://127.0.0.1:${port}/api/config/${id}/approve`, { method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' } });
+
+    const secondApprove = await fetch(`http://127.0.0.1:${port}/api/config/${id}/approve`, { method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(secondApprove.status, 409);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/config/:id/reject on a nonexistent id returns 404', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config/999999/reject`, { method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
