@@ -9,16 +9,21 @@ function getPassword() {
   return password;
 }
 
-export async function fetchJson(path, params = {}) {
+export async function fetchJson(path, params = {}, { method = 'GET', body } = {}) {
   const query = new URLSearchParams({ mode: 'paper', ...params }).toString();
   const url = `${path}?${query}`;
   const password = getPassword();
+  const options = { method, headers: { 'X-Dashboard-Password': password } };
+  if (body !== undefined) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  }
 
-  const res = await fetch(url, { headers: { 'X-Dashboard-Password': password } });
+  const res = await fetch(url, options);
   if (res.status === 401) {
     sessionStorage.removeItem('dashboardPassword');
     const retryPassword = getPassword();
-    const retryRes = await fetch(url, { headers: { 'X-Dashboard-Password': retryPassword } });
+    const retryRes = await fetch(url, { ...options, headers: { ...options.headers, 'X-Dashboard-Password': retryPassword } });
     if (!retryRes.ok) throw new Error(`request failed: ${retryRes.status}`);
     return retryRes.json();
   }

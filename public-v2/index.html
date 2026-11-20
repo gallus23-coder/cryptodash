@@ -79,11 +79,27 @@
     <div id="setups-table" class="panel">Loading setups…</div>
     <div id="open-positions" class="panel">Loading positions…</div>
     <div id="guardrails-panel" class="panel">Loading guardrails…</div>
+    <div id="config-editor" class="panel">
+      <h3>Edit strategy</h3>
+      <label>Risk level:
+        <select id="risk-level-select">
+          <option value="cautious">Cautious</option>
+          <option value="normal" selected>Normal</option>
+          <option value="bold">Bold (currently same as Normal — see note)</option>
+        </select>
+      </label>
+      <div id="setup-toggles"></div>
+      <button id="backtest-button">Backtest changes</button>
+      <div id="backtest-result"></div>
+      <button id="submit-button" disabled>Save as pending</button>
+      <div id="pending-proposal"></div>
+    </div>
   </section>
 </main>
 <script type="module" src="/js/scorecard.mjs"></script>
 <script type="module" src="/js/timeline.mjs"></script>
 <script type="module" src="/js/chart.mjs"></script>
 <script type="module" src="/js/strategy.mjs"></script>
+<script type="module" src="/js/config-editor.mjs"></script>
 </body>
 </html>
