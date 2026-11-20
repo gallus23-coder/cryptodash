@@ -117,6 +117,30 @@ function createApp(db, { password } = {}) {
     });
   });
 
+  const { getRegimeHistory } = require('../data/db');
+  const { computeRegimeSeries } = require('../engine/regime');
+  const { COINS } = require('../engine/config');
+
+  app.get('/api/regime/history', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const fromTs = req.query.from !== undefined ? Number(req.query.from) : 0;
+    const toTs = req.query.to !== undefined ? Number(req.query.to) : Math.floor(Date.now() / 1000);
+    res.json(getRegimeHistory(db, mode, fromTs, toTs));
+  });
+
+  app.get('/api/regime/current', (req, res) => {
+    const nowTs = Math.floor(Date.now() / 1000);
+    const btcDaily = getCandles(db, 'BTC', '1d', 0, nowTs);
+    const btc4h = getCandles(db, 'BTC', '4h', 0, nowTs);
+    const watchlistBy4h = {};
+    for (const coin of COINS) {
+      watchlistBy4h[coin] = getCandles(db, coin, '4h', 0, nowTs).map((c) => ({ ts: c.ts, close: c.close }));
+    }
+    const series = computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h });
+    const latest = series.length > 0 ? series[series.length - 1] : null;
+    res.json(latest ? { label: latest.label, ts: latest.ts } : { label: null, ts: null });
+  });
+
   return app;
 }
 

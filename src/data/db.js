@@ -236,6 +236,14 @@ function getCandidatesByCoin(db, mode, coin, fromTs, toTs) {
     .all(mode, coin, fromTs, toTs).map(rowToCandidate);
 }
 
+function getRegimeHistory(db, mode, fromTs, toTs) {
+  return db.prepare(`
+    SELECT ts, regime_label AS label FROM cycle_log
+    WHERE mode = ? AND ts >= ? AND ts <= ? AND regime_label IS NOT NULL
+    ORDER BY ts ASC
+  `).all(mode, fromTs, toTs);
+}
+
 function saveSchedulerState(db, mode, state) {
   db.prepare(`
     INSERT INTO scheduler_state (mode, state_json, updated_ts) VALUES (@mode, @stateJson, @updatedTs)
@@ -301,5 +309,5 @@ module.exports = {
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
   getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
   getScorecardData, buildCycleOneLiner, getCycleLogFiltered,
-  getTradesByCoin, getCandidatesByCoin,
+  getTradesByCoin, getCandidatesByCoin, getRegimeHistory,
 };

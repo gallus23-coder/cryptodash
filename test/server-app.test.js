@@ -355,3 +355,32 @@ test('GET /api/markers/:coin for a coin with no activity returns empty arrays, n
     server.close();
   }
 });
+
+test('GET /api/regime/history returns one row per cycle_log entry, including risk_off', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'risk_off', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 100 });
+    insertCycleLog(db, { ts: 2000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 1, closedCount: 0, durationMs: 100 });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/regime/history`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.length, 2);
+    assert.equal(body[0].label, 'risk_off');
+    assert.equal(body[1].label, 'trend_up');
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/regime/current returns null label when there is not enough candle history yet', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/regime/current`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.label, null);
+  } finally {
+    server.close();
+  }
+});
