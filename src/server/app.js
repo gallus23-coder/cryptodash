@@ -142,7 +142,7 @@ function createApp(db, { password } = {}) {
     }
     const series = computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h });
     const latest = series.length > 0 ? series[series.length - 1] : null;
-    res.json(latest ? { label: latest.label, ts: latest.ts } : { label: null, ts: null });
+    res.json(latest ? { label: latest.label, ts: latest.ts, metrics: latest.metrics } : { label: null, ts: null, metrics: null });
   });
 
   const { ema, bollinger, rsi, adx } = require('../engine/indicators');

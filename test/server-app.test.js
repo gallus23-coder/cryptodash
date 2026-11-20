@@ -466,3 +466,24 @@ test('GET /api/positions returns an empty array when no scheduler_state has been
     server.close();
   }
 });
+
+test('GET /api/regime/current includes the metrics behind the label, not just the label', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    const rows = [];
+    for (let i = 0; i < 250; i += 1) {
+      rows.push({ coin: 'BTC', timeframe: '1d', ts: i * 86400, open: 100, high: 101, low: 99, close: 100 + i * 0.1, volume: 1, trades: 1 });
+      rows.push({ coin: 'BTC', timeframe: '4h', ts: i * 86400, open: 100, high: 101, low: 99, close: 100 + i * 0.1, volume: 1, trades: 1 });
+    }
+    upsertCandles(db, rows);
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/regime/current`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    if (body.label !== null) {
+      assert.ok(body.metrics, 'expected a metrics object once a label is computed');
+      assert.ok(typeof body.metrics === 'object');
+    }
+  } finally {
+    server.close();
+  }
+});
