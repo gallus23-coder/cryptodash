@@ -11,4 +11,22 @@ const DEFAULT_RISK_CONFIG = {
 const COIN_ALTNAMES = { BTC: 'XBTGBP', ETH: 'ETHGBP', SOL: 'SOLGBP', XRP: 'XRPGBP', ADA: 'ADAGBP', LINK: 'LINKGBP' };
 const COINS = Object.keys(COIN_ALTNAMES);
 
-module.exports = { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS };
+function applyRiskLevel(baseConfig, riskLevel) {
+  if (!['cautious', 'normal', 'bold'].includes(riskLevel)) {
+    throw new Error(`unrecognized risk level: ${riskLevel}`);
+  }
+  if (riskLevel === 'cautious') {
+    return {
+      ...baseConfig,
+      baseRiskPct: baseConfig.baseRiskPct * 0.5,
+      maxOpenPositions: Math.max(1, baseConfig.maxOpenPositions - 1),
+    };
+  }
+  // 'normal' and 'bold' are currently identical — see the config-versioning plan's Interpretation
+  // decisions for why 'bold' doesn't yet scale up: DEFAULT_RISK_CONFIG's values are the enforced
+  // guardrail ceiling in this codebase, not a baseline sitting below a separate, larger cap —
+  // scaling past them means picking new risk numbers nobody has validated, a decision for a human.
+  return { ...baseConfig };
+}
+
+module.exports = { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS, applyRiskLevel };
