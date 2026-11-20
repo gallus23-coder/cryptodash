@@ -75,3 +75,24 @@ export function buildRegimeSegments(historyRows) {
   }
   return segments;
 }
+
+export function formatRegimeDuration(historyRows, nowTs) {
+  const segments = buildRegimeSegments(historyRows);
+  if (segments.length === 0) return 'not yet known';
+  const current = segments[segments.length - 1];
+  const heldSeconds = nowTs - current.fromTs;
+  const hours = Math.floor(heldSeconds / 3600);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${current.label}, held for ${days}d ${hours % 24}h`;
+  return `${current.label}, held for ${hours}h`;
+}
+
+export function formatSetupStats(stats) {
+  if (stats.count === 0) return 'No trades yet.';
+  return `${stats.count} trades, ${Math.round(stats.winRate * 100)}% win rate, ${formatR(stats.expectancy)} expectancy`;
+}
+
+export function formatGuardrailUsage({ used, max }) {
+  const pct = max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0;
+  return { text: `${used} / ${max}`, pct };
+}

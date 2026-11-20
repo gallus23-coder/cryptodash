@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -132,4 +132,33 @@ test('REGIME_COLORS has a distinct, defined color for every regime label includi
   }
   const colors = Object.values(REGIME_COLORS);
   assert.equal(new Set(colors).size, colors.length); // all distinct
+});
+
+test('formatRegimeDuration reports "not yet known" when there is no regime history at all', () => {
+  assert.equal(formatRegimeDuration([], 10000), 'not yet known');
+});
+
+test('formatRegimeDuration reports how long the current (last) segment has been active', () => {
+  const rows = [{ ts: 0, label: 'risk_off' }, { ts: 3600, label: 'risk_off' }, { ts: 7200, label: 'trend_up' }];
+  const nowTs = 7200 + 3600; // 1h into the trend_up segment
+  const result = formatRegimeDuration(rows, nowTs);
+  assert.match(result, /1h/);
+});
+
+test('formatSetupStats reports "No trades yet" for a zero-count stat, not a 0% win rate', () => {
+  const result = formatSetupStats({ count: 0, winRate: 0, expectancy: 0, pass: false });
+  assert.match(result, /no trades yet/i);
+  assert.doesNotMatch(result, /0%/);
+});
+
+test('formatSetupStats reports count/winRate/expectancy for a real sample', () => {
+  const result = formatSetupStats({ count: 12, winRate: 0.58, expectancy: 0.34, pass: false });
+  assert.match(result, /12/);
+  assert.match(result, /58%/);
+  assert.match(result, /\+0\.34R/);
+});
+
+test('formatGuardrailUsage reports a "used / max" text and a percentage, capped at 100', () => {
+  assert.deepEqual(formatGuardrailUsage({ used: 1, max: 3 }), { text: '1 / 3', pct: 33 });
+  assert.deepEqual(formatGuardrailUsage({ used: 0.015, max: 0.015 }), { text: '0.015 / 0.015', pct: 100 });
 });
