@@ -29,4 +29,14 @@ function applyRiskLevel(baseConfig, riskLevel) {
   return { ...baseConfig };
 }
 
-module.exports = { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS, applyRiskLevel };
+function resolveEffectiveConfig(baseConfig, activeVersionConfig, baseSetupsByRegime) {
+  const config = applyRiskLevel(baseConfig, activeVersionConfig.riskLevel);
+  const setupsByRegime = Object.fromEntries(
+    Object.entries(baseSetupsByRegime).map(([regime, names]) => [
+      regime, names.filter((n) => !activeVersionConfig.disabledSetups.includes(n)),
+    ])
+  );
+  return { config, setupsByRegime };
+}
+
+module.exports = { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS, applyRiskLevel, resolveEffectiveConfig };

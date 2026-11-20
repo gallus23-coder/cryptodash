@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS, applyRiskLevel } = require('../src/engine/config');
+const { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS, applyRiskLevel, resolveEffectiveConfig } = require('../src/engine/config');
 
 test('DEFAULT_RISK_CONFIG matches design spec §5.4 values', () => {
   assert.equal(DEFAULT_RISK_CONFIG.baseRiskPct, 0.005);
@@ -50,4 +50,31 @@ test('applyRiskLevel never reduces maxOpenPositions below 1', () => {
   const tinyConfig = { ...DEFAULT_RISK_CONFIG, maxOpenPositions: 1 };
   const scaled = applyRiskLevel(tinyConfig, 'cautious');
   assert.equal(scaled.maxOpenPositions, 1);
+});
+
+test('resolveEffectiveConfig with the synthetic-default active version (normal, nothing disabled) changes nothing', () => {
+  const baseSetupsByRegime = { trend_up: ['trend_breakout', 'trend_pullback'], range: ['range_reversion'], downtrend: ['oversold_bounce'], risk_off: [] };
+  const { config, setupsByRegime } = resolveEffectiveConfig(DEFAULT_RISK_CONFIG, { riskLevel: 'normal', disabledSetups: [] }, baseSetupsByRegime);
+  assert.equal(config.baseRiskPct, DEFAULT_RISK_CONFIG.baseRiskPct);
+  assert.equal(config.maxOpenPositions, DEFAULT_RISK_CONFIG.maxOpenPositions);
+  assert.deepEqual(setupsByRegime, baseSetupsByRegime);
+});
+
+test('resolveEffectiveConfig applies cautious scaling to the config', () => {
+  const baseSetupsByRegime = { trend_up: ['trend_breakout', 'trend_pullback'] };
+  const { config } = resolveEffectiveConfig(DEFAULT_RISK_CONFIG, { riskLevel: 'cautious', disabledSetups: [] }, baseSetupsByRegime);
+  assert.equal(config.baseRiskPct, DEFAULT_RISK_CONFIG.baseRiskPct * 0.5);
+});
+
+test('resolveEffectiveConfig removes a disabled setup from every regime that lists it', () => {
+  const baseSetupsByRegime = { trend_up: ['trend_breakout', 'trend_pullback'], range: ['range_reversion'] };
+  const { setupsByRegime } = resolveEffectiveConfig(DEFAULT_RISK_CONFIG, { riskLevel: 'normal', disabledSetups: ['trend_breakout'] }, baseSetupsByRegime);
+  assert.deepEqual(setupsByRegime.trend_up, ['trend_pullback']);
+  assert.deepEqual(setupsByRegime.range, ['range_reversion']); // untouched regime unaffected
+});
+
+test('resolveEffectiveConfig preserves fields on baseConfig it does not itself touch', () => {
+  const customConfig = { ...DEFAULT_RISK_CONFIG, claudeModel: 'a-test-model' };
+  const { config } = resolveEffectiveConfig(customConfig, { riskLevel: 'normal', disabledSetups: [] }, {});
+  assert.equal(config.claudeModel, 'a-test-model');
 });
