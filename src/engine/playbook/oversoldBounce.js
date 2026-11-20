@@ -1,6 +1,7 @@
 'use strict';
 
 const THREE_DAY_BARS = 18; // 3 days of 4h bars
+const RANGES = { size: [0, 0.5], stopAtr: [0.5, 2.0] };
 
 function evaluate(coin, candles4h, indicators, i, regimeLabel) {
   if (regimeLabel !== 'downtrend') return null;
@@ -21,11 +22,11 @@ function evaluate(coin, candles4h, indicators, i, regimeLabel) {
     entry: bar.close,
     atr: indicators.atr14[i],
     default: { action: 'take', size: 0.5, stopAtr: 1.0 },
-    ranges: { size: [0, 0.5], stopAtr: [0.5, 2.0] },
+    ranges: RANGES,
     exitType: 'ema_cross_or_time',
     emaPeriod: 20,
     timeStopHours: 12,
   };
 }
 
-module.exports = { evaluate };
+module.exports = { evaluate, RANGES };

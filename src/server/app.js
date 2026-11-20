@@ -176,6 +176,42 @@ function createApp(db, { password } = {}) {
     res.json(state ? state.openPositions : []);
   });
 
+  const { getSetupStats, getLatestMarketNote } = require('../data/db');
+  const { SETUPS } = require('../engine/playbook');
+  const { DEFAULT_RISK_CONFIG } = require('../engine/config');
+
+  app.get('/api/strategy', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const nowTs = Math.floor(Date.now() / 1000);
+
+    const setups = Object.entries(SETUPS).map(([name, mod]) => ({
+      name, ranges: mod.RANGES,
+      stats30d: getSetupStats(db, mode, name, nowTs - 30 * 86400),
+      stats90d: getSetupStats(db, mode, name, nowTs - 90 * 86400),
+    }));
+
+    const state = loadSchedulerState(db, mode);
+    const balanceAtDayStart = state ? state.balance - state.dailyPnl : 0;
+    const weeklyDrawdownPct = state && state.weeklyPeakBalance > 0 ? (state.weeklyPeakBalance - state.balance) / state.weeklyPeakBalance : 0;
+    const totalRiskPctUsed = state ? state.openPositions.reduce((sum, p) => sum + p.riskPct, 0) : 0;
+    const totalExposurePctUsed = state ? state.openPositions.reduce((sum, p) => sum + p.exposurePct, 0) : 0;
+    const dailyLossPctUsed = state && balanceAtDayStart > 0 ? -state.dailyPnl / balanceAtDayStart : 0;
+
+    res.json({
+      setups,
+      marketNote: getLatestMarketNote(db, mode),
+      guardrails: {
+        killSwitchActive: state ? state.killSwitchActive : false,
+        openPositions: { used: state ? state.openPositions.length : 0, max: DEFAULT_RISK_CONFIG.maxOpenPositions },
+        totalRiskPct: { used: totalRiskPctUsed, max: DEFAULT_RISK_CONFIG.maxTotalRiskPct },
+        totalExposurePct: { used: totalExposurePctUsed, max: DEFAULT_RISK_CONFIG.maxTotalExposurePct },
+        dailyLossPct: { used: Math.max(0, dailyLossPctUsed), max: DEFAULT_RISK_CONFIG.dailyLossLimitPct },
+        weeklyDrawdownPct: { used: weeklyDrawdownPct, max: DEFAULT_RISK_CONFIG.weeklyKillSwitchPct },
+      },
+      config: { activeVersion: 'default', pending: null },
+    });
+  });
+
   return app;
 }
 

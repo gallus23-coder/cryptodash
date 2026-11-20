@@ -1,5 +1,7 @@
 'use strict';
 
+const RANGES = { size: [0, 1], stopAtr: [1.0, 3.0], trailAtr: [1.5, 4.0] };
+
 function evaluate(coin, candles4h, indicators, i, regimeLabel) {
   if (regimeLabel !== 'trend_up') return null;
 
@@ -21,9 +23,9 @@ function evaluate(coin, candles4h, indicators, i, regimeLabel) {
     entry: bar.close,
     atr: indicators.atr14[i],
     default: { action: 'take', size: 1.0, stopAtr: 1.5, trailAtr: 2.5 },
-    ranges: { size: [0, 1], stopAtr: [1.0, 3.0], trailAtr: [1.5, 4.0] },
+    ranges: RANGES,
     exitType: 'trailing_stop',
   };
 }
 
-module.exports = { evaluate };
+module.exports = { evaluate, RANGES };

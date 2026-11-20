@@ -487,3 +487,70 @@ test('GET /api/regime/current includes the metrics behind the label, not just th
     server.close();
   }
 });
+
+test('GET /api/strategy returns per-setup stats, computed with computeExpectancy, zeroed for a setup with no trades', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/strategy`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.setups.length, 4); // the four real setups
+    const pullback = body.setups.find((s) => s.name === 'trend_pullback');
+    assert.ok(pullback.ranges); // ranges came from the real playbook module
+    assert.equal(pullback.stats30d.count, 0);
+    assert.equal(pullback.stats30d.expectancy, 0);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/strategy reports real win rate/expectancy for a setup with real trades', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    const recentTs = Math.floor(Date.now() / 1000) - 3600;
+    insertTrade(db, {
+      mode: 'paper', coin: 'SOL', setup: 'trend_pullback', entryTs: recentTs, exitTs: recentTs + 100,
+      entryPrice: 100, exitPrice: 110, units: 1, riskAmount: 5, pnl: 5, r: 1.0, exitReason: 'target',
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/strategy`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    const pullback = body.setups.find((s) => s.name === 'trend_pullback');
+    assert.equal(pullback.stats30d.count, 1);
+    assert.equal(pullback.stats30d.winRate, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/strategy computes guardrail usage with the same formulas runCycle uses, with no state defaulting to zeroed guardrails', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/strategy`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.guardrails.killSwitchActive, false);
+    assert.equal(body.guardrails.openPositions.used, 0);
+    assert.equal(body.guardrails.openPositions.max, 3);
+    assert.equal(body.guardrails.dailyLossPct.max, 0.03);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/strategy includes the latest market note when one exists, null otherwise', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    const noNoteRes = await fetch(`http://127.0.0.1:${port}/api/strategy`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal((await noNoteRes.json()).marketNote, null);
+
+    insertCycleLog(db, {
+      ts: 1700000000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 1, closedCount: 0, durationMs: 100,
+      marketNote: 'Taking the pullback.', plainNote: { mood: 'positive', bullets: [], botAction: 'x' },
+    });
+    const res = await fetch(`http://127.0.0.1:${port}/api/strategy`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.marketNote.marketNote, 'Taking the pullback.');
+  } finally {
+    server.close();
+  }
+});

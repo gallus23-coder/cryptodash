@@ -252,6 +252,12 @@ function getRegimeHistory(db, mode, fromTs, toTs) {
   `).all(mode, fromTs, toTs);
 }
 
+function getSetupStats(db, mode, setupName, sinceTs) {
+  const { computeExpectancy } = require('../backtest/stats');
+  const trades = getTrades(db, mode).filter((t) => t.setup === setupName && t.exitTs >= sinceTs);
+  return computeExpectancy(trades);
+}
+
 function saveSchedulerState(db, mode, state) {
   db.prepare(`
     INSERT INTO scheduler_state (mode, state_json, updated_ts) VALUES (@mode, @stateJson, @updatedTs)
@@ -330,5 +336,5 @@ module.exports = {
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
   getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
   getScorecardData, buildCycleOneLiner, getCycleLogFiltered,
-  getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote,
+  getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote, getSetupStats,
 };
