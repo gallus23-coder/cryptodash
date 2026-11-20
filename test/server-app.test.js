@@ -318,3 +318,40 @@ test('GET /api/candles/:coin defaults to from=0 and a wide "to" when not given',
     server.close();
   }
 });
+
+test('GET /api/markers/:coin returns trades and candidates for that coin, scoped to mode', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    seedCandidate(db, { coin: 'SOL', ts: 1700000000 });
+    insertTrade(db, {
+      mode: 'paper', coin: 'SOL', setup: 'trend_pullback', entryTs: 1700000000, exitTs: 1700050000,
+      entryPrice: 98.40, exitPrice: 102.0, units: 1, riskAmount: 5, pnl: 3.6, r: 0.72, exitReason: 'target',
+      candidateId: 'c_20261118_10_SOL_trend_pullback',
+    });
+    insertTrade(db, {
+      mode: 'live', coin: 'SOL', setup: 'trend_pullback', entryTs: 1700000000, exitTs: 1700050000,
+      entryPrice: 98.40, exitPrice: 95.0, units: 1, riskAmount: 5, pnl: -3.4, r: -0.68, exitReason: 'stop',
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/markers/SOL`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.trades.length, 1);
+    assert.equal(body.trades[0].r, 0.72);
+    assert.equal(body.candidates.length, 1);
+    assert.equal(body.candidates[0].coin, 'SOL');
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/markers/:coin for a coin with no activity returns empty arrays, not an error', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/markers/ADA`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { trades: [], candidates: [] });
+  } finally {
+    server.close();
+  }
+});

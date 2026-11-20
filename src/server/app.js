@@ -105,6 +105,18 @@ function createApp(db, { password } = {}) {
     res.json(getCandles(db, req.params.coin, timeframe, fromTs, toTs));
   });
 
+  const { getTradesByCoin, getCandidatesByCoin } = require('../data/db');
+
+  app.get('/api/markers/:coin', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const fromTs = req.query.from !== undefined ? Number(req.query.from) : 0;
+    const toTs = req.query.to !== undefined ? Number(req.query.to) : Math.floor(Date.now() / 1000);
+    res.json({
+      trades: getTradesByCoin(db, mode, req.params.coin, fromTs, toTs),
+      candidates: getCandidatesByCoin(db, mode, req.params.coin, fromTs, toTs),
+    });
+  });
+
   return app;
 }
 

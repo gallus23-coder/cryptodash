@@ -221,6 +221,21 @@ function getCycleLogFiltered(db, { mode = 'paper', from, to, regime, limit = 100
   `).all(params).map((row) => ({ ...row, oneLiner: buildCycleOneLiner(row) }));
 }
 
+function getTradesByCoin(db, mode, coin, fromTs, toTs) {
+  return db.prepare(`
+    SELECT id, mode, coin, setup, entry_ts AS entryTs, exit_ts AS exitTs,
+      entry_price AS entryPrice, exit_price AS exitPrice, units, risk_amount AS riskAmount,
+      pnl, r, exit_reason AS exitReason, candidate_id AS candidateId
+    FROM trades WHERE mode = ? AND coin = ? AND entry_ts >= ? AND entry_ts <= ?
+    ORDER BY entry_ts ASC
+  `).all(mode, coin, fromTs, toTs);
+}
+
+function getCandidatesByCoin(db, mode, coin, fromTs, toTs) {
+  return db.prepare('SELECT * FROM candidates WHERE mode = ? AND coin = ? AND ts >= ? AND ts <= ? ORDER BY ts ASC')
+    .all(mode, coin, fromTs, toTs).map(rowToCandidate);
+}
+
 function saveSchedulerState(db, mode, state) {
   db.prepare(`
     INSERT INTO scheduler_state (mode, state_json, updated_ts) VALUES (@mode, @stateJson, @updatedTs)
@@ -286,4 +301,5 @@ module.exports = {
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
   getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
   getScorecardData, buildCycleOneLiner, getCycleLogFiltered,
+  getTradesByCoin, getCandidatesByCoin,
 };
