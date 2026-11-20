@@ -42,8 +42,30 @@
   </div>
   <div id="timeline">Loading cycles…</div>
   <div id="expand"></div>
+
+  <section id="charts-tab">
+    <div id="chart-controls">
+      <select id="coin-select">
+        <option value="BTC">BTC</option>
+        <option value="ETH">ETH</option>
+        <option value="SOL">SOL</option>
+        <option value="XRP">XRP</option>
+        <option value="ADA">ADA</option>
+        <option value="LINK">LINK</option>
+      </select>
+      <select id="tf-select">
+        <option value="1h">1h</option>
+        <option value="4h" selected>4h</option>
+        <option value="1d">1d</option>
+      </select>
+    </div>
+    <div id="chart" style="height: 400px;"></div>
+    <div id="regime-band" style="height: 20px;"></div>
+    <div id="indicator-panel" style="height: 150px;"></div>
+  </section>
 </main>
 <script type="module" src="/js/scorecard.mjs"></script>
 <script type="module" src="/js/timeline.mjs"></script>
+<script type="module" src="/js/chart.mjs"></script>
 </body>
 </html>
