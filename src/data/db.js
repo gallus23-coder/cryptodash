@@ -60,6 +60,14 @@ function openDb(dbPath = process.env.CRYPTODASH_DB_PATH || DEFAULT_DB_PATH) {
     db.exec('ALTER TABLE trades ADD COLUMN candidate_id TEXT');
   }
 
+  const cycleLogColumns = db.prepare("PRAGMA table_info(cycle_log)").all().map((c) => c.name);
+  if (!cycleLogColumns.includes('market_note')) {
+    db.exec('ALTER TABLE cycle_log ADD COLUMN market_note TEXT');
+  }
+  if (!cycleLogColumns.includes('plain_note_json')) {
+    db.exec('ALTER TABLE cycle_log ADD COLUMN plain_note_json TEXT');
+  }
+
   return db;
 }
 
@@ -258,9 +266,22 @@ function loadSchedulerState(db, mode) {
 
 function insertCycleLog(db, row) {
   db.prepare(`
-    INSERT INTO cycle_log (ts, mode, regime_label, candidates_count, opened_count, closed_count, duration_ms, error)
-    VALUES (@ts, @mode, @regimeLabel, @candidatesCount, @openedCount, @closedCount, @durationMs, @error)
-  `).run({ error: null, ...row });
+    INSERT INTO cycle_log (ts, mode, regime_label, candidates_count, opened_count, closed_count, duration_ms, error, market_note, plain_note_json)
+    VALUES (@ts, @mode, @regimeLabel, @candidatesCount, @openedCount, @closedCount, @durationMs, @error, @marketNote, @plainNoteJson)
+  `).run({
+    error: null, marketNote: null, ...row,
+    plainNoteJson: row.plainNote !== undefined ? JSON.stringify(row.plainNote) : null,
+  });
+}
+
+function getLatestMarketNote(db, mode) {
+  const row = db.prepare(`
+    SELECT ts, market_note AS marketNote, plain_note_json AS plainNoteJson
+    FROM cycle_log WHERE mode = ? AND market_note IS NOT NULL
+    ORDER BY ts DESC LIMIT 1
+  `).get(mode);
+  if (!row) return null;
+  return { ts: row.ts, marketNote: row.marketNote, plainNote: row.plainNoteJson ? JSON.parse(row.plainNoteJson) : null };
 }
 
 function getCycleLog(db, mode, limit = 50) {
@@ -309,5 +330,5 @@ module.exports = {
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
   getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
   getScorecardData, buildCycleOneLiner, getCycleLogFiltered,
-  getTradesByCoin, getCandidatesByCoin, getRegimeHistory,
+  getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote,
 };

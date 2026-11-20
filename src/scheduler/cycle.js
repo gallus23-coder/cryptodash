@@ -47,7 +47,7 @@ const persistCycleResults = (db, mode, state) => db.transaction(() => {
 async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, now = Date.now()) {
   const startedAt = Date.now();
   const nowHour = Math.floor(now / 1000 / HOUR) * HOUR;
-  let regimeLabel = null, candidatesCount = 0, openedCount = 0, closedCount = 0;
+  let regimeLabel = null, candidatesCount = 0, openedCount = 0, closedCount = 0, decideResult = null;
 
   try {
     await ingestAllCoins(db, krakenClient, COIN_ALTNAMES, now);
@@ -154,6 +154,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
         };
 
         const result = await decide(decisionInput, config);
+        decideResult = result;
         const decidedIds = new Set();
 
         for (const decision of result.decisions) {
@@ -217,6 +218,8 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
     insertCycleLog(db, {
       ts: nowHour, mode, regimeLabel, candidatesCount, openedCount, closedCount,
       durationMs: Date.now() - startedAt,
+      marketNote: decideResult && !decideResult.fallback ? decideResult.marketNote : null,
+      plainNote: decideResult && !decideResult.fallback ? decideResult.plainNote : null,
     });
 
     return { regimeLabel, candidatesCount, openedCount, closedCount };
