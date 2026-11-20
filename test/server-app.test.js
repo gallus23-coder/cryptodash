@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { openDb, insertCandidate, insertDecision, insertCycleLog, insertTrade, updateCandidateShadow: updateCandidateShadowForTest } = require('../src/data/db');
+const { openDb, insertCandidate, insertDecision, insertCycleLog, insertTrade, updateCandidateShadow: updateCandidateShadowForTest, upsertCandles } = require('../src/data/db');
 const { createApp } = require('../src/server/app');
 
 function seedCandidate(db, overrides = {}) {
@@ -273,6 +273,47 @@ test('GET /api/cycles returns cycle_log rows with a plain-English one-liner', as
     const body = await res.json();
     assert.equal(body.length, 1);
     assert.ok(body[0].oneLiner);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/candles/:coin returns candles for the requested timeframe and range', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    upsertCandles(db, [
+      { coin: 'BTC', timeframe: '1h', ts: 1000, open: 100, high: 101, low: 99, close: 100.5, volume: 10, trades: 5 },
+      { coin: 'BTC', timeframe: '1h', ts: 2000, open: 100.5, high: 102, low: 100, close: 101, volume: 12, trades: 6 },
+      { coin: 'BTC', timeframe: '4h', ts: 1000, open: 100, high: 102, low: 99, close: 101, volume: 22, trades: 11 },
+    ]);
+    const res = await fetch(`http://127.0.0.1:${port}/api/candles/BTC?tf=1h&from=0&to=9999`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.length, 2);
+    assert.equal(body[0].close, 100.5);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/candles/:coin rejects an unsupported timeframe with 400', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/candles/BTC?tf=5m&from=0&to=9999`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 400);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/candles/:coin defaults to from=0 and a wide "to" when not given', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    upsertCandles(db, [{ coin: 'ETH', timeframe: '1h', ts: 5000, open: 1, high: 2, low: 1, close: 1.5, volume: 1, trades: 1 }]);
+    const res = await fetch(`http://127.0.0.1:${port}/api/candles/ETH?tf=1h`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.length, 1);
   } finally {
     server.close();
   }

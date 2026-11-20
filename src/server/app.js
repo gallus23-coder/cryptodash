@@ -91,6 +91,20 @@ function createApp(db, { password } = {}) {
     res.json(rows);
   });
 
+  const { getCandles } = require('../data/db');
+  const VALID_TIMEFRAMES = ['1h', '4h', '1d'];
+
+  app.get('/api/candles/:coin', (req, res) => {
+    const { tf, from, to } = req.query;
+    const timeframe = tf || '1h';
+    if (!VALID_TIMEFRAMES.includes(timeframe)) {
+      return res.status(400).json({ error: `unsupported timeframe: ${timeframe}` });
+    }
+    const fromTs = from !== undefined ? Number(from) : 0;
+    const toTs = to !== undefined ? Number(to) : Math.floor(Date.now() / 1000);
+    res.json(getCandles(db, req.params.coin, timeframe, fromTs, toTs));
+  });
+
   return app;
 }
 
