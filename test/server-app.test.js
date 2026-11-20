@@ -384,3 +384,37 @@ test('GET /api/regime/current returns null label when there is not enough candle
     server.close();
   }
 });
+
+test('GET /api/indicators/:coin returns EMA/Bollinger/RSI/ADX aligned to the candle timestamps', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    const rows = [];
+    for (let i = 0; i < 30; i += 1) {
+      rows.push({ coin: 'BTC', timeframe: '4h', ts: i * 14400, open: 100 + i, high: 101 + i, low: 99 + i, close: 100 + i, volume: 1, trades: 1 });
+    }
+    upsertCandles(db, rows);
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/indicators/BTC?tf=4h&from=0&to=999999`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ts.length, 30);
+    assert.equal(body.ema20.length, 30);
+    assert.equal(body.ema20[0], null); // warmup
+    assert.ok(body.ema20[29] !== null); // enough bars by the end
+    assert.equal(body.rsi14.length, 30);
+    assert.equal(body.adx14.length, 30);
+    assert.equal(body.bollingerUpper.length, 30);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/indicators/:coin rejects an unsupported timeframe with 400', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/indicators/BTC?tf=5m`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 400);
+  } finally {
+    server.close();
+  }
+});

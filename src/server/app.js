@@ -141,6 +141,29 @@ function createApp(db, { password } = {}) {
     res.json(latest ? { label: latest.label, ts: latest.ts } : { label: null, ts: null });
   });
 
+  const { ema, bollinger, rsi, adx } = require('../engine/indicators');
+
+  app.get('/api/indicators/:coin', (req, res) => {
+    const { tf, from, to } = req.query;
+    const timeframe = tf || '4h';
+    if (!VALID_TIMEFRAMES.includes(timeframe)) {
+      return res.status(400).json({ error: `unsupported timeframe: ${timeframe}` });
+    }
+    const fromTs = from !== undefined ? Number(from) : 0;
+    const toTs = to !== undefined ? Number(to) : Math.floor(Date.now() / 1000);
+    const candles = getCandles(db, req.params.coin, timeframe, fromTs, toTs);
+    const closes = candles.map((c) => c.close);
+    const bb = bollinger(closes, 20, 2);
+    const adxResult = adx(candles, 14);
+
+    res.json({
+      ts: candles.map((c) => c.ts),
+      ema20: ema(closes, 20), ema50: ema(closes, 50), ema200: ema(closes, 200),
+      bollingerUpper: bb.upper, bollingerMiddle: bb.middle, bollingerLower: bb.lower,
+      rsi14: rsi(closes, 14), adx14: adxResult.adx,
+    });
+  });
+
   return app;
 }
 
