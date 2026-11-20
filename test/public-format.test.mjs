@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -49,4 +49,13 @@ test('formatOutcome shows the shadow R when the candidate was skipped (no real t
 test('formatOutcome says the shadow is still open when shadowStatus is "open"', () => {
   const candidate = { trade: null, shadowStatus: 'open' };
   assert.match(formatOutcome(candidate), /still open|pending/i);
+});
+
+test('escapeHtml neutralizes HTML special characters so a Claude-authored reason string can\'t inject markup', () => {
+  assert.equal(escapeHtml('<script>alert(1)</script>'), '&lt;script&gt;alert(1)&lt;/script&gt;');
+  assert.equal(escapeHtml('a & b "quoted" \'single\''), 'a &amp; b &quot;quoted&quot; &#39;single&#39;');
+});
+
+test('escapeHtml passes plain text through unchanged', () => {
+  assert.equal(escapeHtml('Setup valid, breadth falling, half size.'), 'Setup valid, breadth falling, half size.');
 });
