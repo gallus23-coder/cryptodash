@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -161,4 +161,45 @@ test('formatSetupStats reports count/winRate/expectancy for a real sample', () =
 test('formatGuardrailUsage reports a "used / max" text and a percentage, capped at 100', () => {
   assert.deepEqual(formatGuardrailUsage({ used: 1, max: 3 }), { text: '1 / 3', pct: 33 });
   assert.deepEqual(formatGuardrailUsage({ used: 0.015, max: 0.015 }), { text: '0.015 / 0.015', pct: 100 });
+});
+
+test('buildConfigDiff reports a risk level change', () => {
+  const diff = buildConfigDiff(
+    { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {} },
+    { riskLevel: 'cautious', disabledSetups: [], rangeOverrides: {} },
+  );
+  assert.equal(diff.length, 1);
+  assert.match(diff[0], /risk level.*normal.*cautious/i);
+});
+
+test('buildConfigDiff reports a setup being disabled', () => {
+  const diff = buildConfigDiff(
+    { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {} },
+    { riskLevel: 'normal', disabledSetups: ['trend_breakout'], rangeOverrides: {} },
+  );
+  assert.equal(diff.length, 1);
+  assert.match(diff[0], /trend_breakout.*disabled/i);
+});
+
+test('buildConfigDiff reports a setup being re-enabled', () => {
+  const diff = buildConfigDiff(
+    { riskLevel: 'normal', disabledSetups: ['trend_breakout'], rangeOverrides: {} },
+    { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {} },
+  );
+  assert.equal(diff.length, 1);
+  assert.match(diff[0], /trend_breakout.*enabled/i);
+});
+
+test('buildConfigDiff returns an empty array when nothing changed', () => {
+  const config = { riskLevel: 'normal', disabledSetups: ['oversold_bounce'], rangeOverrides: {} };
+  const diff = buildConfigDiff(config, { ...config, disabledSetups: ['oversold_bounce'] });
+  assert.deepEqual(diff, []);
+});
+
+test('buildConfigDiff reports multiple simultaneous changes', () => {
+  const diff = buildConfigDiff(
+    { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {} },
+    { riskLevel: 'bold', disabledSetups: ['trend_breakout', 'oversold_bounce'], rangeOverrides: {} },
+  );
+  assert.equal(diff.length, 3); // risk level + 2 setups disabled
 });

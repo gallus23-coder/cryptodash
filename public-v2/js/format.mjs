@@ -96,3 +96,19 @@ export function formatGuardrailUsage({ used, max }) {
   const pct = max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0;
   return { text: `${used} / ${max}`, pct };
 }
+
+export function buildConfigDiff(activeConfig, pendingConfig) {
+  const lines = [];
+  if (activeConfig.riskLevel !== pendingConfig.riskLevel) {
+    lines.push(`Risk level: ${activeConfig.riskLevel} → ${pendingConfig.riskLevel}`);
+  }
+  const allSetups = new Set([...activeConfig.disabledSetups, ...pendingConfig.disabledSetups]);
+  for (const setup of allSetups) {
+    const wasDisabled = activeConfig.disabledSetups.includes(setup);
+    const willBeDisabled = pendingConfig.disabledSetups.includes(setup);
+    if (wasDisabled !== willBeDisabled) {
+      lines.push(`${setup}: ${willBeDisabled ? 'enabled → disabled' : 'disabled → enabled'}`);
+    }
+  }
+  return lines;
+}
