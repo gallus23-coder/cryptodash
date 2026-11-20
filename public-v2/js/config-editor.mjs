@@ -4,6 +4,12 @@ import { buildConfigDiff, escapeHtml } from './format.mjs';
 const SETUP_NAMES = ['trend_breakout', 'trend_pullback', 'range_reversion', 'oversold_bounce'];
 let lastBacktestedDraft = null;
 let lastBacktestSummary = null;
+// Incremented on every form change. runBacktest captures the value at the start of its two
+// awaited round-trips and checks it again before committing — if the user toggled a setting
+// while the backtest was in flight, the generation no longer matches and the stale result is
+// discarded instead of silently re-enabling "Save as pending" for settings that no longer match
+// what's on screen.
+let formGeneration = 0;
 
 function currentDraft() {
   const riskLevel = document.getElementById('risk-level-select').value;
@@ -12,6 +18,7 @@ function currentDraft() {
 }
 
 function invalidateBacktest() {
+  formGeneration += 1;
   lastBacktestedDraft = null;
   lastBacktestSummary = null;
   document.getElementById('submit-button').disabled = true;
@@ -26,12 +33,19 @@ function renderSetupToggles() {
 }
 
 async function runBacktest() {
+  const startGeneration = formGeneration;
   const draft = currentDraft();
   const resultEl = document.getElementById('backtest-result');
   resultEl.textContent = 'Running 90-day backtest…';
   try {
     const validated = await fetchJson('/api/config/draft', {}, { method: 'POST', body: draft });
     const result = await fetchJson('/api/config/draft/backtest', {}, { method: 'POST', body: validated });
+    if (formGeneration !== startGeneration) {
+      // The form changed while the backtest was running — this result no longer matches what's
+      // on screen. Discard it rather than committing a stale draft as "backtested."
+      resultEl.textContent = 'Settings changed while the backtest was running — please run it again.';
+      return;
+    }
     lastBacktestedDraft = draft;
     lastBacktestSummary = result.backtestSummary;
     const bySetupLines = Object.entries(result.backtestSummary.bySetup)
