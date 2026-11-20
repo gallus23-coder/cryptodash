@@ -1,5 +1,5 @@
 import { fetchJson } from './api.mjs';
-import { createChart, CandlestickSeries } from '/vendor/lightweight-charts.standalone.production.mjs';
+import { createChart, CandlestickSeries, LineSeries } from '/vendor/lightweight-charts.standalone.production.mjs';
 
 let chart;
 let candleSeries;
@@ -20,6 +20,47 @@ export async function renderChart() {
   }
 }
 
+const overlaySeries = {};
+
+function toPoints(ts, values) {
+  return ts.map((t, i) => ({ time: t, value: values[i] })).filter((p) => p.value !== null);
+}
+
+export async function renderIndicatorOverlays() {
+  try {
+    const data = await fetchJson(`/api/indicators/${getCoin()}`, { tf: getTf() });
+    const toggles = {
+      ema20: document.getElementById('toggle-ema20').checked,
+      ema50: document.getElementById('toggle-ema50').checked,
+      ema200: document.getElementById('toggle-ema200').checked,
+    };
+    for (const [key, enabled] of Object.entries(toggles)) {
+      if (enabled && !overlaySeries[key]) {
+        overlaySeries[key] = chart.addSeries(LineSeries, { lineWidth: 1 });
+      }
+      if (!enabled && overlaySeries[key]) {
+        chart.removeSeries(overlaySeries[key]);
+        delete overlaySeries[key];
+      }
+      if (overlaySeries[key]) overlaySeries[key].setData(toPoints(data.ts, data[key]));
+    }
+
+    const bollingerOn = document.getElementById('toggle-bollinger').checked;
+    for (const key of ['bollingerUpper', 'bollingerMiddle', 'bollingerLower']) {
+      if (bollingerOn && !overlaySeries[key]) overlaySeries[key] = chart.addSeries(LineSeries, { lineWidth: 1, color: '#8b92a5' });
+      if (!bollingerOn && overlaySeries[key]) { chart.removeSeries(overlaySeries[key]); delete overlaySeries[key]; }
+      if (overlaySeries[key]) overlaySeries[key].setData(toPoints(data.ts, data[key]));
+    }
+  } catch (err) {
+    console.error('Could not load indicators:', err.message);
+  }
+}
+
+['toggle-ema20', 'toggle-ema50', 'toggle-ema200', 'toggle-bollinger', 'coin-select', 'tf-select'].forEach((id) => {
+  document.getElementById(id).addEventListener('change', renderIndicatorOverlays);
+});
+
 document.getElementById('coin-select').addEventListener('change', renderChart);
 document.getElementById('tf-select').addEventListener('change', renderChart);
 renderChart();
+renderIndicatorOverlays();
