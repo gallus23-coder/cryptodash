@@ -26,7 +26,12 @@ const { isDailyLossLimitHit, isKillSwitchTriggered, shouldEvaluateCandidates, ro
 const { buildCoinData } = require('../backtest/run');
 const { SETUPS, SETUPS_BY_REGIME } = require('../engine/playbook');
 const { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS, resolveEffectiveConfig } = require('../engine/config');
-const { evaluateExit, tryOpenPosition, closePosition } = require('../broker/paper');
+const paperBroker = require('../broker/paper');
+const liveBroker = require('../broker/live');
+
+function selectBroker(mode, { paperBroker: paperOverride, liveBroker: liveOverride } = {}) {
+  return mode === 'live' ? (liveOverride || liveBroker) : (paperOverride || paperBroker);
+}
 const { buildCandidateId, attachContext } = require('../engine/candidates');
 const { openShadowPosition, resolveShadowPositions } = require('../broker/shadow');
 const { decide } = require('../engine/decide');
@@ -53,6 +58,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
     await ingestAllCoins(db, krakenClient, COIN_ALTNAMES, now);
 
     const activeVersion = getActiveConfigVersion(db, mode);
+    const broker = selectBroker(mode);
     const { config: effectiveConfig, setupsByRegime: effectiveSetupsByRegime } = resolveEffectiveConfig(config, activeVersion.config, SETUPS_BY_REGIME);
 
     const btcDaily = getCandles(db, 'BTC', '1d', 0, nowHour);
@@ -88,9 +94,13 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
     for (const position of [...state.openPositions]) {
       const data = coinData[position.coin];
       const candles1hSlice = data.candles1h.filter((c) => c.ts > position.entryTs && c.ts <= nowHour);
-      const exit = evaluateExit(position, { candles1h: candles1hSlice, ema20By4hTs: data.ema20By4hTs });
+      const exit = await broker.evaluateExit(
+        position,
+        { candles1h: candles1hSlice, ema20By4hTs: data.ema20By4hTs, nowTs: nowHour, pair: COIN_ALTNAMES[position.coin] },
+        krakenClient, effectiveConfig,
+      );
       if (exit) {
-        closePosition(state, position, exit, effectiveConfig);
+        broker.closePosition(state, position, exit, effectiveConfig);
         closedCount += 1;
       }
     }
@@ -178,7 +188,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
             };
             const { data, i } = candidateContextById.get(candidate.id);
             const before = state.openPositions.length;
-            tryOpenPosition(state, adjustedCandidate, data, i, effectiveConfig);
+            await broker.tryOpenPosition(state, adjustedCandidate, data, i, effectiveConfig, krakenClient);
             if (state.openPositions.length > before) openedCount += 1;
           }
         }
@@ -201,7 +211,10 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
           if (action.action === 'close') {
             const closingBar = coinData[position.coin].candles4h.find((c) => c.ts === nowHour);
             if (!closingBar) continue; // no 4h candle at this exact ts for this coin — skip rather than crash on undefined.close
-            closePosition(state, position, { exitTs: nowHour, exitPrice: closingBar.close, reason: 'claude_close' }, effectiveConfig);
+            const claudeCloseExit = mode === 'live'
+              ? await liveBroker.closeAtMarket(position, 'claude_close', nowHour, COIN_ALTNAMES[position.coin], krakenClient, effectiveConfig, {})
+              : { exitTs: nowHour, exitPrice: closingBar.close, reason: 'claude_close' };
+            broker.closePosition(state, position, claudeCloseExit, effectiveConfig);
             closedCount += 1;
           } else if (action.action === 'tighten_stop') {
             position.initialStopPrice = Math.max(position.initialStopPrice, action.newStopPrice);
@@ -235,4 +248,4 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
   }
 }
 
-module.exports = { isFourHourBoundary, utcDayKey, freshState, persistCycleResults, runCycle };
+module.exports = { isFourHourBoundary, utcDayKey, freshState, persistCycleResults, runCycle, selectBroker };

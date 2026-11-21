@@ -145,4 +145,4 @@ function closePosition(state, position, exit, config) {
   state.closedTrades.push({ ...position, exitTs: exit.exitTs, exitPrice: exit.exitPrice, pnl, r, exitReason: exit.reason });
 }
 
-module.exports = { pollOrderStatus, tryOpenPosition, evaluateExit, closePosition };
+module.exports = { pollOrderStatus, tryOpenPosition, evaluateExit, closeAtMarket, closePosition };

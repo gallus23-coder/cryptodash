@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { isFourHourBoundary, utcDayKey, freshState, persistCycleResults } = require('../src/scheduler/cycle');
+const { isFourHourBoundary, utcDayKey, freshState, persistCycleResults, selectBroker } = require('../src/scheduler/cycle');
 const { openDb, getTrades, loadSchedulerState } = require('../src/data/db');
 
 test('isFourHourBoundary is true exactly at 00/04/08/12/16/20 UTC', () => {
@@ -50,4 +50,18 @@ test('persistCycleResults rolls back all trade inserts if a later one fails, so 
 
   assert.equal(getTrades(db, 'paper').length, 0); // first trade's insert must not survive the second's failure
   assert.equal(loadSchedulerState(db, 'paper'), null); // state must never be saved if the drain didn't fully commit
+});
+
+test('selectBroker returns the real live broker module for mode "live" and the real paper broker module for mode "paper"', () => {
+  const liveBroker = require('../src/broker/live');
+  const paperBroker = require('../src/broker/paper');
+  assert.equal(selectBroker('live'), liveBroker);
+  assert.equal(selectBroker('paper'), paperBroker);
+});
+
+test('selectBroker honors injected overrides, for testability', () => {
+  const fakeLive = { marker: 'fake-live' };
+  const fakePaper = { marker: 'fake-paper' };
+  assert.equal(selectBroker('live', { liveBroker: fakeLive, paperBroker: fakePaper }), fakeLive);
+  assert.equal(selectBroker('paper', { liveBroker: fakeLive, paperBroker: fakePaper }), fakePaper);
 });
