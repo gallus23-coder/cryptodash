@@ -6,6 +6,7 @@ const DEFAULT_RISK_CONFIG = {
   dailyLossLimitPct: 0.03, weeklyKillSwitchPct: 0.08,
   roundTripFeePct: 0.65, // percent, matches checkFeeViability's expected units
   claudeModel: 'claude-sonnet-5', claudeEffort: 'low', claudeTimeoutMs: 30000,
+  liveOrderPollMs: 10000, liveOrderTimeoutMs: 15 * 60 * 1000, liveMarketOrderTimeoutMs: 60000,
 };
 
 const COIN_ALTNAMES = { BTC: 'XBTGBP', ETH: 'ETHGBP', SOL: 'SOLGBP', XRP: 'XRPGBP', ADA: 'ADAGBP', LINK: 'LINKGBP' };
