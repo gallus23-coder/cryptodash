@@ -499,6 +499,45 @@ test('POST /api/guardrails/reset-kill-switch returns 404 when the mode has no sc
   }
 });
 
+test('GET /api/go-live-checklist reports trades60 as not passing with zero trades', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/go-live-checklist`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.trades60.count, 0);
+    assert.equal(body.trades60.pass, false);
+    assert.equal(body.scorecard.pass, null); // not enough data yet
+    assert.equal(body.reconcileTested.pass, null);
+    assert.equal(body.killSwitchTested.pass, true);
+    assert.equal(body.dailyLossLimitTested.pass, true);
+    assert.equal(body.krakenKeyNoWithdraw.pass, null);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/go-live-checklist reports trades60 passing once 60+ trades exist with positive expectancy', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    for (let i = 0; i < 60; i += 1) {
+      insertTrade(db, {
+        mode: 'paper', coin: 'SOL', setup: 'trend_pullback', entryTs: i, exitTs: i + 100,
+        entryPrice: 100, exitPrice: 101, units: 1, riskAmount: 1, pnl: 1, r: 0.5, exitReason: 'target',
+        candidateId: `c_test_${i}`,
+      });
+    }
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/go-live-checklist`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.trades60.count, 60);
+    assert.equal(body.trades60.expectancy, 0.5);
+    assert.equal(body.trades60.pass, true);
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/regime/current includes the metrics behind the label, not just the label', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {

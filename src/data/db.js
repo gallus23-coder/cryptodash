@@ -221,6 +221,19 @@ function buildCycleOneLiner({ regimeLabel, candidatesCount, openedCount, closedC
   return `No candidates this hour (${regimeLabel}).`;
 }
 
+function buildGoLiveChecklist({ tradeCount, expectancy, scorecardNotEnoughData, scorecardClaudeMeanR }) {
+  return {
+    trades60: { count: tradeCount, expectancy, required: 60, pass: tradeCount >= 60 && expectancy > 0 },
+    scorecard: scorecardNotEnoughData
+      ? { pass: null, detail: 'not enough data yet' }
+      : { pass: scorecardClaudeMeanR >= 0, claudeMeanR: scorecardClaudeMeanR },
+    reconcileTested: { pass: null, detail: 'not testable yet — no live credentials configured / account not funded' },
+    killSwitchTested: { pass: true, detail: 'built and deliberately tested — see docs/superpowers/plans/2026-11-21-safety-mechanism-testing.md' },
+    dailyLossLimitTested: { pass: true, detail: 'built and deliberately tested — see docs/superpowers/plans/2026-11-21-safety-mechanism-testing.md' },
+    krakenKeyNoWithdraw: { pass: null, detail: 'manual check required — confirm permissions in Kraken account settings' },
+  };
+}
+
 function getCycleLogFiltered(db, { mode = 'paper', from, to, regime, limit = 100 } = {}) {
   const clauses = ['mode = @mode'];
   const params = { mode, limit };
@@ -402,7 +415,7 @@ module.exports = {
   insertTrade, getTrades, saveSchedulerState, loadSchedulerState, insertCycleLog, getCycleLog,
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
   getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
-  getScorecardData, buildCycleOneLiner, getCycleLogFiltered,
+  getScorecardData, buildCycleOneLiner, getCycleLogFiltered, buildGoLiveChecklist,
   getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote, getSetupStats,
   insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
   approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions,

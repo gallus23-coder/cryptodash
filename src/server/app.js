@@ -306,6 +306,26 @@ function createApp(db, { password } = {}) {
     }
   });
 
+  const { buildGoLiveChecklist, getTrades } = require('../data/db');
+
+  app.get('/api/go-live-checklist', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const { computeExpectancy } = require('../backtest/stats');
+
+    const trades = getTrades(db, mode);
+    const { count: tradeCount, expectancy } = computeExpectancy(trades);
+
+    const sinceTs = Math.floor(Date.now() / 1000) - 30 * 86400;
+    const scorecardRows = getScorecardData(db, mode, sinceTs);
+    const diverged = scorecardRows.filter((r) => r.diverged);
+    const claudeRs = diverged.filter((r) => r.decisionAction === 'take' && r.tradeR !== null).map((r) => r.tradeR);
+    const mean = (arr) => (arr.length === 0 ? 0 : arr.reduce((a, b) => a + b, 0) / arr.length);
+    const scorecardNotEnoughData = diverged.length < 100;
+    const scorecardClaudeMeanR = mean(claudeRs);
+
+    res.json(buildGoLiveChecklist({ tradeCount, expectancy, scorecardNotEnoughData, scorecardClaudeMeanR }));
+  });
+
   app.post('/api/guardrails/reset-kill-switch', (req, res) => {
     const mode = req.query.mode || 'paper';
     try {

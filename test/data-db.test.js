@@ -161,3 +161,48 @@ test('insertCycleLog/getCycleLog round-trips and orders by ts descending', () =>
   assert.equal(rows[0].regime_label, 'trend_up');
   assert.equal(rows[0].error, null);
 });
+
+const { buildGoLiveChecklist } = require('../src/data/db');
+
+test('buildGoLiveChecklist: trades60 passes at 60+ trades with positive expectancy', () => {
+  const checklist = buildGoLiveChecklist({ tradeCount: 60, expectancy: 0.1, scorecardNotEnoughData: true, scorecardClaudeMeanR: 0 });
+  assert.deepEqual(checklist.trades60, { count: 60, expectancy: 0.1, required: 60, pass: true });
+});
+
+test('buildGoLiveChecklist: trades60 fails under 60 trades even with positive expectancy', () => {
+  const checklist = buildGoLiveChecklist({ tradeCount: 59, expectancy: 0.1, scorecardNotEnoughData: true, scorecardClaudeMeanR: 0 });
+  assert.equal(checklist.trades60.pass, false);
+});
+
+test('buildGoLiveChecklist: trades60 fails at 60+ trades with non-positive expectancy', () => {
+  const checklist = buildGoLiveChecklist({ tradeCount: 100, expectancy: 0, scorecardNotEnoughData: true, scorecardClaudeMeanR: 0 });
+  assert.equal(checklist.trades60.pass, false);
+});
+
+test('buildGoLiveChecklist: scorecard is pending (pass: null) when there is not enough data yet', () => {
+  const checklist = buildGoLiveChecklist({ tradeCount: 0, expectancy: 0, scorecardNotEnoughData: true, scorecardClaudeMeanR: -0.5 });
+  assert.equal(checklist.scorecard.pass, null);
+});
+
+test('buildGoLiveChecklist: scorecard passes once there is enough data and claudeMeanR is not negative', () => {
+  const checklist = buildGoLiveChecklist({ tradeCount: 0, expectancy: 0, scorecardNotEnoughData: false, scorecardClaudeMeanR: 0.2 });
+  assert.equal(checklist.scorecard.pass, true);
+  assert.equal(checklist.scorecard.claudeMeanR, 0.2);
+});
+
+test('buildGoLiveChecklist: scorecard fails once there is enough data and claudeMeanR is negative', () => {
+  const checklist = buildGoLiveChecklist({ tradeCount: 0, expectancy: 0, scorecardNotEnoughData: false, scorecardClaudeMeanR: -0.1 });
+  assert.equal(checklist.scorecard.pass, false);
+});
+
+test('buildGoLiveChecklist: reconcile and kraken key are both honestly reported as not yet determined', () => {
+  const checklist = buildGoLiveChecklist({ tradeCount: 0, expectancy: 0, scorecardNotEnoughData: true, scorecardClaudeMeanR: 0 });
+  assert.equal(checklist.reconcileTested.pass, null);
+  assert.equal(checklist.krakenKeyNoWithdraw.pass, null);
+});
+
+test('buildGoLiveChecklist: kill switch and daily loss limit are already reported as done', () => {
+  const checklist = buildGoLiveChecklist({ tradeCount: 0, expectancy: 0, scorecardNotEnoughData: true, scorecardClaudeMeanR: 0 });
+  assert.equal(checklist.killSwitchTested.pass, true);
+  assert.equal(checklist.dailyLossLimitTested.pass, true);
+});
