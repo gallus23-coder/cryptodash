@@ -54,7 +54,14 @@ function shouldEvaluateCandidates(regimeLabel, isBoundary, state, dailyLossHit) 
   return Boolean(regimeLabel) && isBoundary && !state.killSwitchActive && !dailyLossHit && regimeLabel !== 'risk_off';
 }
 
+function rollDailyPnl(state, dayKey) {
+  if (state.currentDay !== dayKey) {
+    return { currentDay: dayKey, dailyPnl: 0 };
+  }
+  return { currentDay: state.currentDay, dailyPnl: state.dailyPnl };
+}
+
 module.exports = {
   sizePosition, checkFeeViability, checkGuardrails,
-  isDailyLossLimitHit, isKillSwitchTriggered, shouldEvaluateCandidates,
+  isDailyLossLimitHit, isKillSwitchTriggered, shouldEvaluateCandidates, rollDailyPnl,
 };

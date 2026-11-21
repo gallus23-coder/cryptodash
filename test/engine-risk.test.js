@@ -94,7 +94,7 @@ test('allows the same coin again once its cooldown has elapsed', () => {
   assert.equal(result.allowed, true);
 });
 
-const { isDailyLossLimitHit, isKillSwitchTriggered, shouldEvaluateCandidates } = require('../src/engine/risk');
+const { isDailyLossLimitHit, isKillSwitchTriggered, shouldEvaluateCandidates, rollDailyPnl } = require('../src/engine/risk');
 
 const LOSS_CONFIG = { dailyLossLimitPct: 0.03, weeklyKillSwitchPct: 0.08 };
 
@@ -147,4 +147,30 @@ test('shouldEvaluateCandidates is false when regimeLabel is not yet known (null)
 
 test('shouldEvaluateCandidates is false off the 4h boundary even with every gate clear', () => {
   assert.equal(shouldEvaluateCandidates('trend_up', false, makeGateState(), false), false);
+});
+
+test('rollDailyPnl resets dailyPnl to 0 and adopts the new dayKey when the day has changed', () => {
+  const state = { currentDay: 5, dailyPnl: -30 };
+  assert.deepEqual(rollDailyPnl(state, 6), { currentDay: 6, dailyPnl: 0 });
+});
+
+test('rollDailyPnl leaves dailyPnl and currentDay unchanged within the same day', () => {
+  const state = { currentDay: 5, dailyPnl: -12 };
+  assert.deepEqual(rollDailyPnl(state, 5), { currentDay: 5, dailyPnl: -12 });
+});
+
+test('rollDailyPnl genuinely clears a tripped daily loss limit at the day boundary — the design\'s "resets at midnight UTC" claim, proven against isDailyLossLimitHit', () => {
+  const config = { dailyLossLimitPct: 0.03 };
+  const balanceAtDayStart = 1000;
+  const state = { currentDay: 5, dailyPnl: -40 }; // -4%, over the 3% limit
+  assert.equal(isDailyLossLimitHit(state.dailyPnl / balanceAtDayStart, config), true);
+
+  const rolled = rollDailyPnl(state, 6);
+  assert.equal(isDailyLossLimitHit(rolled.dailyPnl / balanceAtDayStart, config), false);
+});
+
+test('rollDailyPnl never touches killSwitchActive — a day rollover must not silently clear a kill switch trip', () => {
+  const state = { currentDay: 5, dailyPnl: -40, killSwitchActive: true };
+  const rolled = rollDailyPnl(state, 6);
+  assert.equal('killSwitchActive' in rolled, false); // caller Object.assign()s onto state, so an absent key here means killSwitchActive survives untouched
 });
