@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { openDb, insertCandidate, insertDecision, insertCycleLog, insertTrade, updateCandidateShadow: updateCandidateShadowForTest, upsertCandles, saveSchedulerState } = require('../src/data/db');
+const { openDb, insertCandidate, insertDecision, insertCycleLog, insertTrade, updateCandidateShadow: updateCandidateShadowForTest, upsertCandles, saveSchedulerState, loadSchedulerState } = require('../src/data/db');
 const { createApp } = require('../src/server/app');
 
 function seedCandidate(db, overrides = {}) {
@@ -462,6 +462,38 @@ test('GET /api/positions returns an empty array when no scheduler_state has been
     const res = await fetch(`http://127.0.0.1:${port}/api/positions`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), []);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/guardrails/reset-kill-switch clears an active kill switch', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    saveSchedulerState(db, 'paper', {
+      balance: 920, dailyPnl: 0, currentDay: 10, weeklyPeakBalance: 1000, killSwitchActive: true,
+      openPositions: [], cooldowns: {}, closedTrades: [], shadowPositions: [], disabledSetups: {}, lastRegimeLabel: 'trend_up',
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/guardrails/reset-kill-switch?mode=paper`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(loadSchedulerState(db, 'paper').killSwitchActive, false);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/guardrails/reset-kill-switch returns 404 when the mode has no scheduler state', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/guardrails/reset-kill-switch?mode=paper`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' },
+    });
+    assert.equal(res.status, 404);
   } finally {
     server.close();
   }

@@ -168,7 +168,7 @@ function createApp(db, { password } = {}) {
     });
   });
 
-  const { loadSchedulerState } = require('../data/db');
+  const { loadSchedulerState, resetKillSwitch } = require('../data/db');
 
   app.get('/api/positions', (req, res) => {
     const mode = req.query.mode || 'paper';
@@ -303,6 +303,16 @@ function createApp(db, { password } = {}) {
     } catch (err) {
       const exists = db.prepare('SELECT 1 FROM config_versions WHERE id = ? AND mode = ?').get(id, mode);
       res.status(exists ? 409 : 404).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/guardrails/reset-kill-switch', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    try {
+      resetKillSwitch(db, mode);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(404).json({ error: err.message });
     }
   });
 
