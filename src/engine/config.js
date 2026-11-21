@@ -12,6 +12,11 @@ const DEFAULT_RISK_CONFIG = {
 const COIN_ALTNAMES = { BTC: 'XBTGBP', ETH: 'ETHGBP', SOL: 'SOLGBP', XRP: 'XRPGBP', ADA: 'ADAGBP', LINK: 'LINKGBP' };
 const COINS = Object.keys(COIN_ALTNAMES);
 
+// Kraken's Balance endpoint keys by asset code, not the trading-pair altnames in COIN_ALTNAMES.
+// Unverified against the real account (it holds no funds) — confirm once funded, same caveat
+// as the rest of src/broker/live.js (see docs/superpowers/specs/2026-11-21-live-broker-reconcile-design.md).
+const BALANCE_ASSET_CODES = { BTC: 'XXBT', ETH: 'XETH', SOL: 'SOL', XRP: 'XXRP', ADA: 'ADA', LINK: 'LINK' };
+
 function applyRiskLevel(baseConfig, riskLevel) {
   if (!['cautious', 'normal', 'bold'].includes(riskLevel)) {
     throw new Error(`unrecognized risk level: ${riskLevel}`);
@@ -40,4 +45,4 @@ function resolveEffectiveConfig(baseConfig, activeVersionConfig, baseSetupsByReg
   return { config, setupsByRegime };
 }
 
-module.exports = { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS, applyRiskLevel, resolveEffectiveConfig };
+module.exports = { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS, BALANCE_ASSET_CODES, applyRiskLevel, resolveEffectiveConfig };
