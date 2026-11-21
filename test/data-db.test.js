@@ -65,7 +65,7 @@ test('getExistingTimes returns just the ts column in range, ascending', () => {
   assert.deepEqual(getExistingTimes(db, 'BTC', '1h', 0, 4000), [1000, 3000]);
 });
 
-const { insertTrade, getTrades, saveSchedulerState, loadSchedulerState, insertCycleLog, getCycleLog } = require('../src/data/db');
+const { insertTrade, getTrades, saveSchedulerState, loadSchedulerState, insertCycleLog, getCycleLog, resetKillSwitch } = require('../src/data/db');
 
 test('insertTrade/getTrades round-trips a closed trade, filtered by mode', () => {
   const db = openDb(':memory:');
@@ -112,6 +112,41 @@ test('saveSchedulerState overwrites the previous state for the same mode', () =>
   saveSchedulerState(db, 'paper', { balance: 950 });
 
   assert.deepEqual(loadSchedulerState(db, 'paper'), { balance: 950 });
+});
+
+test('resetKillSwitch clears killSwitchActive and rebases weeklyPeakBalance to the current balance', () => {
+  const db = openDb(':memory:');
+  saveSchedulerState(db, 'paper', {
+    balance: 920, dailyPnl: 0, currentDay: 10, weeklyPeakBalance: 1000, killSwitchActive: true,
+    openPositions: [], cooldowns: {}, closedTrades: [], shadowPositions: [], disabledSetups: {}, lastRegimeLabel: 'trend_up',
+  });
+
+  const result = resetKillSwitch(db, 'paper');
+
+  assert.equal(result.killSwitchActive, false);
+  assert.equal(result.weeklyPeakBalance, 920); // rebased to current balance, so weeklyDrawdownPct is 0 immediately — otherwise next cycle re-trips instantly
+  assert.equal(loadSchedulerState(db, 'paper').killSwitchActive, false);
+});
+
+test('resetKillSwitch leaves every other state field untouched', () => {
+  const db = openDb(':memory:');
+  saveSchedulerState(db, 'paper', {
+    balance: 920, dailyPnl: -10, currentDay: 10, weeklyPeakBalance: 1000, killSwitchActive: true,
+    openPositions: [{ coin: 'BTC', entryPrice: 100 }], cooldowns: { ETH: 123 }, closedTrades: [], shadowPositions: [], disabledSetups: { trend_breakout: 'trend_up' }, lastRegimeLabel: 'trend_up',
+  });
+
+  const result = resetKillSwitch(db, 'paper');
+
+  assert.equal(result.dailyPnl, -10);
+  assert.deepEqual(result.openPositions, [{ coin: 'BTC', entryPrice: 100 }]);
+  assert.deepEqual(result.cooldowns, { ETH: 123 });
+  assert.deepEqual(result.disabledSetups, { trend_breakout: 'trend_up' });
+  assert.equal(result.lastRegimeLabel, 'trend_up');
+});
+
+test('resetKillSwitch throws when the mode has no scheduler state yet', () => {
+  const db = openDb(':memory:');
+  assert.throws(() => resetKillSwitch(db, 'paper'), /no scheduler state for mode paper/);
 });
 
 test('insertCycleLog/getCycleLog round-trips and orders by ts descending', () => {

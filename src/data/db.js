@@ -328,6 +328,15 @@ function loadSchedulerState(db, mode) {
   return row ? JSON.parse(row.state_json) : null;
 }
 
+function resetKillSwitch(db, mode) {
+  const state = loadSchedulerState(db, mode);
+  if (!state) throw new Error(`no scheduler state for mode ${mode}`);
+  state.killSwitchActive = false;
+  state.weeklyPeakBalance = state.balance; // rebase so weeklyDrawdownPct is 0 right away — otherwise the next cycle re-trips the same trigger instantly
+  saveSchedulerState(db, mode, state);
+  return state;
+}
+
 function insertCycleLog(db, row) {
   db.prepare(`
     INSERT INTO cycle_log (ts, mode, regime_label, candidates_count, opened_count, closed_count, duration_ms, error, market_note, plain_note_json)
@@ -397,4 +406,5 @@ module.exports = {
   getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote, getSetupStats,
   insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
   approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions,
+  resetKillSwitch,
 };
