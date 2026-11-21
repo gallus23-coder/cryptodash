@@ -80,13 +80,31 @@ function renderGuardrails(strategy) {
     ['Weekly drawdown', formatGuardrailUsage(g.weeklyDrawdownPct)],
   ];
   el.innerHTML = `
-    <div>${g.killSwitchActive ? '<strong style="color:#ef4444;">KILL SWITCH ACTIVE</strong>' : 'Kill switch: inactive'}</div>
+    <div>${g.killSwitchActive
+      ? '<strong style="color:#ef4444;">KILL SWITCH ACTIVE</strong> <button id="reset-kill-switch-button">Reset kill switch</button><div id="reset-kill-switch-result"></div>'
+      : 'Kill switch: inactive'}</div>
     ${rows.map(([label, { text, pct }]) => `
       <div>${escapeHtml(label)}: ${escapeHtml(text)}
         <div class="guardrail-bar-track"><div class="guardrail-bar-fill" style="width:${pct}%;"></div></div>
       </div>
     `).join('')}
   `;
+  if (g.killSwitchActive) {
+    document.getElementById('reset-kill-switch-button').addEventListener('click', resetKillSwitch);
+  }
+}
+
+async function resetKillSwitch() {
+  if (!window.confirm('Reset the kill switch and resume trading decisions? Only do this after reviewing why it tripped.')) return;
+  const resultEl = document.getElementById('reset-kill-switch-result');
+  try {
+    await fetchJson('/api/guardrails/reset-kill-switch', {}, { method: 'POST' });
+    resultEl.textContent = 'Kill switch reset.';
+    const strategy = await fetchJson('/api/strategy', {});
+    renderGuardrails(strategy);
+  } catch (err) {
+    resultEl.textContent = `Reset failed: ${err.message}`;
+  }
 }
 
 export async function renderStrategyTab() {
