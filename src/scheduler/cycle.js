@@ -22,7 +22,7 @@ function freshState(startingBalance = 1000) {
 const { getCandles, loadSchedulerState, saveSchedulerState, insertTrade, insertCycleLog, insertCandidate, updateCandidateShadow, insertDecision, getTrades, getActiveConfigVersion } = require('../data/db');
 const { ingestAllCoins } = require('../data/ingest');
 const { computeRegimeSeries } = require('../engine/regime');
-const { isDailyLossLimitHit, isKillSwitchTriggered } = require('../engine/risk');
+const { isDailyLossLimitHit, isKillSwitchTriggered, shouldEvaluateCandidates, rollDailyPnl } = require('../engine/risk');
 const { buildCoinData } = require('../backtest/run');
 const { SETUPS, SETUPS_BY_REGIME } = require('../engine/playbook');
 const { DEFAULT_RISK_CONFIG, COIN_ALTNAMES, COINS, resolveEffectiveConfig } = require('../engine/config');
@@ -79,10 +79,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
     if (state.lastRegimeLabel === undefined) state.lastRegimeLabel = null;
 
     const dayKey = utcDayKey(nowHour);
-    if (state.currentDay !== dayKey) {
-      state.currentDay = dayKey;
-      state.dailyPnl = 0;
-    }
+    Object.assign(state, rollDailyPnl(state, dayKey));
     if (state.lastRegimeLabel !== regimeLabel) {
       state.disabledSetups = {}; // "disable for the rest of the current regime" — a new regime clears it
       state.lastRegimeLabel = regimeLabel;
@@ -112,7 +109,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
     const balanceAtDayStart = state.balance - state.dailyPnl;
     const dailyLossHit = isDailyLossLimitHit(state.dailyPnl / balanceAtDayStart, effectiveConfig);
 
-    if (regimeLabel && isFourHourBoundary(nowHour) && !state.killSwitchActive && !dailyLossHit && regimeLabel !== 'risk_off') {
+    if (shouldEvaluateCandidates(regimeLabel, isFourHourBoundary(nowHour), state, dailyLossHit)) {
       const cycleCandidates = [];
       const candidateContextById = new Map(); // candidateId -> { data, i }, so tryOpenPosition's args are available later without recomputing findIndex
       for (const coin of COINS) {
