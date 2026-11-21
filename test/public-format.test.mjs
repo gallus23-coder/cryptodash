@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -202,4 +202,16 @@ test('buildConfigDiff reports multiple simultaneous changes', () => {
     { riskLevel: 'bold', disabledSetups: ['trend_breakout', 'oversold_bounce'], rangeOverrides: {} },
   );
   assert.equal(diff.length, 3); // risk level + 2 setups disabled
+});
+
+test('formatChecklistStatus shows a done icon for pass: true', () => {
+  assert.deepEqual(formatChecklistStatus(true), { icon: '✅', label: 'Done' });
+});
+
+test('formatChecklistStatus shows a not-yet icon for pass: false', () => {
+  assert.deepEqual(formatChecklistStatus(false), { icon: '❌', label: 'Not yet' });
+});
+
+test('formatChecklistStatus shows a pending icon for pass: null', () => {
+  assert.deepEqual(formatChecklistStatus(null), { icon: '⏳', label: 'Pending' });
 });

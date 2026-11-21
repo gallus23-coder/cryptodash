@@ -97,6 +97,12 @@ export function formatGuardrailUsage({ used, max }) {
   return { text: `${used} / ${max}`, pct };
 }
 
+export function formatChecklistStatus(pass) {
+  if (pass === true) return { icon: '✅', label: 'Done' };
+  if (pass === false) return { icon: '❌', label: 'Not yet' };
+  return { icon: '⏳', label: 'Pending' };
+}
+
 export function buildConfigDiff(activeConfig, pendingConfig) {
   const lines = [];
   if (activeConfig.riskLevel !== pendingConfig.riskLevel) {
