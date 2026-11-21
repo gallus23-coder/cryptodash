@@ -94,7 +94,7 @@ test('allows the same coin again once its cooldown has elapsed', () => {
   assert.equal(result.allowed, true);
 });
 
-const { isDailyLossLimitHit, isKillSwitchTriggered } = require('../src/engine/risk');
+const { isDailyLossLimitHit, isKillSwitchTriggered, shouldEvaluateCandidates } = require('../src/engine/risk');
 
 const LOSS_CONFIG = { dailyLossLimitPct: 0.03, weeklyKillSwitchPct: 0.08 };
 
@@ -118,4 +118,33 @@ test('isKillSwitchTriggered is false while weekly drawdown is under 8%', () => {
 test('isKillSwitchTriggered is true once weekly drawdown reaches or exceeds 8%', () => {
   assert.equal(isKillSwitchTriggered(0.08, LOSS_CONFIG), true);
   assert.equal(isKillSwitchTriggered(0.12, LOSS_CONFIG), true);
+});
+
+function makeGateState(overrides = {}) {
+  return { killSwitchActive: false, ...overrides };
+}
+
+test('shouldEvaluateCandidates is true when every gate is clear', () => {
+  assert.equal(shouldEvaluateCandidates('trend_up', true, makeGateState(), false), true);
+});
+
+test('shouldEvaluateCandidates is false when the kill switch is active, even with everything else clear', () => {
+  assert.equal(shouldEvaluateCandidates('trend_up', true, makeGateState({ killSwitchActive: true }), false), false);
+});
+
+test('shouldEvaluateCandidates is false when the daily loss limit is hit, even with everything else clear', () => {
+  assert.equal(shouldEvaluateCandidates('trend_up', true, makeGateState(), true), false);
+});
+
+test('shouldEvaluateCandidates is false during risk_off regardless of the kill switch or daily loss state', () => {
+  assert.equal(shouldEvaluateCandidates('risk_off', true, makeGateState(), false), false);
+  assert.equal(shouldEvaluateCandidates('risk_off', true, makeGateState({ killSwitchActive: true }), true), false);
+});
+
+test('shouldEvaluateCandidates is false when regimeLabel is not yet known (null)', () => {
+  assert.equal(shouldEvaluateCandidates(null, true, makeGateState(), false), false);
+});
+
+test('shouldEvaluateCandidates is false off the 4h boundary even with every gate clear', () => {
+  assert.equal(shouldEvaluateCandidates('trend_up', false, makeGateState(), false), false);
 });

@@ -50,7 +50,11 @@ function isKillSwitchTriggered(weeklyDrawdownPct, config) {
   return weeklyDrawdownPct >= config.weeklyKillSwitchPct;
 }
 
+function shouldEvaluateCandidates(regimeLabel, isBoundary, state, dailyLossHit) {
+  return Boolean(regimeLabel) && isBoundary && !state.killSwitchActive && !dailyLossHit && regimeLabel !== 'risk_off';
+}
+
 module.exports = {
   sizePosition, checkFeeViability, checkGuardrails,
-  isDailyLossLimitHit, isKillSwitchTriggered,
+  isDailyLossLimitHit, isKillSwitchTriggered, shouldEvaluateCandidates,
 };
