@@ -227,8 +227,8 @@ test('getSectionId returns undefined for an unknown tab key', () => {
   assert.equal(getSectionId('nonsense'), undefined);
 });
 
-test('TAB_SECTIONS lists all 5 tabs in display order (go-live checklist merged into Settings, matching the mockup)', () => {
-  assert.deepEqual(Object.keys(TAB_SECTIONS), ['charts', 'strategy', 'decisionLog', 'howitworks', 'settings']);
+test('TAB_SECTIONS lists all 6 tabs (5 desktop + the phone-only Overview screen)', () => {
+  assert.deepEqual(Object.keys(TAB_SECTIONS), ['charts', 'strategy', 'decisionLog', 'howitworks', 'settings', 'overview']);
 });
 
 test('computeVisibleRange returns a from/to window ending at the latest candle', () => {

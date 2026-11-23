@@ -99,6 +99,7 @@ export function formatGuardrailUsage({ used, max }) {
 
 export const TAB_SECTIONS = {
   charts: 'charts-tab', strategy: 'strategy-tab', decisionLog: 'decision-log-tab', howitworks: 'howitworks-tab', settings: 'settings-tab',
+  overview: 'overview-tab',
 };
 
 export function getSectionId(tabKey) {
