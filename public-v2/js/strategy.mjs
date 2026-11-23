@@ -94,6 +94,22 @@ function renderGuardrails(strategy) {
   }
 }
 
+async function renderClaudeUsage() {
+  const el = document.getElementById('claude-usage-panel');
+  try {
+    const usage = await fetchJson('/api/claude-usage', {});
+    el.innerHTML = `
+      <div><strong>Claude usage</strong></div>
+      <div>Provider: ${escapeHtml(usage.provider)}</div>
+      <div>Calls today: ${usage.callsToday} of ${usage.cyclesToday} cycles</div>
+      <div>This month: ${usage.callsThisMonth} calls</div>
+      <div>Fallbacks: ${usage.fallbacksThisMonth}</div>
+    `;
+  } catch (err) {
+    el.textContent = `Could not load Claude usage: ${err.message}`;
+  }
+}
+
 async function resetKillSwitch() {
   if (!window.confirm('Reset the kill switch and resume trading decisions? Only do this after reviewing why it tripped.')) return;
   const resultEl = document.getElementById('reset-kill-switch-result');
@@ -118,6 +134,7 @@ export async function renderStrategyTab() {
     renderSetupsTable(strategy);
     renderOpenPositions(positions);
     renderGuardrails(strategy);
+    await renderClaudeUsage();
   } catch (err) {
     document.getElementById('setups-table').textContent = `Could not load strategy data: ${err.message}`;
   }
