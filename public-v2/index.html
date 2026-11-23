@@ -63,9 +63,9 @@
 <header>
   <div class="logo">CRYPTODASH <span>v2</span></div>
   <nav id="tab-bar">
-    <button data-tab="charts">Charts</button>
+    <button data-tab="charts" class="active">Charts</button>
     <button data-tab="strategy">Current strategy</button>
-    <button data-tab="decisionLog" class="active">Decision log</button>
+    <button data-tab="decisionLog">Decision log</button>
     <button data-tab="howitworks">How it works</button>
     <button data-tab="settings">Settings</button>
     <button data-tab="golive">Go-live checklist</button>
@@ -79,8 +79,21 @@
     <button id="pause-button">…</button>
   </div>
 </header>
+<style>
+  #watchlist { display: flex; flex-direction: column; gap: 8px; }
+  #watchlist .watchlist-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+  #watchlist button { display: flex; flex-direction: column; align-items: stretch; gap: 4px; text-align: left; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-height: 44px; cursor: pointer; font-family: Inter, sans-serif; color: var(--text); }
+  #watchlist button.selected { background: var(--blue-bg); border-color: var(--blue-border); }
+  #watchlist .wl-row { display: flex; justify-content: space-between; align-items: baseline; }
+  #watchlist .wl-badge-open { font-family: var(--mono); font-size: 10px; font-weight: 600; color: var(--accent); }
+  #watchlist .wl-badge-candidate { font-family: var(--mono); font-size: 10px; font-weight: 600; color: #6D28D9; }
+  #chart-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+  #chart-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+  #chart-controls label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 6px 10px; min-height: 32px; border-radius: 999px; border: 1px solid var(--border-strong); background: #F9FAFB; color: var(--text); }
+  #chart-controls button { font-family: var(--mono); font-size: 12px; padding: 6px 12px; min-height: 32px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--panel); color: #374151; cursor: pointer; }
+</style>
 <main>
-  <section id="decision-log-tab">
+  <section id="decision-log-tab" class="hidden">
     <div id="benchmark-panel" class="panel">Loading benchmark…</div>
     <div id="scorecard">Loading scorecard…</div>
     <div id="filters">
@@ -118,33 +131,40 @@
     <div id="expand"></div>
   </section>
 
-  <section id="charts-tab" class="hidden">
-    <div id="chart-controls">
-      <select id="coin-select">
-        <option value="BTC">BTC</option>
-        <option value="ETH">ETH</option>
-        <option value="SOL">SOL</option>
-        <option value="XRP">XRP</option>
-        <option value="ADA">ADA</option>
-        <option value="LINK">LINK</option>
-      </select>
-      <select id="tf-select">
-        <option value="1h">1h</option>
-        <option value="4h" selected>4h</option>
-        <option value="1d">1d</option>
-      </select>
-      <label><input type="checkbox" id="toggle-ema20" checked /> EMA20</label>
-      <label><input type="checkbox" id="toggle-ema50" checked /> EMA50</label>
-      <label><input type="checkbox" id="toggle-ema200" /> EMA200</label>
-      <label><input type="checkbox" id="toggle-bollinger" /> Bollinger</label>
-      <button data-range-days="7">1W</button>
-      <button data-range-days="30">1M</button>
-      <button data-range-days="90">3M</button>
-      <button data-range-days="">ALL</button>
+  <section id="charts-tab">
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
+      <aside id="watchlist" aria-label="Watchlist" style="flex: 1 1 200px; max-width: 240px;">
+        <div class="watchlist-label">Watchlist</div>
+      </aside>
+      <div style="flex: 999 1 560px; min-width: 0;">
+        <div class="panel">
+          <div id="chart-header">
+            <select id="tf-select" style="margin-left: auto;">
+              <option value="1h">1h</option>
+              <option value="4h" selected>4h</option>
+              <option value="1d">1d</option>
+            </select>
+          </div>
+          <div id="chart-controls">
+            <label><input type="checkbox" id="toggle-ema20" checked /> EMA20</label>
+            <label><input type="checkbox" id="toggle-ema50" checked /> EMA50</label>
+            <label><input type="checkbox" id="toggle-ema200" /> EMA200</label>
+            <label><input type="checkbox" id="toggle-bollinger" /> Bollinger</label>
+            <button data-range-days="7">1W</button>
+            <button data-range-days="30">1M</button>
+            <button data-range-days="90">3M</button>
+            <button data-range-days="">ALL</button>
+          </div>
+          <div id="chart" style="height: 400px; margin-top: 14px;"></div>
+          <div id="regime-band" style="height: 20px; margin-top: 6px;"></div>
+          <div id="indicator-panel" style="height: 150px; margin-top: 14px;"></div>
+        </div>
+      </div>
+      <div style="flex: 1 1 280px; max-width: 340px; display: flex; flex-direction: column;">
+        <div id="open-position-card" class="panel hidden"></div>
+        <div id="entry-decision-card" class="panel hidden"></div>
+      </div>
     </div>
-    <div id="chart" style="height: 400px;"></div>
-    <div id="regime-band" style="height: 20px;"></div>
-    <div id="indicator-panel" style="height: 150px;"></div>
   </section>
 
   <section id="strategy-tab" class="hidden">
