@@ -3,9 +3,10 @@ import { computeNextCycleTs, formatUtcTime } from './format.mjs';
 
 export async function renderStatusBar() {
   try {
-    const [regime, status] = await Promise.all([
+    const [regime, status, paperSettings] = await Promise.all([
       fetchJson('/api/regime/current', {}),
       fetchJson('/api/status', {}),
+      fetchJson('/api/settings/paper', {}),
     ]);
 
     document.getElementById('status-regime').textContent = `Regime: ${regime.label ?? 'unknown'}`;
@@ -14,6 +15,10 @@ export async function renderStatusBar() {
     document.getElementById('status-next-cycle').textContent = `Next cycle ${formatUtcTime(computeNextCycleTs(nowTs))}`;
 
     document.getElementById('status-claude-calls').textContent = `Claude: ${status.claudeCallsToday} calls today`;
+
+    document.getElementById('status-balance').textContent = paperSettings.balanceNow === null
+      ? 'Balance —'
+      : `Balance £${paperSettings.balanceNow.toFixed(2)}`;
 
     const pauseButton = document.getElementById('pause-button');
     pauseButton.textContent = status.pausedByOperator ? 'Resume trading' : 'Pause trading';

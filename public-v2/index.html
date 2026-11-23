@@ -3,61 +3,82 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Cryptodash v2 — Decision log</title>
+<title>Cryptodash v2 · Decision log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
-  :root { --bg: #0f1117; --panel: #161925; --border: #2a2f3d; --text: #e6e8ec; --muted: #8b92a5; --accent: #22c55e; --amber: #d97706; --red: #ef4444; }
+  :root {
+    --bg: #F3F4F6; --panel: #FFFFFF; --border: #E5E7EB; --border-strong: #D1D5DB;
+    --text: #111827; --muted: #6B7280; --header-bg: #111827;
+    --accent: #1D4ED8; --accent-dark: #1E3A8A;
+    --green: #15803D; --green-bg: #DCFCE7; --green-text: #166534;
+    --amber: #B45309; --amber-bg: #FEF3C7; --amber-text: #92400E;
+    --red: #B91C1C; --red-bg: #FEE2E2; --red-text: #991B1B; --red-strong: #DC2626;
+    --indigo-bg: #E0E7FF; --indigo-text: #3730A3;
+    --blue-bg: #EFF6FF; --blue-border: #93C5FD;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 14px; }
-  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
-  .mode-pill { font-family: monospace; font-size: 11px; padding: 3px 10px; border-radius: 20px; background: rgba(217,119,6,0.15); color: var(--amber); border: 1px solid rgba(217,119,6,0.3); }
-  main { padding: 20px; max-width: 900px; margin: 0 auto; }
-  #scorecard { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
-  #filters { display: flex; gap: 10px; margin-bottom: 14px; }
-  #filters select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; }
+  a { color: var(--accent); }
+  a:hover { color: var(--accent-dark); }
+  header { background: var(--header-bg); display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 10px 24px; }
+  header .logo { font-family: var(--mono); color: #F9FAFB; font-weight: 600; letter-spacing: 0.06em; font-size: 14px; }
+  header .logo span { color: #4ADE80; }
+  .header-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+  .mode-pill { font-family: var(--mono); font-size: 12px; padding: 4px 10px; border-radius: 999px; background: rgba(251,191,36,0.14); color: #FCD34D; border: 1px solid rgba(251,191,36,0.4); }
+  .status-pill { font-family: var(--mono); font-size: 12px; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,0.06); color: #D1D5DB; border: 1px solid rgba(255,255,255,0.18); }
+  #pause-button { font-family: Inter, sans-serif; font-size: 13px; font-weight: 600; color: #111827; background: #F9FAFB; border: none; border-radius: 6px; padding: 8px 14px; min-height: 36px; cursor: pointer; }
+  #pause-button.paused { color: #FFFFFF; background: var(--red-strong); }
+  #tab-bar { display: flex; flex-wrap: wrap; gap: 4px; }
+  #tab-bar button { color: #D1D5DB; background: none; border: none; text-decoration: none; padding: 10px 14px; border-radius: 6px; font-weight: 500; font-size: 13px; cursor: pointer; font-family: Inter, sans-serif; }
+  #tab-bar button:hover { color: #FFFFFF; }
+  #tab-bar button.active { color: #FFFFFF; background: rgba(255,255,255,0.12); font-weight: 600; }
+  main { max-width: 1440px; margin: 0 auto; padding: 20px 24px 32px; box-sizing: border-box; }
+  select, input[type="number"], input[type="text"] { font-family: Inter, sans-serif; font-size: 13px; color: var(--text); padding: 8px 10px; min-height: 38px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); }
+  button { font-family: Inter, sans-serif; }
+  #scorecard { border: 1px solid var(--border); background: var(--panel); border-radius: 10px; padding: 18px 20px; margin-bottom: 20px; }
+  #filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
   .cycle-row { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 10px 14px; margin-bottom: 6px; cursor: pointer; }
   .cycle-row:hover { border-color: var(--accent); }
-  .cycle-row .ts { color: var(--muted); font-family: monospace; font-size: 12px; }
+  .cycle-row .ts { color: var(--muted); font-family: var(--mono); font-size: 12px; }
   .cycle-row .line { margin-top: 4px; }
   .cycle-row.has-error .line { color: var(--red); }
-  #expand { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 14px; margin-top: 10px; display: none; }
+  #expand { border: 1px solid var(--border); background: var(--panel); border-radius: 10px; padding: 14px; margin-top: 10px; display: none; }
   .candidate-block { border-top: 1px solid var(--border); padding: 10px 0; }
-  .plain-panel { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25); border-radius: 6px; padding: 8px 10px; margin-top: 6px; }
-  .panel { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
-  .panel table { width: 100%; border-collapse: collapse; }
-  .panel td, .panel th { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border); }
-  .guardrail-bar-track { background: var(--border); border-radius: 4px; height: 8px; overflow: hidden; margin-top: 4px; }
+  .plain-panel { background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 6px; padding: 8px 10px; margin-top: 6px; color: #14532D; }
+  .panel { border: 1px solid var(--border); background: var(--panel); border-radius: 10px; padding: 18px 20px; margin-bottom: 14px; }
+  .panel table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .panel td, .panel th { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  .panel th { font-weight: 500; font-size: 12px; color: var(--muted); }
+  .guardrail-bar-track { background: var(--border); border-radius: 4px; height: 8px; overflow: hidden; margin-top: 6px; }
   .guardrail-bar-fill { background: var(--accent); height: 100%; }
   .hidden { display: none; }
-  #status-bar { display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
-  #status-bar .status-pill { font-family: monospace; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); }
-  #pause-button { margin-left: auto; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; }
-  #pause-button.paused { border-color: var(--red); color: var(--red); }
-  #tab-bar { display: flex; gap: 6px; padding: 10px 20px; border-bottom: 1px solid var(--border); }
-  #tab-bar button, #howitworks-toggle button { background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
-  #tab-bar button:hover, #howitworks-toggle button:hover { color: var(--text); }
-  #tab-bar button.active, #howitworks-toggle button.active { color: var(--text); border-color: var(--accent); background: rgba(34,197,94,0.1); }
-  #howitworks-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
+  #howitworks-toggle { display: flex; gap: 4px; margin-bottom: 16px; }
+  #howitworks-toggle button { font-family: Inter, sans-serif; font-size: 13px; font-weight: 600; padding: 8px 14px; min-height: 38px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--panel); color: #374151; cursor: pointer; }
+  #howitworks-toggle button.active { border-color: #111827; background: #111827; color: #FFFFFF; }
 </style>
 </head>
 <body>
 <header>
-  <strong>cryptodash v2</strong>
-  <span class="mode-pill">PAPER</span>
+  <div class="logo">CRYPTODASH <span>v2</span></div>
+  <nav id="tab-bar">
+    <button data-tab="charts">Charts</button>
+    <button data-tab="strategy">Current strategy</button>
+    <button data-tab="decisionLog" class="active">Decision log</button>
+    <button data-tab="howitworks">How it works</button>
+    <button data-tab="settings">Settings</button>
+    <button data-tab="golive">Go-live checklist</button>
+  </nav>
+  <div class="header-chips">
+    <span class="mode-pill">PAPER</span>
+    <span id="status-regime" class="status-pill">Regime: …</span>
+    <span id="status-next-cycle" class="status-pill">Next cycle …</span>
+    <span id="status-claude-calls" class="status-pill">Claude: …</span>
+    <span id="status-balance" class="status-pill">Balance …</span>
+    <button id="pause-button">…</button>
+  </div>
 </header>
-<div id="status-bar">
-  <span id="status-regime" class="status-pill">Regime: …</span>
-  <span id="status-next-cycle" class="status-pill">Next cycle …</span>
-  <span id="status-claude-calls" class="status-pill">Claude: …</span>
-  <button id="pause-button">…</button>
-</div>
-<nav id="tab-bar">
-  <button data-tab="decisionLog" class="active">Decision log</button>
-  <button data-tab="charts">Charts</button>
-  <button data-tab="strategy">Strategy</button>
-  <button data-tab="golive">Go-live checklist</button>
-  <button data-tab="settings">Settings</button>
-  <button data-tab="howitworks">How it works</button>
-</nav>
 <main>
   <section id="decision-log-tab">
     <div id="benchmark-panel" class="panel">Loading benchmark…</div>
