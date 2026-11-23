@@ -27,6 +27,11 @@
   .panel td, .panel th { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border); }
   .guardrail-bar-track { background: var(--border); border-radius: 4px; height: 8px; overflow: hidden; margin-top: 4px; }
   .guardrail-bar-fill { background: var(--accent); height: 100%; }
+  .hidden { display: none; }
+  #tab-bar { display: flex; gap: 6px; padding: 10px 20px; border-bottom: 1px solid var(--border); }
+  #tab-bar button { background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  #tab-bar button:hover { color: var(--text); }
+  #tab-bar button.active { color: var(--text); border-color: var(--accent); background: rgba(34,197,94,0.1); }
 </style>
 </head>
 <body>
@@ -34,21 +39,29 @@
   <strong>cryptodash v2</strong>
   <span class="mode-pill">PAPER</span>
 </header>
+<nav id="tab-bar">
+  <button data-tab="decisionLog" class="active">Decision log</button>
+  <button data-tab="charts">Charts</button>
+  <button data-tab="strategy">Strategy</button>
+  <button data-tab="golive">Go-live checklist</button>
+</nav>
 <main>
-  <div id="scorecard">Loading scorecard…</div>
-  <div id="filters">
-    <select id="regime-filter">
-      <option value="">All regimes</option>
-      <option value="trend_up">trend_up</option>
-      <option value="range">range</option>
-      <option value="downtrend">downtrend</option>
-      <option value="risk_off">risk_off</option>
-    </select>
-  </div>
-  <div id="timeline">Loading cycles…</div>
-  <div id="expand"></div>
+  <section id="decision-log-tab">
+    <div id="scorecard">Loading scorecard…</div>
+    <div id="filters">
+      <select id="regime-filter">
+        <option value="">All regimes</option>
+        <option value="trend_up">trend_up</option>
+        <option value="range">range</option>
+        <option value="downtrend">downtrend</option>
+        <option value="risk_off">risk_off</option>
+      </select>
+    </div>
+    <div id="timeline">Loading cycles…</div>
+    <div id="expand"></div>
+  </section>
 
-  <section id="charts-tab">
+  <section id="charts-tab" class="hidden">
     <div id="chart-controls">
       <select id="coin-select">
         <option value="BTC">BTC</option>
@@ -73,7 +86,7 @@
     <div id="indicator-panel" style="height: 150px;"></div>
   </section>
 
-  <section id="strategy-tab">
+  <section id="strategy-tab" class="hidden">
     <div id="regime-card" class="panel">Loading regime…</div>
     <div id="market-note" class="panel">Loading market note…</div>
     <div id="setups-table" class="panel">Loading setups…</div>
@@ -96,7 +109,7 @@
     </div>
   </section>
 
-  <section id="golive-tab">
+  <section id="golive-tab" class="hidden">
     <div id="golive-checklist" class="panel">Loading go-live checklist…</div>
   </section>
 </main>
@@ -106,5 +119,6 @@
 <script type="module" src="/js/strategy.mjs"></script>
 <script type="module" src="/js/config-editor.mjs"></script>
 <script type="module" src="/js/golive.mjs"></script>
+<script type="module" src="/js/tabs.mjs"></script>
 </body>
 </html>

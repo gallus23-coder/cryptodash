@@ -97,6 +97,14 @@ export function formatGuardrailUsage({ used, max }) {
   return { text: `${used} / ${max}`, pct };
 }
 
+export const TAB_SECTIONS = {
+  decisionLog: 'decision-log-tab', charts: 'charts-tab', strategy: 'strategy-tab', golive: 'golive-tab',
+};
+
+export function getSectionId(tabKey) {
+  return TAB_SECTIONS[tabKey];
+}
+
 export function formatChecklistStatus(pass) {
   if (pass === true) return { icon: '✅', label: 'Done' };
   if (pass === false) return { icon: '❌', label: 'Not yet' };

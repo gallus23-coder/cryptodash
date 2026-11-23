@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus, TAB_SECTIONS, getSectionId } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -214,4 +214,19 @@ test('formatChecklistStatus shows a not-yet icon for pass: false', () => {
 
 test('formatChecklistStatus shows a pending icon for pass: null', () => {
   assert.deepEqual(formatChecklistStatus(null), { icon: '⏳', label: 'Pending' });
+});
+
+test('getSectionId maps every known tab key to its section id', () => {
+  assert.equal(getSectionId('decisionLog'), 'decision-log-tab');
+  assert.equal(getSectionId('charts'), 'charts-tab');
+  assert.equal(getSectionId('strategy'), 'strategy-tab');
+  assert.equal(getSectionId('golive'), 'golive-tab');
+});
+
+test('getSectionId returns undefined for an unknown tab key', () => {
+  assert.equal(getSectionId('nonsense'), undefined);
+});
+
+test('TAB_SECTIONS lists all 4 tabs in display order', () => {
+  assert.deepEqual(Object.keys(TAB_SECTIONS), ['decisionLog', 'charts', 'strategy', 'golive']);
 });
