@@ -115,6 +115,12 @@ export function computeNextCycleTs(nowTs) {
   return (Math.floor(nowTs / FOUR_H) + 1) * FOUR_H;
 }
 
+export function formatUtcTime(tsSeconds) {
+  const d = new Date(tsSeconds * 1000);
+  const pad2 = (n) => String(n).padStart(2, '0');
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+}
+
 export function formatPct(value) {
   const sign = value >= 0 ? '+' : '-';
   return `${sign}${Math.abs(value * 100).toFixed(1)}%`;

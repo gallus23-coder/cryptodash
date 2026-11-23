@@ -28,6 +28,10 @@
   .guardrail-bar-track { background: var(--border); border-radius: 4px; height: 8px; overflow: hidden; margin-top: 4px; }
   .guardrail-bar-fill { background: var(--accent); height: 100%; }
   .hidden { display: none; }
+  #status-bar { display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+  #status-bar .status-pill { font-family: monospace; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); }
+  #pause-button { margin-left: auto; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; }
+  #pause-button.paused { border-color: var(--red); color: var(--red); }
   #tab-bar { display: flex; gap: 6px; padding: 10px 20px; border-bottom: 1px solid var(--border); }
   #tab-bar button { background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
   #tab-bar button:hover { color: var(--text); }
@@ -39,6 +43,12 @@
   <strong>cryptodash v2</strong>
   <span class="mode-pill">PAPER</span>
 </header>
+<div id="status-bar">
+  <span id="status-regime" class="status-pill">Regime: …</span>
+  <span id="status-next-cycle" class="status-pill">Next cycle …</span>
+  <span id="status-claude-calls" class="status-pill">Claude: …</span>
+  <button id="pause-button">…</button>
+</div>
 <nav id="tab-bar">
   <button data-tab="decisionLog" class="active">Decision log</button>
   <button data-tab="charts">Charts</button>
@@ -118,6 +128,7 @@
     <div id="golive-checklist" class="panel">Loading go-live checklist…</div>
   </section>
 </main>
+<script type="module" src="/js/status.mjs"></script>
 <script type="module" src="/js/benchmark.mjs"></script>
 <script type="module" src="/js/scorecard.mjs"></script>
 <script type="module" src="/js/timeline.mjs"></script>

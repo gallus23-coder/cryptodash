@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus, TAB_SECTIONS, getSectionId, computeVisibleRange, formatPct, formatRatio, computeNextCycleTs } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus, TAB_SECTIONS, getSectionId, computeVisibleRange, formatPct, formatRatio, computeNextCycleTs, formatUtcTime } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -269,4 +269,9 @@ test('computeNextCycleTs returns 4 hours later when already exactly on a boundar
   const HOUR = 3600;
   assert.equal(computeNextCycleTs(0), 4 * HOUR); // "next" cycle, not the one that just ran
   assert.equal(computeNextCycleTs(8 * HOUR), 12 * HOUR);
+});
+
+test('formatUtcTime shows HH:MM for a timestamp', () => {
+  assert.equal(formatUtcTime(11 * 3600), '11:00');
+  assert.equal(formatUtcTime(8 * 3600 + 5 * 60), '08:05');
 });
