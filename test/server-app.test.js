@@ -538,6 +538,44 @@ test('GET /api/go-live-checklist reports trades60 passing once 60+ trades exist 
   }
 });
 
+test('GET /api/benchmarks returns null stats when the mode has no cycle_log history yet', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/benchmarks`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.startTs, null);
+    assert.equal(body.bot, null);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/benchmarks returns the bot vs BTC vs cash comparison once there is history', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'range', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 10 });
+    saveSchedulerState(db, 'paper', { balance: 1010 });
+    insertTrade(db, {
+      mode: 'paper', coin: 'BTC', setup: 'trend_pullback', entryTs: 1000, exitTs: 2000,
+      entryPrice: 100, exitPrice: 105, units: 1, riskAmount: 10, pnl: 10, r: 1, exitReason: 'target', candidateId: 'c1',
+    });
+    upsertCandles(db, [
+      { coin: 'BTC', timeframe: '1d', ts: 1000, open: 60000, high: 61000, low: 59000, close: 60000, volume: 1, trades: null },
+      { coin: 'BTC', timeframe: '1d', ts: 1000 + 86400, open: 60000, high: 63000, low: 59500, close: 66000, volume: 1, trades: null },
+    ]);
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/benchmarks`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.startTs, 1000);
+    assert.equal(body.bot.returnPct, 0.01); // (1010-1000)/1000
+    assert.equal(body.btc.returnPct, 0.1); // (66000-60000)/60000
+    assert.deepEqual(body.cash, { returnPct: 0, worstDrawdownPct: 0, ratio: null });
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/regime/current includes the metrics behind the label, not just the label', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {

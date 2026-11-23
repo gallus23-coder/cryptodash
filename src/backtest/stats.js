@@ -24,4 +24,19 @@ function computeDrawdown(values) {
   return { peak, maxDrawdownPct };
 }
 
-module.exports = { computeTradeR, computeExpectancy, computeDrawdown };
+function computeBenchmarkComparison({ botSeries, btcSeries }) {
+  function summarize(series) {
+    const returnPct = series.length > 1 ? (series[series.length - 1] - series[0]) / series[0] : 0;
+    const { maxDrawdownPct } = computeDrawdown(series);
+    const ratio = maxDrawdownPct === 0 ? null : returnPct / maxDrawdownPct;
+    return { returnPct, worstDrawdownPct: maxDrawdownPct, ratio };
+  }
+
+  return {
+    bot: summarize(botSeries),
+    btc: summarize(btcSeries),
+    cash: { returnPct: 0, worstDrawdownPct: 0, ratio: null },
+  };
+}
+
+module.exports = { computeTradeR, computeExpectancy, computeDrawdown, computeBenchmarkComparison };

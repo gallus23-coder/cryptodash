@@ -234,6 +234,30 @@ function buildGoLiveChecklist({ tradeCount, expectancy, scorecardNotEnoughData, 
   };
 }
 
+function getBenchmarkInputs(db, mode) {
+  const row = db.prepare('SELECT MIN(ts) as startTs FROM cycle_log WHERE mode = ?').get(mode);
+  const startTs = row.startTs;
+  if (startTs === null) return null;
+
+  const trades = getTrades(db, mode);
+  const totalPnl = trades.reduce((sum, t) => sum + t.pnl, 0);
+  const state = loadSchedulerState(db, mode);
+  const currentBalance = state ? state.balance : totalPnl;
+  const startBalance = currentBalance - totalPnl;
+
+  const botSeries = [startBalance];
+  let running = startBalance;
+  for (const t of trades) {
+    running += t.pnl;
+    botSeries.push(running);
+  }
+
+  const btcDaily = getCandles(db, 'BTC', '1d', startTs, Math.floor(Date.now() / 1000));
+  const btcSeries = btcDaily.map((c) => c.close);
+
+  return { startTs, botSeries, btcSeries };
+}
+
 function getCycleLogFiltered(db, { mode = 'paper', from, to, regime, limit = 100 } = {}) {
   const clauses = ['mode = @mode'];
   const params = { mode, limit };
@@ -415,7 +439,7 @@ module.exports = {
   insertTrade, getTrades, saveSchedulerState, loadSchedulerState, insertCycleLog, getCycleLog,
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
   getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
-  getScorecardData, buildCycleOneLiner, getCycleLogFiltered, buildGoLiveChecklist,
+  getScorecardData, buildCycleOneLiner, getCycleLogFiltered, buildGoLiveChecklist, getBenchmarkInputs,
   getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote, getSetupStats,
   insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
   approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions,

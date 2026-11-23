@@ -162,7 +162,50 @@ test('insertCycleLog/getCycleLog round-trips and orders by ts descending', () =>
   assert.equal(rows[0].error, null);
 });
 
-const { buildGoLiveChecklist } = require('../src/data/db');
+const { buildGoLiveChecklist, getBenchmarkInputs } = require('../src/data/db');
+
+test('getBenchmarkInputs returns null when the mode has no cycle_log history yet', () => {
+  const db = openDb(':memory:');
+  assert.equal(getBenchmarkInputs(db, 'paper'), null);
+});
+
+test('getBenchmarkInputs reconstructs the bot equity series from trade pnls, starting balance included', () => {
+  const db = openDb(':memory:');
+  insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'range', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 10 });
+  saveSchedulerState(db, 'paper', { balance: 1030 });
+  insertTrade(db, {
+    mode: 'paper', coin: 'BTC', setup: 'trend_pullback', entryTs: 1000, exitTs: 2000,
+    entryPrice: 100, exitPrice: 105, units: 1, riskAmount: 10, pnl: 10, r: 1, exitReason: 'target', candidateId: 'c1',
+  });
+  insertTrade(db, {
+    mode: 'paper', coin: 'BTC', setup: 'trend_pullback', entryTs: 3000, exitTs: 4000,
+    entryPrice: 105, exitPrice: 107, units: 1, riskAmount: 10, pnl: 20, r: 2, exitReason: 'target', candidateId: 'c2',
+  });
+  upsertCandles(db, [
+    { coin: 'BTC', timeframe: '1d', ts: 1000, open: 60000, high: 61000, low: 59000, close: 60000, volume: 1, trades: null },
+    { coin: 'BTC', timeframe: '1d', ts: 1000 + 86400, open: 60000, high: 63000, low: 59500, close: 62760, volume: 1, trades: null },
+  ]);
+
+  const result = getBenchmarkInputs(db, 'paper');
+
+  assert.equal(result.startTs, 1000);
+  // startBalance = currentBalance(1030) - totalPnl(10+20=30) = 1000
+  assert.deepEqual(result.botSeries, [1000, 1010, 1030]);
+  assert.deepEqual(result.btcSeries, [60000, 62760]);
+});
+
+test('getBenchmarkInputs returns a single-point bot series when there are no trades yet', () => {
+  const db = openDb(':memory:');
+  insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'risk_off', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 10 });
+  saveSchedulerState(db, 'paper', { balance: 1000 });
+  upsertCandles(db, [
+    { coin: 'BTC', timeframe: '1d', ts: 1000, open: 60000, high: 61000, low: 59000, close: 60000, volume: 1, trades: null },
+  ]);
+
+  const result = getBenchmarkInputs(db, 'paper');
+
+  assert.deepEqual(result.botSeries, [1000]);
+});
 
 test('buildGoLiveChecklist: trades60 passes at 60+ trades with positive expectancy', () => {
   const checklist = buildGoLiveChecklist({ tradeCount: 60, expectancy: 0.1, scorecardNotEnoughData: true, scorecardClaudeMeanR: 0 });

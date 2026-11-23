@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { computeTradeR, computeExpectancy, computeDrawdown } = require('../src/backtest/stats');
+const { computeTradeR, computeExpectancy, computeDrawdown, computeBenchmarkComparison } = require('../src/backtest/stats');
 
 test('computeTradeR divides P&L by the amount risked', () => {
   assert.equal(computeTradeR(50, 100), 0.5);
@@ -45,4 +45,32 @@ test('computeDrawdown tracks the worst peak-to-trough drop as a percentage', () 
 test('computeDrawdown is zero for a monotonically rising series', () => {
   const result = computeDrawdown([100, 110, 120]);
   assert.equal(result.maxDrawdownPct, 0);
+});
+
+test('computeBenchmarkComparison computes return and worst drawdown for both the bot and BTC buy-and-hold', () => {
+  const result = computeBenchmarkComparison({ botSeries: [1000, 1012], btcSeries: [60000, 62760] });
+
+  assert.equal(result.bot.returnPct, 0.012); // (1012-1000)/1000
+  assert.equal(result.bot.worstDrawdownPct, 0); // monotonically rising, no drawdown
+  assert.equal(result.btc.returnPct, 0.046); // (62760-60000)/60000
+  assert.equal(result.btc.worstDrawdownPct, 0);
+});
+
+test('computeBenchmarkComparison computes a return-over-drawdown ratio when drawdown is nonzero', () => {
+  const result = computeBenchmarkComparison({ botSeries: [1000, 900, 1020], btcSeries: [100, 100] });
+
+  // bot: return = (1020-1000)/1000 = 0.02, worst drawdown = (1000-900)/1000 = 0.1, ratio = 0.02/0.1 = 0.2
+  assert.equal(result.bot.returnPct, 0.02);
+  assert.equal(result.bot.worstDrawdownPct, 0.1);
+  assert.ok(Math.abs(result.bot.ratio - 0.2) < 1e-10); // floating-point division, not exact in binary
+});
+
+test('computeBenchmarkComparison reports a null ratio instead of dividing by zero when drawdown is zero', () => {
+  const result = computeBenchmarkComparison({ botSeries: [1000, 1010], btcSeries: [100, 100] });
+  assert.equal(result.bot.ratio, null); // no drawdown yet, ratio is undefined, not Infinity
+});
+
+test('computeBenchmarkComparison always reports cash as flat: 0% return, 0% drawdown, null ratio', () => {
+  const result = computeBenchmarkComparison({ botSeries: [1000, 1500], btcSeries: [100, 50] });
+  assert.deepEqual(result.cash, { returnPct: 0, worstDrawdownPct: 0, ratio: null });
 });

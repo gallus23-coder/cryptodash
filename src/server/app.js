@@ -326,6 +326,22 @@ function createApp(db, { password } = {}) {
     res.json(buildGoLiveChecklist({ tradeCount, expectancy, scorecardNotEnoughData, scorecardClaudeMeanR }));
   });
 
+  const { getBenchmarkInputs } = require('../data/db');
+
+  app.get('/api/benchmarks', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const { computeBenchmarkComparison } = require('../backtest/stats');
+
+    const inputs = getBenchmarkInputs(db, mode);
+    if (!inputs) {
+      res.json({ startTs: null, bot: null, btc: null, cash: null });
+      return;
+    }
+
+    const comparison = computeBenchmarkComparison({ botSeries: inputs.botSeries, btcSeries: inputs.btcSeries });
+    res.json({ startTs: inputs.startTs, ...comparison });
+  });
+
   app.post('/api/guardrails/reset-kill-switch', (req, res) => {
     const mode = req.query.mode || 'paper';
     try {
