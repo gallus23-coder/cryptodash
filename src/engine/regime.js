@@ -1,13 +1,17 @@
 'use strict';
 const { ema, adx, choppiness, atr } = require('./indicators');
 
+const REGIME_THRESHOLDS = {
+  riskOffVolatilityRankPct: 90, riskOffBtc24hChangePct: -6, trendUpAdx: 22, trendUpBreadthPct: 60,
+};
+
 function labelRegime(metrics) {
   const { btcAboveEma200, ema200SlopeFalling, adx: adxValue, breadthPct, volatilityRankPct, btc24hChangePct } = metrics;
 
   let label;
-  if (volatilityRankPct > 90 || btc24hChangePct <= -6) {
+  if (volatilityRankPct > REGIME_THRESHOLDS.riskOffVolatilityRankPct || btc24hChangePct <= REGIME_THRESHOLDS.riskOffBtc24hChangePct) {
     label = 'risk_off';
-  } else if (btcAboveEma200 && adxValue > 22 && breadthPct >= 60) {
+  } else if (btcAboveEma200 && adxValue > REGIME_THRESHOLDS.trendUpAdx && breadthPct >= REGIME_THRESHOLDS.trendUpBreadthPct) {
     label = 'trend_up';
   } else if (!btcAboveEma200 && ema200SlopeFalling) {
     label = 'downtrend';
@@ -104,4 +108,4 @@ function computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h }) {
   return results;
 }
 
-module.exports = { labelRegime, computeRegimeSeries, alignDailyIndices };
+module.exports = { labelRegime, computeRegimeSeries, alignDailyIndices, REGIME_THRESHOLDS };

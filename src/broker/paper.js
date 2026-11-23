@@ -60,7 +60,7 @@ function evaluateExit(position, { candles1h, ema20By4hTs }) {
 
 function tryOpenPosition(state, candidate, data, i, config) {
   const atrPct = (candidate.atr / candidate.entry) * 100;
-  if (!checkFeeViability({ atrPct, roundTripFeePct: config.roundTripFeePct })) return;
+  if (!checkFeeViability({ atrPct, roundTripFeePct: config.roundTripFeePct, minMultiple: config.feeViabilityMultiple })) return;
 
   const stopPrice = candidate.entry - candidate.default.stopAtr * candidate.atr;
   const riskPct = config.baseRiskPct * candidate.default.size;

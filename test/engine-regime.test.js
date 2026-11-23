@@ -1,7 +1,13 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { labelRegime } = require('../src/engine/regime');
+const { labelRegime, REGIME_THRESHOLDS } = require('../src/engine/regime');
+
+test('REGIME_THRESHOLDS exports the named thresholds labelRegime actually uses', () => {
+  assert.deepEqual(REGIME_THRESHOLDS, {
+    riskOffVolatilityRankPct: 90, riskOffBtc24hChangePct: -6, trendUpAdx: 22, trendUpBreadthPct: 60,
+  });
+});
 
 function baseMetrics(overrides = {}) {
   return {

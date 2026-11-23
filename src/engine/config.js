@@ -5,6 +5,7 @@ const DEFAULT_RISK_CONFIG = {
   maxCoinExposurePct: 0.20, maxTotalExposurePct: 0.60, cooldownHours: 6,
   dailyLossLimitPct: 0.03, weeklyKillSwitchPct: 0.08,
   roundTripFeePct: 0.65, // percent, matches checkFeeViability's expected units
+  feeViabilityMultiple: 4, // checkFeeViability's minMultiple — named so the How It Works screen can quote the real value
   claudeModel: 'claude-sonnet-5', claudeEffort: 'low', claudeTimeoutMs: 30000,
   liveOrderPollMs: 10000, liveOrderTimeoutMs: 15 * 60 * 1000, liveMarketOrderTimeoutMs: 60000,
 };

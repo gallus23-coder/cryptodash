@@ -12,6 +12,7 @@ test('DEFAULT_RISK_CONFIG matches design spec §5.4 values', () => {
   assert.equal(DEFAULT_RISK_CONFIG.cooldownHours, 6);
   assert.equal(DEFAULT_RISK_CONFIG.dailyLossLimitPct, 0.03);
   assert.equal(DEFAULT_RISK_CONFIG.weeklyKillSwitchPct, 0.08);
+  assert.equal(DEFAULT_RISK_CONFIG.feeViabilityMultiple, 4);
 });
 
 test('COIN_ALTNAMES has the 6 watchlist coins with their confirmed Kraken altnames', () => {

@@ -94,6 +94,23 @@ test('tryOpenPosition never calls addOrder when a guardrail blocks the candidate
   assert.equal(addOrderCalled, false);
 });
 
+test('tryOpenPosition reads feeViabilityMultiple from config, not a hardcoded default', async () => {
+  let addOrderCalled = false;
+  const krakenClient = {
+    addOrder: async () => { addOrderCalled = true; return { txid: ['SHOULD-NOT-HAPPEN'] }; },
+    queryOrders: async () => { throw new Error('should not be called'); },
+    cancelOrder: async () => { throw new Error('should not be called'); },
+  };
+
+  // makeCandidate's default atr=1560 on entry=60000 is exactly 2.6% ATR — passes the default
+  // multiple of 4 (needs >=2.6%), but fails a stricter config requiring 10x (needs >=6.5%).
+  const strictConfig = { ...DEFAULT_RISK_CONFIG, feeViabilityMultiple: 10 };
+  const position = await tryOpenPosition(makeState(), makeCandidate(), makeData(), 0, strictConfig, krakenClient, { sleep: instantSleep, now: Date.now });
+
+  assert.equal(position, null);
+  assert.equal(addOrderCalled, false);
+});
+
 test('tryOpenPosition never calls addOrder when the fee-viability check fails', async () => {
   let addOrderCalled = false;
   const krakenClient = {
