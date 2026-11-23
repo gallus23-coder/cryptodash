@@ -328,6 +328,24 @@ test('GET /api/cycles?action=X only returns cycles with a decision of that actio
   }
 });
 
+test('GET /api/cycles?diverged=true only returns cycles with an overridden decision', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 10 });
+    insertCycleLog(db, { ts: 2000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 10 });
+    seedCandidate(db, { id: 'c1', ts: 1000 });
+    seedCandidate(db, { id: 'c2', ts: 2000 });
+    seedDecision(db, { candidateId: 'c1', ts: 1000, diverged: true });
+    seedDecision(db, { candidateId: 'c2', ts: 2000, diverged: false });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/cycles?diverged=true`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.deepEqual(body.map((r) => r.ts), [1000]);
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/cycles combines coin/setup/action filters with AND, not OR', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {
