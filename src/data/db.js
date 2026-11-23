@@ -281,12 +281,23 @@ function getMonthStartTs(nowTs) {
   return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000);
 }
 
-function getCycleLogFiltered(db, { mode = 'paper', from, to, regime, limit = 100 } = {}) {
+function getCycleLogFiltered(db, { mode = 'paper', from, to, regime, coin, setup, action, limit = 100 } = {}) {
   const clauses = ['mode = @mode'];
   const params = { mode, limit };
   if (from !== undefined) { clauses.push('ts >= @from'); params.from = from; }
   if (to !== undefined) { clauses.push('ts <= @to'); params.to = to; }
   if (regime !== undefined) { clauses.push('regime_label = @regime'); params.regime = regime; }
+
+  if (coin !== undefined || setup !== undefined || action !== undefined) {
+    const subClauses = ['c.mode = @mode'];
+    if (coin !== undefined) { subClauses.push('c.coin = @coin'); params.coin = coin; }
+    if (setup !== undefined) { subClauses.push('c.setup = @setup'); params.setup = setup; }
+    if (action !== undefined) { subClauses.push('d.action = @action'); params.action = action; }
+    clauses.push(`ts IN (
+      SELECT c.ts FROM candidates c LEFT JOIN decisions d ON d.candidate_id = c.id AND d.mode = c.mode
+      WHERE ${subClauses.join(' AND ')}
+    )`);
+  }
 
   return db.prepare(`
     SELECT ts, mode, regime_label AS regimeLabel, candidates_count AS candidatesCount,

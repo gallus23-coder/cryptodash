@@ -278,6 +278,72 @@ test('GET /api/cycles returns cycle_log rows with a plain-English one-liner', as
   }
 });
 
+test('GET /api/cycles?coin=X only returns cycles with a candidate for that coin', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 10 });
+    insertCycleLog(db, { ts: 2000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 10 });
+    seedCandidate(db, { id: 'c_sol', ts: 1000, coin: 'SOL' });
+    seedCandidate(db, { id: 'c_eth', ts: 2000, coin: 'ETH' });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/cycles?coin=SOL`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.deepEqual(body.map((r) => r.ts), [1000]);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/cycles?setup=X only returns cycles with a candidate for that setup', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 10 });
+    insertCycleLog(db, { ts: 2000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 10 });
+    seedCandidate(db, { id: 'c1', ts: 1000, setup: 'trend_pullback' });
+    seedCandidate(db, { id: 'c2', ts: 2000, setup: 'range_reversion' });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/cycles?setup=range_reversion`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.deepEqual(body.map((r) => r.ts), [2000]);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/cycles?action=X only returns cycles with a decision of that action', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 10 });
+    insertCycleLog(db, { ts: 2000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 10 });
+    seedCandidate(db, { id: 'c1', ts: 1000 });
+    seedCandidate(db, { id: 'c2', ts: 2000 });
+    seedDecision(db, { candidateId: 'c1', ts: 1000, action: 'take' });
+    seedDecision(db, { candidateId: 'c2', ts: 2000, action: 'skip' });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/cycles?action=skip`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.deepEqual(body.map((r) => r.ts), [2000]);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/cycles combines coin/setup/action filters with AND, not OR', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 10 });
+    insertCycleLog(db, { ts: 2000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 10 });
+    seedCandidate(db, { id: 'c1', ts: 1000, coin: 'SOL', setup: 'trend_pullback' });
+    seedCandidate(db, { id: 'c2', ts: 2000, coin: 'SOL', setup: 'range_reversion' });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/cycles?coin=SOL&setup=range_reversion`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.deepEqual(body.map((r) => r.ts), [2000]);
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/candles/:coin returns candles for the requested timeframe and range', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {

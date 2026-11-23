@@ -80,12 +80,12 @@ function createApp(db, { password } = {}) {
   const { getCycleLogFiltered } = require('../data/db');
 
   app.get('/api/cycles', (req, res) => {
-    const { mode, from, to, regime, limit } = req.query;
+    const { mode, from, to, regime, coin, setup, action, limit } = req.query;
     const rows = getCycleLogFiltered(db, {
       mode: mode || 'paper',
       from: from !== undefined ? Number(from) : undefined,
       to: to !== undefined ? Number(to) : undefined,
-      regime,
+      regime, coin, setup, action,
       limit: limit !== undefined ? Number(limit) : undefined,
     });
     res.json(rows);
