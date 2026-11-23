@@ -33,9 +33,10 @@
   #pause-button { margin-left: auto; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; }
   #pause-button.paused { border-color: var(--red); color: var(--red); }
   #tab-bar { display: flex; gap: 6px; padding: 10px 20px; border-bottom: 1px solid var(--border); }
-  #tab-bar button { background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
-  #tab-bar button:hover { color: var(--text); }
-  #tab-bar button.active { color: var(--text); border-color: var(--accent); background: rgba(34,197,94,0.1); }
+  #tab-bar button, #howitworks-toggle button { background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  #tab-bar button:hover, #howitworks-toggle button:hover { color: var(--text); }
+  #tab-bar button.active, #howitworks-toggle button.active { color: var(--text); border-color: var(--accent); background: rgba(34,197,94,0.1); }
+  #howitworks-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -55,6 +56,7 @@
   <button data-tab="strategy">Strategy</button>
   <button data-tab="golive">Go-live checklist</button>
   <button data-tab="settings">Settings</button>
+  <button data-tab="howitworks">How it works</button>
 </nav>
 <main>
   <section id="decision-log-tab">
@@ -157,6 +159,15 @@
     <div id="live-settings" class="panel">Loading live settings…</div>
     <div id="guardrail-caps" class="panel">Loading guardrail caps…</div>
   </section>
+
+  <section id="howitworks-tab" class="hidden">
+    <div id="howitworks-toggle">
+      <button id="howitworks-plain" class="active">Plain English</button>
+      <button id="howitworks-technical">Technical</button>
+    </div>
+    <div id="howitworks-steps" class="panel">Loading…</div>
+    <div id="howitworks-sidebar" class="panel"></div>
+  </section>
 </main>
 <script type="module" src="/js/status.mjs"></script>
 <script type="module" src="/js/benchmark.mjs"></script>
@@ -167,6 +178,7 @@
 <script type="module" src="/js/config-editor.mjs"></script>
 <script type="module" src="/js/golive.mjs"></script>
 <script type="module" src="/js/settings.mjs"></script>
+<script type="module" src="/js/howitworks.mjs"></script>
 <script type="module" src="/js/tabs.mjs"></script>
 </body>
 </html>
