@@ -220,15 +220,15 @@ test('getSectionId maps every known tab key to its section id', () => {
   assert.equal(getSectionId('decisionLog'), 'decision-log-tab');
   assert.equal(getSectionId('charts'), 'charts-tab');
   assert.equal(getSectionId('strategy'), 'strategy-tab');
-  assert.equal(getSectionId('golive'), 'golive-tab');
+  assert.equal(getSectionId('settings'), 'settings-tab');
 });
 
 test('getSectionId returns undefined for an unknown tab key', () => {
   assert.equal(getSectionId('nonsense'), undefined);
 });
 
-test('TAB_SECTIONS lists all 6 tabs in display order', () => {
-  assert.deepEqual(Object.keys(TAB_SECTIONS), ['decisionLog', 'charts', 'strategy', 'golive', 'settings', 'howitworks']);
+test('TAB_SECTIONS lists all 5 tabs in display order (go-live checklist merged into Settings, matching the mockup)', () => {
+  assert.deepEqual(Object.keys(TAB_SECTIONS), ['charts', 'strategy', 'decisionLog', 'howitworks', 'settings']);
 });
 
 test('computeVisibleRange returns a from/to window ending at the latest candle', () => {

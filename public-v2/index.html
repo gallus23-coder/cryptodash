@@ -68,7 +68,6 @@
     <button data-tab="decisionLog">Decision log</button>
     <button data-tab="howitworks">How it works</button>
     <button data-tab="settings">Settings</button>
-    <button data-tab="golive">Go-live checklist</button>
   </nav>
   <div class="header-chips">
     <span class="mode-pill">PAPER</span>
@@ -210,14 +209,22 @@
     </div>
   </section>
 
-  <section id="golive-tab" class="hidden">
-    <div id="golive-checklist" class="panel">Loading go-live checklist…</div>
-  </section>
-
   <section id="settings-tab" class="hidden">
-    <div id="paper-settings" class="panel">Loading paper settings…</div>
-    <div id="live-settings" class="panel">Loading live settings…</div>
-    <div id="guardrail-caps" class="panel">Loading guardrail caps…</div>
+    <div id="mode-examples" class="panel"></div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px;">
+      <div id="paper-settings" class="panel">Loading paper settings…</div>
+      <div id="live-settings" class="panel">Loading live settings…</div>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin-top: 16px;">
+      <div style="flex: 1 1 520px; min-width: 0;">
+        <div id="golive-checklist" class="panel">Loading go-live checklist…</div>
+        <div id="guardrail-caps" class="panel" style="margin-top: 16px;">Loading guardrail caps…</div>
+      </div>
+      <div style="flex: 1 1 420px; min-width: 0;">
+        <div id="switching-info" class="panel"></div>
+        <div id="telegram-settings" class="panel" style="margin-top: 16px;"></div>
+      </div>
+    </div>
   </section>
 
   <section id="howitworks-tab" class="hidden">
