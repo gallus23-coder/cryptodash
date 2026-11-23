@@ -67,6 +67,28 @@
         <option value="downtrend">downtrend</option>
         <option value="risk_off">risk_off</option>
       </select>
+      <select id="coin-filter">
+        <option value="">All coins</option>
+        <option value="BTC">BTC</option>
+        <option value="ETH">ETH</option>
+        <option value="SOL">SOL</option>
+        <option value="XRP">XRP</option>
+        <option value="ADA">ADA</option>
+        <option value="LINK">LINK</option>
+      </select>
+      <select id="setup-filter">
+        <option value="">All setups</option>
+        <option value="trend_breakout">trend_breakout</option>
+        <option value="trend_pullback">trend_pullback</option>
+        <option value="range_reversion">range_reversion</option>
+        <option value="oversold_bounce">oversold_bounce</option>
+      </select>
+      <select id="action-filter">
+        <option value="">All actions</option>
+        <option value="take">take</option>
+        <option value="skip">skip</option>
+      </select>
+      <label><input type="checkbox" id="diverged-filter" /> Only where Claude overrode default</label>
     </div>
     <div id="timeline">Loading cycles…</div>
     <div id="expand"></div>
