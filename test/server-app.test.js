@@ -635,6 +635,26 @@ test('POST /api/control/pause returns 404 when the mode has no scheduler state',
   }
 });
 
+test('GET /api/claude-usage reports today, this month, and fallbacks', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    const nowTs = Math.floor(Date.now() / 1000);
+    insertDecision(db, { candidateId: 'c_1', ts: nowTs, mode: 'paper', action: 'take', size: 1, stopAtr: 1.5, trailAtr: 2.5, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: false, model: 'claude-sonnet-5', latencyMs: 100, rawResponse: '{}' });
+    insertDecision(db, { candidateId: 'c_2', ts: nowTs, mode: 'paper', action: 'skip', size: null, stopAtr: null, trailAtr: null, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: false, model: 'fallback', latencyMs: 0, rawResponse: '{}' });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/claude-usage`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.provider, 'claude-cli (Pro plan)');
+    assert.equal(body.cyclesToday, 24);
+    assert.equal(body.callsToday, 1);
+    assert.equal(body.callsThisMonth, 1);
+    assert.equal(body.fallbacksThisMonth, 1);
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/regime/current includes the metrics behind the label, not just the label', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {

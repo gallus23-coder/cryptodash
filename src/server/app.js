@@ -386,6 +386,26 @@ function createApp(db, { password } = {}) {
     }
   });
 
+  const { getDecisionCallCounts, getMonthStartTs } = require('../data/db');
+
+  app.get('/api/claude-usage', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const nowTs = Math.floor(Date.now() / 1000);
+    const dayStartTs = utcDayKey(nowTs) * 86400;
+    const monthStartTs = getMonthStartTs(nowTs);
+
+    const today = getDecisionCallCounts(db, mode, dayStartTs, dayStartTs + 86400);
+    const thisMonth = getDecisionCallCounts(db, mode, monthStartTs, nowTs + 1);
+
+    res.json({
+      provider: 'claude-cli (Pro plan)',
+      cyclesToday: 24,
+      callsToday: today.realCalls,
+      callsThisMonth: thisMonth.realCalls,
+      fallbacksThisMonth: thisMonth.fallbacks,
+    });
+  });
+
   return app;
 }
 

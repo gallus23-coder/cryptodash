@@ -214,6 +214,31 @@ test('getClaudeCallsToday only counts calls within the given window', () => {
   assert.equal(getClaudeCallsToday(db, 'paper', 2000, 3000), 0); // outside the window
 });
 
+const { getDecisionCallCounts, getMonthStartTs } = require('../src/data/db');
+
+test('getDecisionCallCounts separately counts real calls and fallback calls, each by distinct cycle ts', () => {
+  const db = openDb(':memory:');
+  insertDecision(db, { candidateId: 'c_1', ts: 1000, mode: 'paper', action: 'take', size: 1, stopAtr: 1.5, trailAtr: 2.5, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: false, model: 'claude-sonnet-5', latencyMs: 100, rawResponse: '{}' });
+  insertDecision(db, { candidateId: 'c_2', ts: 1000, mode: 'paper', action: 'skip', size: null, stopAtr: null, trailAtr: null, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: true, model: 'claude-sonnet-5', latencyMs: 100, rawResponse: '{}' });
+  insertDecision(db, { candidateId: 'c_3', ts: 2000, mode: 'paper', action: 'skip', size: null, stopAtr: null, trailAtr: null, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: false, model: 'fallback', latencyMs: 0, rawResponse: '{}' });
+  insertDecision(db, { candidateId: 'c_4', ts: 3000, mode: 'paper', action: 'skip', size: null, stopAtr: null, trailAtr: null, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: false, model: 'fallback', latencyMs: 0, rawResponse: '{}' });
+
+  assert.deepEqual(getDecisionCallCounts(db, 'paper', 0, 10000), { realCalls: 1, fallbacks: 2 });
+});
+
+test('getDecisionCallCounts only counts within the given window', () => {
+  const db = openDb(':memory:');
+  insertDecision(db, { candidateId: 'c_1', ts: 1000, mode: 'paper', action: 'take', size: 1, stopAtr: 1.5, trailAtr: 2.5, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: false, model: 'claude-sonnet-5', latencyMs: 100, rawResponse: '{}' });
+
+  assert.deepEqual(getDecisionCallCounts(db, 'paper', 2000, 3000), { realCalls: 0, fallbacks: 0 });
+});
+
+test('getMonthStartTs returns the first second of the UTC month containing the given timestamp', () => {
+  const nov15 = Date.UTC(2026, 10, 15, 12, 30) / 1000; // 15 Nov 2026, 12:30 UTC
+  const nov1 = Date.UTC(2026, 10, 1, 0, 0) / 1000;
+  assert.equal(getMonthStartTs(nov15), nov1);
+});
+
 test('getBenchmarkInputs returns null when the mode has no cycle_log history yet', () => {
   const db = openDb(':memory:');
   assert.equal(getBenchmarkInputs(db, 'paper'), null);

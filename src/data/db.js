@@ -266,6 +266,21 @@ function getClaudeCallsToday(db, mode, dayStartTs, dayEndTs) {
   return row.callsToday;
 }
 
+function getDecisionCallCounts(db, mode, fromTs, toTs) {
+  const row = db.prepare(`
+    SELECT
+      COUNT(DISTINCT CASE WHEN model != 'fallback' THEN ts END) as realCalls,
+      COUNT(DISTINCT CASE WHEN model = 'fallback' THEN ts END) as fallbacks
+    FROM decisions WHERE mode = ? AND ts >= ? AND ts < ?
+  `).get(mode, fromTs, toTs);
+  return { realCalls: row.realCalls, fallbacks: row.fallbacks };
+}
+
+function getMonthStartTs(nowTs) {
+  const d = new Date(nowTs * 1000);
+  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000);
+}
+
 function getCycleLogFiltered(db, { mode = 'paper', from, to, regime, limit = 100 } = {}) {
   const clauses = ['mode = @mode'];
   const params = { mode, limit };
@@ -467,5 +482,5 @@ module.exports = {
   getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote, getSetupStats,
   insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
   approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions,
-  resetKillSwitch, pauseTrading, resumeTrading, getClaudeCallsToday,
+  resetKillSwitch, pauseTrading, resumeTrading, getClaudeCallsToday, getDecisionCallCounts, getMonthStartTs,
 };
