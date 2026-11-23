@@ -110,6 +110,15 @@ export function computeVisibleRange(presetDays, latestTs) {
   return { from: latestTs - presetDays * 86400, to: latestTs };
 }
 
+export function formatPct(value) {
+  const sign = value >= 0 ? '+' : '-';
+  return `${sign}${Math.abs(value * 100).toFixed(1)}%`;
+}
+
+export function formatRatio(ratio) {
+  return ratio === null ? 'n/a' : ratio.toFixed(2);
+}
+
 export function formatChecklistStatus(pass) {
   if (pass === true) return { icon: '✅', label: 'Done' };
   if (pass === false) return { icon: '❌', label: 'Not yet' };

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus, TAB_SECTIONS, getSectionId, computeVisibleRange } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus, TAB_SECTIONS, getSectionId, computeVisibleRange, formatPct, formatRatio } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -243,4 +243,18 @@ test('computeVisibleRange for 1 week uses 7 days', () => {
 
 test('computeVisibleRange returns null for the ALL preset (caller uses fitContent instead)', () => {
   assert.equal(computeVisibleRange(null, 1700000000), null);
+});
+
+test('formatPct shows a sign and 1 decimal place as a percentage', () => {
+  assert.equal(formatPct(0.012), '+1.2%');
+  assert.equal(formatPct(-0.079), '-7.9%');
+  assert.equal(formatPct(0), '+0.0%');
+});
+
+test('formatRatio shows 2 decimal places', () => {
+  assert.equal(formatRatio(0.67), '0.67');
+});
+
+test('formatRatio shows n/a for a null ratio (zero drawdown, nothing to divide by)', () => {
+  assert.equal(formatRatio(null), 'n/a');
 });
