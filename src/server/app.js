@@ -409,6 +409,22 @@ function createApp(db, { password } = {}) {
     });
   });
 
+  app.get('/api/settings/guardrail-caps', (req, res) => {
+    res.json({
+      paper: {
+        baseStakePct: DEFAULT_RISK_CONFIG.baseRiskPct, maxOpenPositions: DEFAULT_RISK_CONFIG.maxOpenPositions,
+        maxCoinExposurePct: DEFAULT_RISK_CONFIG.maxCoinExposurePct, maxTotalExposurePct: DEFAULT_RISK_CONFIG.maxTotalExposurePct,
+        dailyLossLimitPct: DEFAULT_RISK_CONFIG.dailyLossLimitPct, weeklyKillSwitchPct: DEFAULT_RISK_CONFIG.weeklyKillSwitchPct,
+      },
+      // Design doc §8.4 reference values — not enforced anywhere in code, since no live scheduler exists yet.
+      live: {
+        baseStake: 25, maxOpenPositions: 2, maxCoinExposurePct: 0.20, maxTotalExposurePct: 0.40,
+        dailyLossLimitPct: 0.02, weeklyKillSwitchPct: 0.05,
+      },
+      liveNote: 'Reference values from the design doc — not yet enforced, since live mode has no scheduler yet.',
+    });
+  });
+
   app.post('/api/control/reset-account', (req, res) => {
     const mode = req.query.mode || 'paper';
     if (mode !== 'paper') {

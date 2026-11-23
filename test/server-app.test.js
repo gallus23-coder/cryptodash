@@ -820,6 +820,20 @@ test('POST /api/control/reset-account refuses mode=live, in code, not just the U
   }
 });
 
+test('GET /api/settings/guardrail-caps reports the real paper config and a static, clearly-labeled live reference', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/settings/guardrail-caps`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.paper.maxOpenPositions, 3); // DEFAULT_RISK_CONFIG, real and enforced
+    assert.equal(body.live.maxOpenPositions, 2); // design doc §8.4 reference value
+    assert.match(body.liveNote, /not yet enforced/i);
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/regime/current includes the metrics behind the label, not just the label', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {
