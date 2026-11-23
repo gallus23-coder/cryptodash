@@ -2,9 +2,11 @@ import { fetchJson } from './api.mjs';
 import { createChart, CandlestickSeries, LineSeries } from '/vendor/lightweight-charts.standalone.production.mjs';
 import { renderMarkersAndPositions } from './positions.mjs';
 import { renderIndicatorPanel } from './regime-band.mjs';
+import { computeVisibleRange } from './format.mjs';
 
 let chart;
 let candleSeries;
+let latestCandleTs = null;
 
 function getCoin() { return document.getElementById('coin-select').value; }
 function getTf() { return document.getElementById('tf-select').value; }
@@ -15,14 +17,31 @@ export function resizeChart() {
   chart.resize(container.clientWidth, container.clientHeight);
 }
 
+export function setVisibleRangeDays(presetDays) {
+  if (!chart || latestCandleTs === null) return;
+  const range = computeVisibleRange(presetDays, latestCandleTs);
+  if (range === null) {
+    chart.timeScale().fitContent();
+  } else {
+    chart.timeScale().setVisibleRange(range);
+  }
+}
+
 export async function renderChart() {
   if (!chart) {
-    chart = createChart(document.getElementById('chart'), { height: 400 });
+    chart = createChart(document.getElementById('chart'), {
+      height: 400,
+      layout: { background: { color: '#161925' }, textColor: '#e6e8ec' },
+      grid: { vertLines: { color: '#2a2f3d' }, horzLines: { color: '#2a2f3d' } },
+      timeScale: { borderColor: '#2a2f3d' },
+      rightPriceScale: { borderColor: '#2a2f3d' },
+    });
     candleSeries = chart.addSeries(CandlestickSeries);
   }
   try {
     const candles = await fetchJson(`/api/candles/${getCoin()}`, { tf: getTf() });
     candleSeries.setData(candles.map((c) => ({ time: c.ts, open: c.open, high: c.high, low: c.low, close: c.close })));
+    latestCandleTs = candles.length > 0 ? candles[candles.length - 1].ts : null;
   } catch (err) {
     document.getElementById('chart').textContent = `Could not load candles: ${err.message}`;
   }
@@ -76,4 +95,12 @@ async function renderAll() {
 }
 
 ['coin-select', 'tf-select'].forEach((id) => document.getElementById(id).addEventListener('change', renderAll));
+
+document.querySelectorAll('button[data-range-days]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const presetDays = button.dataset.rangeDays === '' ? null : Number(button.dataset.rangeDays);
+    setVisibleRangeDays(presetDays);
+  });
+});
+
 renderAll();

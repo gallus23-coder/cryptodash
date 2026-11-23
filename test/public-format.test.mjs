@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus, TAB_SECTIONS, getSectionId } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus, TAB_SECTIONS, getSectionId, computeVisibleRange } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -229,4 +229,18 @@ test('getSectionId returns undefined for an unknown tab key', () => {
 
 test('TAB_SECTIONS lists all 4 tabs in display order', () => {
   assert.deepEqual(Object.keys(TAB_SECTIONS), ['decisionLog', 'charts', 'strategy', 'golive']);
+});
+
+test('computeVisibleRange returns a from/to window ending at the latest candle', () => {
+  const latestTs = 1700000000;
+  assert.deepEqual(computeVisibleRange(30, latestTs), { from: latestTs - 30 * 86400, to: latestTs });
+});
+
+test('computeVisibleRange for 1 week uses 7 days', () => {
+  const latestTs = 1700000000;
+  assert.deepEqual(computeVisibleRange(7, latestTs), { from: latestTs - 7 * 86400, to: latestTs });
+});
+
+test('computeVisibleRange returns null for the ALL preset (caller uses fitContent instead)', () => {
+  assert.equal(computeVisibleRange(null, 1700000000), null);
 });

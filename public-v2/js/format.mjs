@@ -105,6 +105,11 @@ export function getSectionId(tabKey) {
   return TAB_SECTIONS[tabKey];
 }
 
+export function computeVisibleRange(presetDays, latestTs) {
+  if (presetDays === null) return null;
+  return { from: latestTs - presetDays * 86400, to: latestTs };
+}
+
 export function formatChecklistStatus(pass) {
   if (pass === true) return { icon: '✅', label: 'Done' };
   if (pass === false) return { icon: '❌', label: 'Not yet' };
