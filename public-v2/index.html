@@ -175,7 +175,7 @@
     <div id="guardrails-panel" class="panel">Loading guardrails…</div>
     <div id="claude-usage-panel" class="panel">Loading Claude usage…</div>
     <div id="config-editor" class="panel">
-      <h3>Edit strategy</h3>
+      <h2 style="margin: 0 0 12px 0; font-size: 15px; font-weight: 600;">Strategy controls</h2>
       <label>Risk level:
         <select id="risk-level-select">
           <option value="cautious">Cautious</option>
@@ -184,10 +184,29 @@
         </select>
       </label>
       <div id="setup-toggles"></div>
-      <button id="backtest-button">Backtest changes</button>
+      <div style="margin-top: 16px;">
+        <div class="watchlist-label">Edit setup ranges</div>
+        <p style="margin: 4px 0 8px 0; font-size: 12px; color: var(--muted);">Not wired yet — rangeOverrides are accepted by the draft API but have no effect on any backtest or live decision (see final report).</p>
+        <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted);">Setup<select disabled><option>trend_pullback</option></select></label>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px;">
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted);">Stop min (×ATR)<input type="number" step="0.1" value="1.0" disabled></label>
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted);">Stop max (×ATR)<input type="number" step="0.1" value="3.0" disabled></label>
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted);">Trail min (×ATR)<input type="number" step="0.1" value="1.5" disabled></label>
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted);">Trail max (×ATR)<input type="number" step="0.1" value="4.0" disabled></label>
+        </div>
+      </div>
+      <button id="backtest-button" style="margin-top: 16px;">Backtest changes</button>
       <div id="backtest-result"></div>
       <button id="submit-button" disabled>Save as pending</button>
       <div id="pending-proposal"></div>
+      <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border);">
+        <div class="watchlist-label">Recalculate</div>
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+          <button type="button" disabled style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; min-height: 52px; border-radius: 8px; color: var(--muted); background: #F9FAFB; border: 1px solid var(--border); cursor: not-allowed;"><span style="font-size: 13px; font-weight: 600;">Recalculate now</span><span style="font-size: 12px;">Coming in a later milestone — no API yet.</span></button>
+          <button type="button" disabled style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; min-height: 52px; border-radius: 8px; color: var(--muted); background: #F9FAFB; border: 1px solid var(--border); cursor: not-allowed;"><span style="font-size: 13px; font-weight: 600;">Ask Claude to re-decide</span><span style="font-size: 12px;">Coming in a later milestone — no API yet.</span></button>
+          <button type="button" disabled style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; min-height: 52px; border-radius: 8px; color: var(--muted); background: #F9FAFB; border: 1px solid var(--border); cursor: not-allowed;"><span style="font-size: 13px; font-weight: 600;">Ask Claude to review the strategy</span><span style="font-size: 12px;">Coming in a later milestone — no API yet (weekly review not built).</span></button>
+        </div>
+      </div>
     </div>
   </section>
 
