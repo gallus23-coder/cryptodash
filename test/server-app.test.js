@@ -739,6 +739,87 @@ test('GET /api/claude-usage reports today, this month, and fallbacks', async () 
   }
 });
 
+test('GET /api/settings/paper reports null stats when there is no history yet', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/settings/paper`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.startingBalance, null);
+    assert.equal(body.tradesSoFar, 0);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/settings/paper reports starting balance, balance now, return, and trade count', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'range', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 10 });
+    saveSchedulerState(db, 'paper', { balance: 1010 });
+    insertTrade(db, {
+      mode: 'paper', coin: 'BTC', setup: 'trend_pullback', entryTs: 1000, exitTs: 2000,
+      entryPrice: 100, exitPrice: 105, units: 1, riskAmount: 10, pnl: 10, r: 1, exitReason: 'target', candidateId: 'c1',
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/settings/paper`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.startingBalance, 1000); // 1010 - 10 pnl
+    assert.equal(body.balanceNow, 1010);
+    assert.equal(body.returnPct, 0.01);
+    assert.equal(body.runningSinceTs, 1000);
+    assert.equal(body.tradesSoFar, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/control/reset-account resets paper scheduler_state to a fresh state with the given starting balance', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    saveSchedulerState(db, 'paper', { balance: 1010, openPositions: [{ coin: 'BTC' }], killSwitchActive: true });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/control/reset-account`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startingBalance: 500 }),
+    });
+    assert.equal(res.status, 200);
+    const state = loadSchedulerState(db, 'paper');
+    assert.equal(state.balance, 500);
+    assert.deepEqual(state.openPositions, []);
+    assert.equal(state.killSwitchActive, false);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/control/reset-account defaults the starting balance to 1000 when none is given', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/control/reset-account`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(loadSchedulerState(db, 'paper').balance, 1000);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/control/reset-account refuses mode=live, in code, not just the UI', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/control/reset-account?mode=live`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startingBalance: 500 }),
+    });
+    assert.equal(res.status, 403);
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/regime/current includes the metrics behind the label, not just the label', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {

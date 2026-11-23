@@ -389,6 +389,37 @@ function createApp(db, { password } = {}) {
 
   const { getDecisionCallCounts, getMonthStartTs } = require('../data/db');
 
+  const { getBenchmarkInputs: getBenchmarkInputsForSettings, saveSchedulerState } = require('../data/db');
+  const { freshState } = require('../scheduler/cycle');
+
+  app.get('/api/settings/paper', (req, res) => {
+    const inputs = getBenchmarkInputsForSettings(db, 'paper');
+    const tradesSoFar = getTrades(db, 'paper').length;
+    if (!inputs) {
+      res.json({ startingBalance: null, balanceNow: null, returnPct: null, runningSinceTs: null, tradesSoFar });
+      return;
+    }
+    const startingBalance = inputs.botSeries[0];
+    const balanceNow = inputs.botSeries[inputs.botSeries.length - 1];
+    res.json({
+      startingBalance, balanceNow,
+      returnPct: (balanceNow - startingBalance) / startingBalance,
+      runningSinceTs: inputs.startTs,
+      tradesSoFar,
+    });
+  });
+
+  app.post('/api/control/reset-account', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    if (mode !== 'paper') {
+      res.status(403).json({ error: 'reset is only allowed for paper mode' });
+      return;
+    }
+    const startingBalance = Number(req.body.startingBalance) || 1000;
+    saveSchedulerState(db, mode, freshState(startingBalance));
+    res.json({ ok: true });
+  });
+
   app.get('/api/claude-usage', (req, res) => {
     const mode = req.query.mode || 'paper';
     const nowTs = Math.floor(Date.now() / 1000);
