@@ -436,6 +436,122 @@ function createApp(db, { password } = {}) {
     res.json({ ok: true });
   });
 
+  const { REGIME_THRESHOLDS } = require('../engine/regime');
+  const { getBenchmarkInputs: getBenchmarkInputsForHowItWorks, getMostRecentSupersededConfigVersion } = require('../data/db');
+  const { computeBenchmarkComparison: computeBenchmarkComparisonForHowItWorks } = require('../backtest/stats');
+
+  app.get('/api/how-it-works', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const nowTs = Math.floor(Date.now() / 1000);
+
+    const btcDaily = getCandles(db, 'BTC', '1d', 0, nowTs);
+    const btc4h = getCandles(db, 'BTC', '4h', 0, nowTs);
+    const watchlistBy4h = {};
+    for (const coin of COINS) {
+      watchlistBy4h[coin] = getCandles(db, coin, '4h', 0, nowTs).map((c) => ({ ts: c.ts, close: c.close }));
+    }
+    const series = computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h });
+    const current = series.length > 0 ? series[series.length - 1] : null;
+    let regimeDuration = 'not yet known';
+    if (current) {
+      let heldSinceTs = current.ts;
+      for (let i = series.length - 1; i >= 0 && series[i].label === current.label; i -= 1) heldSinceTs = series[i].ts;
+      const heldHours = Math.floor((nowTs - heldSinceTs) / 3600);
+      regimeDuration = `${current.label}, held for ${Math.floor(heldHours / 24)}d ${heldHours % 24}h`;
+    }
+
+    const state = loadSchedulerState(db, mode);
+    const dayStartTs = utcDayKey(nowTs) * 86400;
+    const claudeCallsToday = getClaudeCallsToday(db, mode, dayStartTs, dayStartTs + 86400);
+    const openPositions = state ? state.openPositions : [];
+    const totalRiskPctUsed = openPositions.reduce((sum, p) => sum + p.riskPct, 0);
+
+    const pending = getPendingConfigVersion(db, mode);
+    const superseded = getMostRecentSupersededConfigVersion(db, mode);
+    const active = getActiveConfigVersion(db, mode);
+
+    const benchmarkInputs = getBenchmarkInputsForHowItWorks(db, mode);
+    const benchmark = benchmarkInputs
+      ? computeBenchmarkComparisonForHowItWorks({ botSeries: benchmarkInputs.botSeries, btcSeries: benchmarkInputs.btcSeries })
+      : null;
+
+    const steps = [
+      {
+        title: 'Check the market',
+        plain: 'Gets the latest finished price candle for each of the 6 coins. A half-formed candle is never used.',
+        technical: 'Fetches completed 1h/4h/1d candles per watchlist coin; a coin is skipped for the hour if its data looks wrong.',
+        rightNow: 'not tracked yet',
+      },
+      {
+        title: 'Decide what kind of market it is',
+        plain: 'Sorts the market into Danger, Rising, Falling, or Choppy, checked in that order.',
+        technical: `Danger (risk_off): volatility rank > ${REGIME_THRESHOLDS.riskOffVolatilityRankPct}th percentile or BTC 24h change <= ${REGIME_THRESHOLDS.riskOffBtc24hChangePct}%. Rising (trend_up): BTC above daily EMA200, ADX > ${REGIME_THRESHOLDS.trendUpAdx}, breadth >= ${REGIME_THRESHOLDS.trendUpBreadthPct}%.`,
+        rightNow: regimeDuration,
+      },
+      {
+        title: 'Look for trade ideas',
+        plain: 'Each market mood has its own setups. Only the ones that suit the current mood and are switched on get checked.',
+        technical: `Fee check: typical 4h move must be >= ${DEFAULT_RISK_CONFIG.feeViabilityMultiple}x the round-trip fee (${DEFAULT_RISK_CONFIG.roundTripFeePct}%).`,
+        rightNow: 'not tracked yet',
+      },
+      {
+        title: 'Ask Claude',
+        plain: 'Claude can take, skip, or resize a trade idea, within set limits. If it fails to answer, nothing happens that hour.',
+        technical: `Model: ${DEFAULT_RISK_CONFIG.claudeModel}.`,
+        rightNow: `${claudeCallsToday} calls today`,
+      },
+      {
+        title: 'Safety checks',
+        plain: 'Each trade risks a small, fixed slice of the balance, and there are hard caps on how many trades can be open at once.',
+        technical: `Risk per trade ${(DEFAULT_RISK_CONFIG.baseRiskPct * 100).toFixed(1)}%, max ${DEFAULT_RISK_CONFIG.maxOpenPositions} open positions, max ${(DEFAULT_RISK_CONFIG.maxTotalRiskPct * 100).toFixed(1)}% total risk.`,
+        rightNow: `${(totalRiskPctUsed * 100).toFixed(2)}% at risk across ${openPositions.length} trade${openPositions.length === 1 ? '' : 's'}`,
+      },
+      {
+        title: 'Place the trade',
+        plain: 'Paper mode uses a pretend order at the real Kraken price. Live mode places a real order.',
+        technical: 'Paper: simulated fill with real fees/slippage. Live: real Kraken limit order, stop-loss placed immediately on fill.',
+        rightNow: `${mode === 'paper' ? 'Paper mode' : 'Live mode'}`,
+      },
+      {
+        title: 'Look after open trades',
+        plain: 'Every trade has a safety net from the moment it opens. Trend trades let that safety net follow the price up.',
+        technical: 'Trailing stop recomputed each cycle, tightened only, never loosened.',
+        rightNow: `${openPositions.length} open position${openPositions.length === 1 ? '' : 's'}`,
+      },
+      {
+        title: 'Review and suggest changes',
+        plain: 'A proposed change to the strategy waits for your approval before it takes effect.',
+        technical: `Active config version: ${active.id ?? 'default'}.`,
+        rightNow: pending ? `1 suggestion waiting (v${pending.id})` : 'No pending proposal',
+      },
+      {
+        title: "Check it's worth running",
+        plain: 'The bot is compared against just holding Bitcoin and just holding cash.',
+        technical: 'Return and worst drawdown computed from the real trade history and real BTC daily closes.',
+        rightNow: benchmark
+          ? `bot ${(benchmark.bot.returnPct * 100).toFixed(1)}% vs holding BTC ${(benchmark.btc.returnPct * 100).toFixed(1)}%`
+          : 'not enough history yet',
+      },
+    ];
+
+    res.json({
+      steps,
+      atAGlance: {
+        mode, configVersion: active.id ?? 'default', claudeModel: DEFAULT_RISK_CONFIG.claudeModel,
+        marketMood: current ? current.label : 'unknown',
+      },
+      optionalFeatures: [
+        { name: 'Regime buffer (wait before changing mood)', status: 'Off' },
+        { name: "Per-coin trend state", status: 'Off' },
+        { name: 'Candidate quality score', status: 'Off' },
+        { name: 'Tighten stops in risk_off', status: 'Off' },
+        { name: "Stale-trade exit", status: 'Off' },
+      ],
+      changedInLatest: superseded ? null : 'No changes logged yet.',
+      diffConfigs: superseded ? { active: active.config, previous: superseded.config } : null,
+    });
+  });
+
   app.get('/api/claude-usage', (req, res) => {
     const mode = req.query.mode || 'paper';
     const nowTs = Math.floor(Date.now() / 1000);

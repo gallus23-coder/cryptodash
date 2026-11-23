@@ -834,6 +834,65 @@ test('GET /api/settings/guardrail-caps reports the real paper config and a stati
   }
 });
 
+test('GET /api/how-it-works returns 9 steps, each with plain/technical text, and real "right now" values where data exists', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    saveSchedulerState(db, 'paper', {
+      balance: 1000, dailyPnl: 0, currentDay: null, weeklyPeakBalance: 1000, killSwitchActive: false, pausedByOperator: false,
+      openPositions: [{ coin: 'SOL', setup: 'trend_pullback', riskPct: 0.005, exposurePct: 0.1, entryPrice: 97.08, initialStopPrice: 93.88 }],
+      cooldowns: {}, closedTrades: [], shadowPositions: [], disabledSetups: {}, lastRegimeLabel: 'trend_up',
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/how-it-works`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+
+    assert.equal(body.steps.length, 9);
+    for (const step of body.steps) {
+      assert.ok(step.title);
+      assert.ok(step.plain);
+      assert.ok(step.technical);
+      assert.ok('rightNow' in step);
+    }
+
+    // Step 2 (regime) — real threshold values from REGIME_THRESHOLDS, not hand-typed duplicates
+    assert.match(body.steps[1].technical, /22/); // trendUpAdx
+    assert.match(body.steps[1].technical, /60/); // trendUpBreadthPct
+
+    // Step 4 (Claude) — real calls-today count
+    assert.match(body.steps[3].rightNow, /0 calls today/);
+
+    // Step 5 (safety checks) — real guardrail numbers
+    assert.match(body.steps[4].technical, /0\.5%/); // baseRiskPct
+
+    // Step 6 (place the trade) — real mode
+    assert.match(body.steps[5].rightNow, /Paper mode/i);
+
+    // Step 7 (open trades) — real open position count
+    assert.match(body.steps[6].rightNow, /1 open/);
+
+    // Untracked facts render honestly, not fabricated
+    assert.match(body.steps[0].rightNow, /not tracked yet/i);
+
+    assert.equal(body.atAGlance.mode, 'paper');
+    assert.ok(Array.isArray(body.optionalFeatures));
+    assert.ok(body.optionalFeatures.every((f) => f.status === 'Off'));
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/how-it-works reports "No changes logged yet" when no config version has ever been superseded', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/how-it-works`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.match(body.changedInLatest, /no changes logged yet/i);
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/regime/current includes the metrics behind the label, not just the label', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {

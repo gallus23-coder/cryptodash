@@ -388,6 +388,11 @@ function rejectConfigVersion(db, mode, id) {
   db.prepare("UPDATE config_versions SET status = 'rejected', decided_ts = ? WHERE id = ?").run(Date.now(), id);
 }
 
+function getMostRecentSupersededConfigVersion(db, mode) {
+  const row = db.prepare("SELECT * FROM config_versions WHERE mode = ? AND status = 'superseded' ORDER BY decided_ts DESC LIMIT 1").get(mode);
+  return rowToConfigVersion(row);
+}
+
 function saveSchedulerState(db, mode, state) {
   db.prepare(`
     INSERT INTO scheduler_state (mode, state_json, updated_ts) VALUES (@mode, @stateJson, @updatedTs)
@@ -493,6 +498,6 @@ module.exports = {
   getScorecardData, buildCycleOneLiner, getCycleLogFiltered, buildGoLiveChecklist, getBenchmarkInputs,
   getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote, getSetupStats,
   insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
-  approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions,
+  approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions, getMostRecentSupersededConfigVersion,
   resetKillSwitch, pauseTrading, resumeTrading, getClaudeCallsToday, getDecisionCallCounts, getMonthStartTs,
 };

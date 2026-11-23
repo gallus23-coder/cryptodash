@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   openDb, insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
-  approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions,
+  approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions, getMostRecentSupersededConfigVersion,
 } = require('../src/data/db');
 
 function sampleConfigJson(overrides = {}) {
@@ -65,4 +65,22 @@ test('rejectConfigVersion sets status to rejected and is a dead end', () => {
   assert.equal(getPendingConfigVersion(db, 'paper'), null);
   assert.throws(() => approveConfigVersion(db, 'paper', id));
   assert.throws(() => rejectConfigVersion(db, 'paper', id));
+});
+
+test('getMostRecentSupersededConfigVersion returns null when nothing has ever been superseded', () => {
+  const db = openDb(':memory:');
+  assert.equal(getMostRecentSupersededConfigVersion(db, 'paper'), null);
+});
+
+test('getMostRecentSupersededConfigVersion returns the most recently superseded version (the old active, after a new one is approved)', () => {
+  const db = openDb(':memory:');
+  const firstId = insertConfigVersion(db, { mode: 'paper', configJson: sampleConfigJson({ riskLevel: 'normal' }), backtestJson: {} });
+  approveConfigVersion(db, 'paper', firstId);
+
+  const secondId = insertConfigVersion(db, { mode: 'paper', configJson: sampleConfigJson({ riskLevel: 'cautious' }), backtestJson: {} });
+  approveConfigVersion(db, 'paper', secondId);
+
+  const superseded = getMostRecentSupersededConfigVersion(db, 'paper');
+  assert.equal(superseded.id, firstId);
+  assert.equal(superseded.config.riskLevel, 'normal');
 });
