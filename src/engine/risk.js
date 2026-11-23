@@ -51,7 +51,8 @@ function isKillSwitchTriggered(weeklyDrawdownPct, config) {
 }
 
 function shouldEvaluateCandidates(regimeLabel, isBoundary, state, dailyLossHit) {
-  return Boolean(regimeLabel) && isBoundary && !state.killSwitchActive && !dailyLossHit && regimeLabel !== 'risk_off';
+  return Boolean(regimeLabel) && isBoundary && !state.killSwitchActive && !state.pausedByOperator
+    && !dailyLossHit && regimeLabel !== 'risk_off';
 }
 
 function rollDailyPnl(state, dayKey) {

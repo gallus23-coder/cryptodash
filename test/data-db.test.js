@@ -162,7 +162,57 @@ test('insertCycleLog/getCycleLog round-trips and orders by ts descending', () =>
   assert.equal(rows[0].error, null);
 });
 
-const { buildGoLiveChecklist, getBenchmarkInputs } = require('../src/data/db');
+const { buildGoLiveChecklist, getBenchmarkInputs, pauseTrading, resumeTrading } = require('../src/data/db');
+
+test('pauseTrading sets pausedByOperator to true and leaves other fields untouched', () => {
+  const db = openDb(':memory:');
+  saveSchedulerState(db, 'paper', { balance: 1000, pausedByOperator: false, openPositions: [{ coin: 'BTC' }] });
+
+  const result = pauseTrading(db, 'paper');
+
+  assert.equal(result.pausedByOperator, true);
+  assert.deepEqual(result.openPositions, [{ coin: 'BTC' }]);
+  assert.equal(loadSchedulerState(db, 'paper').pausedByOperator, true);
+});
+
+test('resumeTrading sets pausedByOperator back to false', () => {
+  const db = openDb(':memory:');
+  saveSchedulerState(db, 'paper', { balance: 1000, pausedByOperator: true });
+
+  const result = resumeTrading(db, 'paper');
+
+  assert.equal(result.pausedByOperator, false);
+  assert.equal(loadSchedulerState(db, 'paper').pausedByOperator, false);
+});
+
+test('pauseTrading throws when the mode has no scheduler state yet', () => {
+  const db = openDb(':memory:');
+  assert.throws(() => pauseTrading(db, 'paper'), /no scheduler state for mode paper/);
+});
+
+test('resumeTrading throws when the mode has no scheduler state yet', () => {
+  const db = openDb(':memory:');
+  assert.throws(() => resumeTrading(db, 'paper'), /no scheduler state for mode paper/);
+});
+
+const { getClaudeCallsToday, insertDecision } = require('../src/data/db');
+
+test('getClaudeCallsToday counts distinct cycle timestamps with a real (non-fallback) model, within the window', () => {
+  const db = openDb(':memory:');
+  insertDecision(db, { candidateId: 'c_1', ts: 1000, mode: 'paper', action: 'take', size: 1, stopAtr: 1.5, trailAtr: 2.5, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: false, model: 'claude-sonnet-5', latencyMs: 100, rawResponse: '{}' });
+  insertDecision(db, { candidateId: 'c_2', ts: 1000, mode: 'paper', action: 'skip', size: null, stopAtr: null, trailAtr: null, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: true, model: 'claude-sonnet-5', latencyMs: 100, rawResponse: '{}' });
+  insertDecision(db, { candidateId: 'c_3', ts: 2000, mode: 'paper', action: 'skip', size: null, stopAtr: null, trailAtr: null, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: false, model: 'fallback', latencyMs: 0, rawResponse: '{}' });
+
+  // 2 decision rows share ts=1000 (one real Claude call, 2 candidates) + 1 fallback at ts=2000 (not a real call)
+  assert.equal(getClaudeCallsToday(db, 'paper', 0, 10000), 1);
+});
+
+test('getClaudeCallsToday only counts calls within the given window', () => {
+  const db = openDb(':memory:');
+  insertDecision(db, { candidateId: 'c_1', ts: 1000, mode: 'paper', action: 'take', size: 1, stopAtr: 1.5, trailAtr: 2.5, reason: 'r', plainReason: 'p', defaultAction: 'take', diverged: false, model: 'claude-sonnet-5', latencyMs: 100, rawResponse: '{}' });
+
+  assert.equal(getClaudeCallsToday(db, 'paper', 2000, 3000), 0); // outside the window
+});
 
 test('getBenchmarkInputs returns null when the mode has no cycle_log history yet', () => {
   const db = openDb(':memory:');

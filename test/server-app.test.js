@@ -576,6 +576,65 @@ test('GET /api/benchmarks returns the bot vs BTC vs cash comparison once there i
   }
 });
 
+test('GET /api/status reports claudeCallsToday and pausedByOperator (false, no state saved yet)', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.pausedByOperator, false);
+    assert.equal(body.claudeCallsToday, 0);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/status reports pausedByOperator true once paused', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    saveSchedulerState(db, 'paper', { balance: 1000, pausedByOperator: true });
+    const res = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(body.pausedByOperator, true);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/control/pause sets pausedByOperator to true', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    saveSchedulerState(db, 'paper', { balance: 1000, pausedByOperator: false });
+    const res = await fetch(`http://127.0.0.1:${port}/api/control/pause?mode=paper`, { method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    assert.equal(loadSchedulerState(db, 'paper').pausedByOperator, true);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/control/resume sets pausedByOperator back to false', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    saveSchedulerState(db, 'paper', { balance: 1000, pausedByOperator: true });
+    const res = await fetch(`http://127.0.0.1:${port}/api/control/resume?mode=paper`, { method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    assert.equal(loadSchedulerState(db, 'paper').pausedByOperator, false);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/control/pause returns 404 when the mode has no scheduler state', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/control/pause?mode=paper`, { method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/regime/current includes the metrics behind the label, not just the label', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {

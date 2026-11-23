@@ -352,6 +352,40 @@ function createApp(db, { password } = {}) {
     }
   });
 
+  const { getClaudeCallsToday, pauseTrading, resumeTrading } = require('../data/db');
+  const { utcDayKey } = require('../scheduler/cycle');
+
+  app.get('/api/status', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const state = loadSchedulerState(db, mode);
+    const nowTs = Math.floor(Date.now() / 1000);
+    const dayStartTs = utcDayKey(nowTs) * 86400;
+    res.json({
+      pausedByOperator: state ? state.pausedByOperator : false,
+      claudeCallsToday: getClaudeCallsToday(db, mode, dayStartTs, dayStartTs + 86400),
+    });
+  });
+
+  app.post('/api/control/pause', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    try {
+      pauseTrading(db, mode);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(404).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/control/resume', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    try {
+      resumeTrading(db, mode);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(404).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

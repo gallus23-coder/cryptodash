@@ -13,7 +13,7 @@ function utcDayKey(tsSeconds) {
 function freshState(startingBalance = 1000) {
   return {
     balance: startingBalance, dailyPnl: 0, currentDay: null,
-    weeklyPeakBalance: startingBalance, killSwitchActive: false,
+    weeklyPeakBalance: startingBalance, killSwitchActive: false, pausedByOperator: false,
     openPositions: [], cooldowns: {}, closedTrades: [],
     shadowPositions: [], disabledSetups: {}, lastRegimeLabel: null,
   };

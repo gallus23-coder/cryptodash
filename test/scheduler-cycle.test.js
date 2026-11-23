@@ -32,6 +32,7 @@ test('freshState defaults to a £1000 starting balance with no open positions', 
   assert.deepEqual(state.openPositions, []);
   assert.deepEqual(state.cooldowns, {});
   assert.equal(state.killSwitchActive, false);
+  assert.equal(state.pausedByOperator, false);
 });
 
 test('freshState accepts a custom starting balance', () => {

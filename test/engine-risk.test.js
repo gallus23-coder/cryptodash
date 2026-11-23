@@ -121,7 +121,7 @@ test('isKillSwitchTriggered is true once weekly drawdown reaches or exceeds 8%',
 });
 
 function makeGateState(overrides = {}) {
-  return { killSwitchActive: false, ...overrides };
+  return { killSwitchActive: false, pausedByOperator: false, ...overrides };
 }
 
 test('shouldEvaluateCandidates is true when every gate is clear', () => {
@@ -147,6 +147,10 @@ test('shouldEvaluateCandidates is false when regimeLabel is not yet known (null)
 
 test('shouldEvaluateCandidates is false off the 4h boundary even with every gate clear', () => {
   assert.equal(shouldEvaluateCandidates('trend_up', false, makeGateState(), false), false);
+});
+
+test('shouldEvaluateCandidates is false when the operator has manually paused trading, even with everything else clear', () => {
+  assert.equal(shouldEvaluateCandidates('trend_up', true, makeGateState({ pausedByOperator: true }), false), false);
 });
 
 test('rollDailyPnl resets dailyPnl to 0 and adopts the new dayKey when the day has changed', () => {

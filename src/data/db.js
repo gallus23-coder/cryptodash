@@ -258,6 +258,14 @@ function getBenchmarkInputs(db, mode) {
   return { startTs, botSeries, btcSeries };
 }
 
+function getClaudeCallsToday(db, mode, dayStartTs, dayEndTs) {
+  const row = db.prepare(`
+    SELECT COUNT(DISTINCT ts) as callsToday FROM decisions
+    WHERE mode = ? AND model != 'fallback' AND ts >= ? AND ts < ?
+  `).get(mode, dayStartTs, dayEndTs);
+  return row.callsToday;
+}
+
 function getCycleLogFiltered(db, { mode = 'paper', from, to, regime, limit = 100 } = {}) {
   const clauses = ['mode = @mode'];
   const params = { mode, limit };
@@ -374,6 +382,22 @@ function resetKillSwitch(db, mode) {
   return state;
 }
 
+function pauseTrading(db, mode) {
+  const state = loadSchedulerState(db, mode);
+  if (!state) throw new Error(`no scheduler state for mode ${mode}`);
+  state.pausedByOperator = true;
+  saveSchedulerState(db, mode, state);
+  return state;
+}
+
+function resumeTrading(db, mode) {
+  const state = loadSchedulerState(db, mode);
+  if (!state) throw new Error(`no scheduler state for mode ${mode}`);
+  state.pausedByOperator = false;
+  saveSchedulerState(db, mode, state);
+  return state;
+}
+
 function insertCycleLog(db, row) {
   db.prepare(`
     INSERT INTO cycle_log (ts, mode, regime_label, candidates_count, opened_count, closed_count, duration_ms, error, market_note, plain_note_json)
@@ -443,5 +467,5 @@ module.exports = {
   getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote, getSetupStats,
   insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
   approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions,
-  resetKillSwitch,
+  resetKillSwitch, pauseTrading, resumeTrading, getClaudeCallsToday,
 };
