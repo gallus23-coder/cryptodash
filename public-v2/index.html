@@ -54,6 +54,7 @@
   <button data-tab="charts">Charts</button>
   <button data-tab="strategy">Strategy</button>
   <button data-tab="golive">Go-live checklist</button>
+  <button data-tab="settings">Settings</button>
 </nav>
 <main>
   <section id="decision-log-tab">
@@ -150,6 +151,12 @@
   <section id="golive-tab" class="hidden">
     <div id="golive-checklist" class="panel">Loading go-live checklist…</div>
   </section>
+
+  <section id="settings-tab" class="hidden">
+    <div id="paper-settings" class="panel">Loading paper settings…</div>
+    <div id="live-settings" class="panel">Loading live settings…</div>
+    <div id="guardrail-caps" class="panel">Loading guardrail caps…</div>
+  </section>
 </main>
 <script type="module" src="/js/status.mjs"></script>
 <script type="module" src="/js/benchmark.mjs"></script>
@@ -159,6 +166,7 @@
 <script type="module" src="/js/strategy.mjs"></script>
 <script type="module" src="/js/config-editor.mjs"></script>
 <script type="module" src="/js/golive.mjs"></script>
+<script type="module" src="/js/settings.mjs"></script>
 <script type="module" src="/js/tabs.mjs"></script>
 </body>
 </html>

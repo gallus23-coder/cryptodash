@@ -227,8 +227,8 @@ test('getSectionId returns undefined for an unknown tab key', () => {
   assert.equal(getSectionId('nonsense'), undefined);
 });
 
-test('TAB_SECTIONS lists all 4 tabs in display order', () => {
-  assert.deepEqual(Object.keys(TAB_SECTIONS), ['decisionLog', 'charts', 'strategy', 'golive']);
+test('TAB_SECTIONS lists all 5 tabs in display order', () => {
+  assert.deepEqual(Object.keys(TAB_SECTIONS), ['decisionLog', 'charts', 'strategy', 'golive', 'settings']);
 });
 
 test('computeVisibleRange returns a from/to window ending at the latest candle', () => {
