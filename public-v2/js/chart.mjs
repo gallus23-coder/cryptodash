@@ -9,6 +9,12 @@ let candleSeries;
 function getCoin() { return document.getElementById('coin-select').value; }
 function getTf() { return document.getElementById('tf-select').value; }
 
+export function resizeChart() {
+  if (!chart) return;
+  const container = document.getElementById('chart');
+  chart.resize(container.clientWidth, container.clientHeight);
+}
+
 export async function renderChart() {
   if (!chart) {
     chart = createChart(document.getElementById('chart'), { height: 400 });
