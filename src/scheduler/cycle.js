@@ -49,16 +49,20 @@ const persistCycleResults = (db, mode, state) => db.transaction(() => {
   saveSchedulerState(db, mode, state);
 })();
 
-async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, now = Date.now()) {
+async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, now = Date.now(), deps = {}) {
   const startedAt = Date.now();
   const nowHour = Math.floor(now / 1000 / HOUR) * HOUR;
+  // Candles are keyed by bucket START and only stored once closed. At a 4h boundary, the bar
+  // that just closed started FOUR_H earlier — it is never stored under ts === nowHour.
+  const closedBarTs = nowHour - FOUR_H;
+  const decideFn = deps.decide || decide;
   let regimeLabel = null, candidatesCount = 0, openedCount = 0, closedCount = 0, decideResult = null;
 
   try {
     await ingestAllCoins(db, krakenClient, COIN_ALTNAMES, now);
 
     const activeVersion = getActiveConfigVersion(db, mode);
-    const broker = selectBroker(mode);
+    const broker = selectBroker(mode, deps);
     const { config: effectiveConfig, setupsByRegime: effectiveSetupsByRegime } = resolveEffectiveConfig(config, activeVersion.config, SETUPS_BY_REGIME);
 
     const btcDaily = getCandles(db, 'BTC', '1d', 0, nowHour);
@@ -124,7 +128,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
       const candidateContextById = new Map(); // candidateId -> { data, i }, so tryOpenPosition's args are available later without recomputing findIndex
       for (const coin of COINS) {
         const data = coinData[coin];
-        const i = data.candles4h.findIndex((c) => c.ts === nowHour);
+        const i = data.candles4h.findIndex((c) => c.ts === closedBarTs);
         if (i === -1) continue;
         for (const setupName of effectiveSetupsByRegime[regimeLabel] || []) {
           if (state.disabledSetups[setupName] === regimeLabel) continue; // setup disabled for the rest of this regime
@@ -163,7 +167,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
           guardrailHeadroom, setupNames: Object.keys(SETUPS),
         };
 
-        const result = await decide(decisionInput, effectiveConfig);
+        const result = await decideFn(decisionInput, effectiveConfig);
         decideResult = result;
         const decidedIds = new Set();
 
@@ -209,7 +213,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
           const position = state.openPositions.find((p) => p.coin === action.coin && p.setup === action.setup);
           if (!position) continue;
           if (action.action === 'close') {
-            const closingBar = coinData[position.coin].candles4h.find((c) => c.ts === nowHour);
+            const closingBar = coinData[position.coin].candles4h.find((c) => c.ts === closedBarTs);
             if (!closingBar) continue; // no 4h candle at this exact ts for this coin — skip rather than crash on undefined.close
             const claudeCloseExit = mode === 'live'
               ? await liveBroker.closeAtMarket(position, 'claude_close', nowHour, COIN_ALTNAMES[position.coin], krakenClient, effectiveConfig, {})
