@@ -23,7 +23,7 @@ async function renderRegimeCard() {
       ['ADX (4h)', m.adx?.toFixed(1) ?? '—', 'threshold 22'],
       ['Volatility rank', m.volatilityRankPct?.toFixed(0) ?? '—', 'percentile, 90 days'],
       ['Breadth', m.breadthPct !== undefined ? `${Math.round((m.breadthPct / 100) * 6)} / 6` : '—', 'coins above 4h EMA50'],
-      ['Funding (avg)', 'not tracked', 'Kraken Futures not wired in'],
+      ['Funding (avg)', 'Coming soon', ''],
     ] : [];
     el.innerHTML = `
       <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:12px;">
@@ -113,7 +113,7 @@ function renderGuardrails(strategy, caps, paperSettings) {
         <div><div style="display:flex;justify-content:space-between;font-size:13px;"><span>${escapeHtml(label)}</span><span style="font-family:var(--mono);color:#374151;">${formatUnsignedPct(used)} / ${formatUnsignedPct(max)}</span></div>
         <div class="guardrail-bar-track"><div class="guardrail-bar-fill" style="width:${max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0}%;"></div></div></div>
       `).join('')}
-      <div style="font-size:13px;line-height:1.5;border-top:1px solid var(--border);padding-top:12px;"><span style="font-weight:600;">Fee check:</span> a coin's typical 4h move must beat a multiple of the round-trip fee (not exposed via any endpoint yet — see final report).</div>
+      <div style="font-size:13px;line-height:1.5;border-top:1px solid var(--border);padding-top:12px;"><span style="font-weight:600;">Fee check:</span> a coin's typical 4h move must beat a multiple of the round-trip fee.</div>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
       <div style="font-size:13px;">Kill switch: ${g.killSwitchActive ? '<strong style="color:var(--red);">TRIGGERED</strong>' : '<span style="font-weight:600;color:var(--green-text);">armed, not triggered</span>'}</div>

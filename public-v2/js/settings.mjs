@@ -129,7 +129,7 @@ function renderTelegramSettings() {
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px;margin-top:10px;">
       ${events.map((e) => `<label style="display:flex;align-items:center;gap:10px;font-size:14px;min-height:36px;color:var(--muted);"><input type="checkbox" disabled>${escapeHtml(e)}</label>`).join('')}
     </div>
-    <p style="margin:10px 0 0 0;font-size:12px;color:var(--muted);">Telegram notifications aren't built yet — these toggles are shown disabled per the design, not wired to anything.</p>
+    <p style="margin:10px 0 0 0;font-size:12px;color:var(--muted);">Telegram notifications: coming soon.</p>
   `;
 }
 
