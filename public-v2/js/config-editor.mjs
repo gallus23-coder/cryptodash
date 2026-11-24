@@ -89,7 +89,22 @@ async function runBacktest() {
     const bySetupLines = Object.entries(result.backtestSummary.bySetup)
       .map(([name, stats]) => `${escapeHtml(name)}: ${stats.count} trades, ${(stats.winRate * 100).toFixed(0)}% win rate`)
       .join('<br>');
+
+    const formatCell = (summary) => summary.tooFewToJudge
+      ? 'too few to judge'
+      : `${summary.trades} trades, ${(summary.winRate * 100).toFixed(0)}% win, ${summary.expectancy.toFixed(2)}R, worst DD ${(summary.worstDrawdownPct * 100).toFixed(1)}%, vs BTC ${(summary.vsBtc.returnPct * 100).toFixed(1)}%`;
+    const walkForwardRows = ['active', 'draft'].map((which) => `
+      <tr><td>${escapeHtml(which)}</td><td>${formatCell(result.walkForward[which].earlier)}</td><td>${formatCell(result.walkForward[which].later)}</td></tr>
+    `).join('');
+    const walkForwardTable = `
+      <table>
+        <thead><tr><th></th><th>earlier (60d)</th><th>later (30d)</th></tr></thead>
+        <tbody>${walkForwardRows}</tbody>
+      </table>
+    `;
+
     resultEl.innerHTML = `
+      ${walkForwardTable}
       <div>${result.backtestSummary.totalTrades} total trades, final balance £${result.backtestSummary.finalBalance.toFixed(2)}</div>
       <div>${bySetupLines || 'No trades for any setup in this window.'}</div>
       <div><em>${escapeHtml(result.note)}</em></div>
