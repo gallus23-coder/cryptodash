@@ -244,8 +244,13 @@ function createApp(db, { password } = {}) {
   });
 
   app.post('/api/config/draft/backtest', (req, res) => {
+    const mode = req.query.mode || 'paper';
     const { error, draft } = validateDraft(req.body);
     if (error) return res.status(400).json({ error });
+
+    const { getActiveConfigVersion } = require('../data/db');
+    const { resolveEffectiveConfig } = require('../engine/config');
+    const { buildWalkForwardReport } = require('../backtest/compare');
 
     const scaledConfig = applyRiskLevel(DEFAULT_RISK_CONFIG, draft.riskLevel);
     const setupsByRegimeForDraft = Object.fromEntries(
@@ -261,6 +266,15 @@ function createApp(db, { password } = {}) {
     }
     const bySetup = Object.fromEntries(Object.entries(bySetupTrades).map(([name, trades]) => [name, computeExpectancy(trades)]));
 
+    const activeVersion = getActiveConfigVersion(db, mode);
+    const { config: activeEffectiveConfig, setupsByRegime: activeSetupsByRegime } = resolveEffectiveConfig(DEFAULT_RISK_CONFIG, activeVersion.config, SETUPS_BY_REGIME);
+    const activeSetupParams = resolveSetupParams(activeVersion.config.setupParams);
+    const walkForward = buildWalkForwardReport(db, {
+      activeConfig: activeEffectiveConfig, activeSetupsByRegime, activeSetupParams,
+      draftConfig: scaledConfig, draftSetupsByRegime: setupsByRegimeForDraft, draftSetupParams: draft.setupParams,
+      fromTs: nowTs - 90 * 86400, boundaryTs: nowTs - 30 * 86400, toTs: nowTs,
+    });
+
     res.json({
       draft,
       backtestSummary: {
@@ -268,6 +282,7 @@ function createApp(db, { password } = {}) {
         finalBalance: result.state.balance,
         bySetup,
       },
+      walkForward,
       note: 'rangeOverrides do not affect this backtest — the backtest is deterministic and never calls Claude, so Claude\'s adjustment ranges have nothing to act on here. Only riskLevel and disabledSetups change this result.',
     });
   });

@@ -1061,6 +1061,24 @@ test('POST /api/config/draft clamps an out-of-bounds setupParams value instead o
   }
 });
 
+test('POST /api/config/draft/backtest includes a walkForward report split into earlier/later windows for both active and draft', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config/draft/backtest`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dashboard-Password': 'sekrit' },
+      body: JSON.stringify({ riskLevel: 'normal', disabledSetups: [], rangeOverrides: {}, setupParams: {} }),
+    });
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.ok(body.walkForward.active.earlier);
+    assert.ok(body.walkForward.active.later);
+    assert.ok(body.walkForward.draft.earlier);
+    assert.ok(body.walkForward.draft.later);
+  } finally {
+    server.close();
+  }
+});
+
 test('POST /api/config/draft/backtest passes setupParams through to runBacktest — its draft echoes the override back clamped, not dropped (empty test DB means no trades to compare; Task 3 already proves the trade-count effect at the engine level)', async () => {
   const { server, port } = await startTestServer('sekrit');
   try {
