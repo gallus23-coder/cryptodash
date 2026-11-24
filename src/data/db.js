@@ -345,7 +345,7 @@ function getSetupStats(db, mode, setupName, sinceTs) {
   return computeExpectancy(trades);
 }
 
-const DEFAULT_CONFIG_VERSION = { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {} };
+const DEFAULT_CONFIG_VERSION = { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {}, setupParams: {} };
 
 function rowToConfigVersion(row) {
   if (!row) return null;
@@ -509,4 +509,5 @@ module.exports = {
   insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
   approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions, getMostRecentSupersededConfigVersion,
   resetKillSwitch, pauseTrading, resumeTrading, getClaudeCallsToday, getDecisionCallCounts, getMonthStartTs,
+  DEFAULT_CONFIG_VERSION,
 };

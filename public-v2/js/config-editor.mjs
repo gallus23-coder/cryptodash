@@ -4,6 +4,10 @@ import { buildConfigDiff, escapeHtml } from './format.mjs';
 const SETUP_NAMES = ['trend_breakout', 'trend_pullback', 'range_reversion', 'oversold_bounce'];
 let lastBacktestedDraft = null;
 let lastBacktestSummary = null;
+// setupParamsInfo[name] = { params, paramBounds } — fetched from /api/strategy (the server is the
+// single source of truth for DEFAULT_SETUP_PARAMS/SETUP_PARAM_BOUNDS; this module can't import
+// src/engine/setupParams.js directly, since that's a CommonJS file and this runs in the browser).
+let setupParamsInfo = {};
 // Incremented on every form change. runBacktest captures the value at the start of its two
 // awaited round-trips and checks it again before committing — if the user toggled a setting
 // while the backtest was in flight, the generation no longer matches and the stale result is
@@ -11,10 +15,17 @@ let lastBacktestSummary = null;
 // what's on screen.
 let formGeneration = 0;
 
+function readParamInputsFor(name) {
+  return Object.fromEntries(
+    Object.keys(setupParamsInfo[name].params).map((key) => [key, Number(document.getElementById(`param-${name}-${key}`).value)])
+  );
+}
+
 function currentDraft() {
   const riskLevel = document.getElementById('risk-level-select').value;
   const disabledSetups = SETUP_NAMES.filter((name) => !document.getElementById(`toggle-setup-${name}`).checked);
-  return { riskLevel, disabledSetups, rangeOverrides: {} };
+  const setupParams = SETUP_NAMES.reduce((acc, name) => ({ ...acc, [name]: readParamInputsFor(name) }), {});
+  return { riskLevel, disabledSetups, rangeOverrides: {}, setupParams };
 }
 
 function invalidateBacktest() {
@@ -30,6 +41,33 @@ function renderSetupToggles() {
     <label><input type="checkbox" id="toggle-setup-${name}" checked /> ${escapeHtml(name)}</label>
   `).join('');
   SETUP_NAMES.forEach((name) => document.getElementById(`toggle-setup-${name}`).addEventListener('change', invalidateBacktest));
+}
+
+async function renderSetupParamInputs() {
+  const el = document.getElementById('setup-param-inputs');
+  try {
+    const strategy = await fetchJson('/api/strategy', {});
+    setupParamsInfo = Object.fromEntries(strategy.setups.map((s) => [s.name, { params: s.params, paramBounds: s.paramBounds }]));
+  } catch (err) {
+    el.textContent = `Could not load setup parameters: ${err.message}`;
+    return;
+  }
+  el.innerHTML = SETUP_NAMES.map((name) => `
+    <div style="margin-top: 10px;">
+      <div style="font-family: var(--mono); font-size: 12px; color: var(--muted);">${escapeHtml(name)}</div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 4px;">
+        ${Object.entries(setupParamsInfo[name].params).map(([key, defaultValue]) => {
+          const [min, max] = setupParamsInfo[name].paramBounds[key];
+          return `<label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted);">${escapeHtml(key)}<input type="number" step="0.1" id="param-${name}-${key}" value="${defaultValue}" min="${min}" max="${max}"></label>`;
+        }).join('')}
+      </div>
+    </div>
+  `).join('');
+  SETUP_NAMES.forEach((name) => {
+    Object.keys(setupParamsInfo[name].params).forEach((key) => {
+      document.getElementById(`param-${name}-${key}`).addEventListener('change', invalidateBacktest);
+    });
+  });
 }
 
 async function runBacktest() {
@@ -112,6 +150,7 @@ async function decide(id, action) {
 
 export async function renderConfigEditor() {
   renderSetupToggles();
+  await renderSetupParamInputs();
   document.getElementById('risk-level-select').addEventListener('change', invalidateBacktest);
   document.getElementById('backtest-button').addEventListener('click', runBacktest);
   document.getElementById('submit-button').addEventListener('click', submitDraft);

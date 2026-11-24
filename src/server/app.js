@@ -186,6 +186,7 @@ function createApp(db, { password } = {}) {
   const { getSetupStats, getLatestMarketNote } = require('../data/db');
   const { SETUPS } = require('../engine/playbook');
   const { DEFAULT_RISK_CONFIG } = require('../engine/config');
+  const { DEFAULT_SETUP_PARAMS, SETUP_PARAM_BOUNDS } = require('../engine/setupParams');
 
   app.get('/api/strategy', (req, res) => {
     const mode = req.query.mode || 'paper';
@@ -193,6 +194,7 @@ function createApp(db, { password } = {}) {
 
     const setups = Object.entries(SETUPS).map(([name, mod]) => ({
       name, ranges: mod.RANGES,
+      params: DEFAULT_SETUP_PARAMS[name], paramBounds: SETUP_PARAM_BOUNDS[name],
       stats30d: getSetupStats(db, mode, name, nowTs - 30 * 86400),
       stats90d: getSetupStats(db, mode, name, nowTs - 90 * 86400),
     }));
@@ -223,15 +225,16 @@ function createApp(db, { password } = {}) {
   const { runBacktest } = require('../backtest/run');
   const { computeExpectancy } = require('../backtest/stats');
   const { SETUPS_BY_REGIME } = require('../engine/playbook');
+  const { resolveSetupParams } = require('../engine/setupParams');
 
   function validateDraft(body) {
-    const { riskLevel, disabledSetups, rangeOverrides } = body || {};
+    const { riskLevel, disabledSetups, rangeOverrides, setupParams } = body || {};
     if (!['cautious', 'normal', 'bold'].includes(riskLevel)) return { error: `invalid riskLevel: ${riskLevel}` };
     const validSetupNames = Object.keys(SETUPS);
     for (const name of disabledSetups || []) {
       if (!validSetupNames.includes(name)) return { error: `unknown setup in disabledSetups: ${name}` };
     }
-    return { draft: { riskLevel, disabledSetups: disabledSetups || [], rangeOverrides: rangeOverrides || {} } };
+    return { draft: { riskLevel, disabledSetups: disabledSetups || [], rangeOverrides: rangeOverrides || {}, setupParams: resolveSetupParams(setupParams || {}) } };
   }
 
   app.post('/api/config/draft', (req, res) => {
@@ -250,7 +253,7 @@ function createApp(db, { password } = {}) {
     );
 
     const nowTs = Math.floor(Date.now() / 1000);
-    const result = runBacktest(db, scaledConfig, nowTs - 90 * 86400, setupsByRegimeForDraft);
+    const result = runBacktest(db, scaledConfig, nowTs - 90 * 86400, setupsByRegimeForDraft, draft.setupParams);
 
     const bySetupTrades = {};
     for (const trade of result.state.closedTrades) {

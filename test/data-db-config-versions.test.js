@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   openDb, insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
   approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions, getMostRecentSupersededConfigVersion,
+  DEFAULT_CONFIG_VERSION,
 } = require('../src/data/db');
 
 function sampleConfigJson(overrides = {}) {
@@ -83,4 +84,8 @@ test('getMostRecentSupersededConfigVersion returns the most recently superseded 
   const superseded = getMostRecentSupersededConfigVersion(db, 'paper');
   assert.equal(superseded.id, firstId);
   assert.equal(superseded.config.riskLevel, 'normal');
+});
+
+test('DEFAULT_CONFIG_VERSION includes an empty setupParams object', () => {
+  assert.deepEqual(DEFAULT_CONFIG_VERSION.setupParams, {});
 });

@@ -942,6 +942,8 @@ test('GET /api/strategy returns per-setup stats, computed with computeExpectancy
     assert.ok(pullback.ranges); // ranges came from the real playbook module
     assert.equal(pullback.stats30d.count, 0);
     assert.equal(pullback.stats30d.expectancy, 0);
+    assert.deepEqual(pullback.params, { rsiMin: 40, rsiMax: 55, defaultStopAtr: 1.5, defaultTrailAtr: 2.5 });
+    assert.deepEqual(pullback.paramBounds.rsiMin, [20, 50]);
   } finally {
     server.close();
   }
@@ -1039,6 +1041,44 @@ test('POST /api/config/draft/backtest returns a well-shaped summary even against
     assert.equal(body.backtestSummary.totalTrades, 0); // no candles seeded — no history to trade on
     assert.deepEqual(body.backtestSummary.bySetup, {});
     assert.match(body.note, /range/i);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/config/draft clamps an out-of-bounds setupParams value instead of rejecting or passing it through raw', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config/draft`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dashboard-Password': 'sekrit' },
+      body: JSON.stringify({ riskLevel: 'normal', disabledSetups: [], rangeOverrides: {}, setupParams: { trend_breakout: { lookback: 999 } } }),
+    });
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(body.setupParams.trend_breakout.lookback, 50); // SETUP_PARAM_BOUNDS.trend_breakout.lookback[1]
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/config/draft/backtest passes setupParams through to runBacktest — its draft echoes the override back clamped, not dropped (empty test DB means no trades to compare; Task 3 already proves the trade-count effect at the engine level)', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const base = { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {} };
+    const defaultRes = await fetch(`http://127.0.0.1:${port}/api/config/draft/backtest`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dashboard-Password': 'sekrit' },
+      body: JSON.stringify({ ...base, setupParams: {} }),
+    });
+    const changedRes = await fetch(`http://127.0.0.1:${port}/api/config/draft/backtest`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dashboard-Password': 'sekrit' },
+      body: JSON.stringify({ ...base, setupParams: { oversold_bounce: { rsi2Max: 2 } } }),
+    });
+    assert.equal(defaultRes.status, 200);
+    assert.equal(changedRes.status, 200);
+    const defaultBody = await defaultRes.json();
+    const changedBody = await changedRes.json();
+    assert.equal(defaultBody.draft.setupParams.oversold_bounce.rsi2Max, 5); // untouched default
+    assert.equal(changedBody.draft.setupParams.oversold_bounce.rsi2Max, 2); // the override, clamped in-bounds
   } finally {
     server.close();
   }
