@@ -1,5 +1,5 @@
 import { fetchJson } from './api.mjs';
-import { computeNextCycleTs, formatUtcTime, escapeHtml } from './format.mjs';
+import { computeNextCycleTs, formatUtcTime, escapeHtml, formatPrice } from './format.mjs';
 
 async function renderBalanceCard() {
   const el = document.getElementById('overview-balance');
@@ -64,7 +64,7 @@ async function renderPositionsCard() {
         return `
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 0;border-bottom:1px solid #F3F4F6;">
           <span style="display:flex;flex-direction:column;gap:2px;"><span style="font-weight:600;">${escapeHtml(p.coin)}/GBP</span><span style="font-size:12px;color:var(--muted);">${escapeHtml(p.setup)} · ${hours}h</span></span>
-          <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;"><span style="font-family:var(--mono);font-size:12px;color:var(--red);">stop £${p.initialStopPrice}</span></span>
+          <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;"><span style="font-family:var(--mono);font-size:12px;color:var(--red);">stop £${formatPrice(p.coin, p.initialStopPrice)}</span></span>
         </div>
       `;
       }).join('')}

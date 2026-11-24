@@ -131,6 +131,19 @@ export function formatRatio(ratio) {
   return ratio === null ? 'n/a' : ratio.toFixed(2);
 }
 
+const PRICE_DECIMALS = { BTC: 0, ETH: 0, SOL: 2, LINK: 2, XRP: 4, ADA: 4 };
+
+export function formatPrice(coin, value) {
+  const dp = PRICE_DECIMALS[coin] ?? 2;
+  return value.toLocaleString('en-GB', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+}
+
+export function formatUnsignedPct(value) {
+  const pct = value * 100;
+  const rounded = Math.round(pct * 10) / 10;
+  return `${(rounded === 0 ? 0 : rounded).toFixed(1)}%`;
+}
+
 export function formatChecklistStatus(pass) {
   if (pass === true) return { icon: '✅', label: 'Done' };
   if (pass === false) return { icon: '❌', label: 'Not yet' };

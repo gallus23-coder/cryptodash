@@ -2,7 +2,7 @@ import { fetchJson } from './api.mjs';
 import { createChart, CandlestickSeries, LineSeries } from '/vendor/lightweight-charts.standalone.production.mjs';
 import { renderMarkersAndPositions } from './positions.mjs';
 import { renderIndicatorPanel } from './regime-band.mjs';
-import { computeVisibleRange, escapeHtml } from './format.mjs';
+import { computeVisibleRange, escapeHtml, formatPrice } from './format.mjs';
 
 const COINS = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'LINK'];
 
@@ -116,9 +116,9 @@ async function renderSideCards(positions, candles) {
       <span style="font-family:var(--mono);font-size:16px;font-weight:600;color:${pnlPct >= 0 ? 'var(--green)' : 'var(--red)'};">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%</span>
     </div>
     <dl style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;margin:14px 0 0 0;">
-      <div><dt style="font-size:12px;color:var(--muted);">Entry</dt><dd style="margin:2px 0 0 0;font-family:var(--mono);">£${position.entryPrice}</dd></div>
-      <div><dt style="font-size:12px;color:var(--muted);">Now</dt><dd style="margin:2px 0 0 0;font-family:var(--mono);">£${latestClose}</dd></div>
-      <div><dt style="font-size:12px;color:var(--muted);">Stop</dt><dd style="margin:2px 0 0 0;font-family:var(--mono);color:var(--red);">£${position.initialStopPrice}</dd></div>
+      <div><dt style="font-size:12px;color:var(--muted);">Entry</dt><dd style="margin:2px 0 0 0;font-family:var(--mono);">£${formatPrice(position.coin, position.entryPrice)}</dd></div>
+      <div><dt style="font-size:12px;color:var(--muted);">Now</dt><dd style="margin:2px 0 0 0;font-family:var(--mono);">£${formatPrice(position.coin, latestClose)}</dd></div>
+      <div><dt style="font-size:12px;color:var(--muted);">Stop</dt><dd style="margin:2px 0 0 0;font-family:var(--mono);color:var(--red);">£${formatPrice(position.coin, position.initialStopPrice)}</dd></div>
       <div><dt style="font-size:12px;color:var(--muted);">Stake</dt><dd style="margin:2px 0 0 0;font-family:var(--mono);">£${stakeValue.toFixed(2)}</dd></div>
       <div><dt style="font-size:12px;color:var(--muted);">In trade</dt><dd style="margin:2px 0 0 0;font-family:var(--mono);">${formatInTrade(position.entryTs, nowTs)}</dd></div>
     </dl>
@@ -173,7 +173,7 @@ async function renderWatchlist(positions) {
     ${rows.map((r) => `
       <button type="button" data-coin="${escapeHtml(r.coin)}" class="${r.coin === selectedCoin ? 'selected' : ''}">
         <span class="wl-row"><span style="font-weight:600;">${escapeHtml(r.coin)}/GBP</span>${r.changePct === null ? '' : `<span style="font-family:var(--mono);font-size:12px;color:${r.changePct >= 0 ? 'var(--green)' : 'var(--red)'};">${r.changePct >= 0 ? '+' : ''}${r.changePct.toFixed(1)}%</span>`}</span>
-        <span class="wl-row"><span style="font-family:var(--mono);font-size:13px;">${r.price === null ? '—' : `£${r.price}`}</span>
+        <span class="wl-row"><span style="font-family:var(--mono);font-size:13px;">${r.price === null ? '—' : `£${formatPrice(r.coin, r.price)}`}</span>
           ${r.openPosition ? '<span class="wl-badge-open">OPEN</span>' : r.isCandidate ? '<span class="wl-badge-candidate">CANDIDATE</span>' : ''}
         </span>
       </button>
@@ -198,7 +198,7 @@ async function renderChartHeader() {
     const changePct = last && prior ? ((last.close - prior.close) / prior.close) * 100 : null;
     el.innerHTML = `
       <div><h1 style="margin:0;font-size:20px;font-weight:600;">${escapeHtml(selectedCoin)}/GBP</h1>
-      <div style="font-family:var(--mono);font-size:13px;color:var(--muted);margin-top:2px;">Kraken${last ? ` · £${last.close}` : ''}${changePct === null ? '' : ` · <span style="color:${changePct >= 0 ? 'var(--green)' : 'var(--red)'};">${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}% 24h</span>`}</div></div>
+      <div style="font-family:var(--mono);font-size:13px;color:var(--muted);margin-top:2px;">Kraken${last ? ` · £${formatPrice(selectedCoin, last.close)}` : ''}${changePct === null ? '' : ` · <span style="color:${changePct >= 0 ? 'var(--green)' : 'var(--red)'};">${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}% 24h</span>`}</div></div>
     `;
     el.appendChild(tfSelect);
   } catch (err) {

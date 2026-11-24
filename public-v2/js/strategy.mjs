@@ -1,5 +1,5 @@
 import { fetchJson } from './api.mjs';
-import { formatRegimeDuration, formatSetupStats, formatR, formatPct, escapeHtml } from './format.mjs';
+import { formatRegimeDuration, formatSetupStats, formatR, formatPct, escapeHtml, formatPrice } from './format.mjs';
 
 // Which regime each setup is designed for — matches src/engine/playbook's SETUPS_BY_REGIME
 // mapping. Not exposed via any API, so this is hand-kept in sync with that constant; a setup
@@ -88,7 +88,7 @@ function renderOpenPositions(positions) {
     <table>
       <thead><tr><th>Coin</th><th>Setup</th><th>Entry</th><th>Stop</th></tr></thead>
       <tbody>
-        ${positions.map((p) => `<tr><td>${escapeHtml(p.coin)}</td><td style="font-family:var(--mono);">${escapeHtml(p.setup)}</td><td style="font-family:var(--mono);">£${p.entryPrice}</td><td style="font-family:var(--mono);color:var(--red);">£${p.initialStopPrice}</td></tr>`).join('')}
+        ${positions.map((p) => `<tr><td>${escapeHtml(p.coin)}</td><td style="font-family:var(--mono);">${escapeHtml(p.setup)}</td><td style="font-family:var(--mono);">£${formatPrice(p.coin, p.entryPrice)}</td><td style="font-family:var(--mono);color:var(--red);">£${formatPrice(p.coin, p.initialStopPrice)}</td></tr>`).join('')}
       </tbody>
     </table>
   `;

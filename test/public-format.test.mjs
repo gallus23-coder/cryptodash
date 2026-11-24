@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus, TAB_SECTIONS, getSectionId, computeVisibleRange, formatPct, formatRatio, computeNextCycleTs, formatUtcTime } from '../public-v2/js/format.mjs';
+import { formatR, formatScorecardMessage, classifyRow, formatOutcome, escapeHtml, computeTrailStopLevel, buildTradeMarker, buildCandidateMarker, buildRegimeSegments, REGIME_COLORS, formatRegimeDuration, formatSetupStats, formatGuardrailUsage, buildConfigDiff, formatChecklistStatus, TAB_SECTIONS, getSectionId, computeVisibleRange, formatPct, formatRatio, computeNextCycleTs, formatUtcTime, formatPrice, formatUnsignedPct } from '../public-v2/js/format.mjs';
 
 test('formatR shows a sign and 2 decimal places with an R suffix', () => {
   assert.equal(formatR(0.724), '+0.72R');
@@ -274,4 +274,32 @@ test('computeNextCycleTs returns 4 hours later when already exactly on a boundar
 test('formatUtcTime shows HH:MM for a timestamp', () => {
   assert.equal(formatUtcTime(11 * 3600), '11:00');
   assert.equal(formatUtcTime(8 * 3600 + 5 * 60), '08:05');
+});
+
+test('formatPrice shows BTC/ETH with thousands separator and 0 decimal places', () => {
+  assert.equal(formatPrice('BTC', 71240), '71,240');
+  assert.equal(formatPrice('ETH', 2814.37), '2,814');
+});
+
+test('formatPrice shows SOL/LINK with 2 decimal places', () => {
+  assert.equal(formatPrice('SOL', 103.9), '103.90');
+  assert.equal(formatPrice('LINK', 11.84), '11.84');
+});
+
+test('formatPrice shows XRP/ADA with 4 decimal places', () => {
+  assert.equal(formatPrice('XRP', 0.441), '0.4410');
+  assert.equal(formatPrice('ADA', 0.312), '0.3120');
+});
+
+test('formatPrice falls back to 2 decimal places for an unlisted coin', () => {
+  assert.equal(formatPrice('DOGE', 0.5), '0.50');
+});
+
+test('formatUnsignedPct shows a percentage with no +/- sign', () => {
+  assert.equal(formatUnsignedPct(0.015), '1.5%');
+  assert.equal(formatUnsignedPct(0), '0.0%');
+});
+
+test('formatUnsignedPct never shows a negative-zero sign for a value that rounds to zero', () => {
+  assert.equal(formatUnsignedPct(-0.00001), '0.0%');
 });
