@@ -24,7 +24,10 @@ function currentFilters() {
 async function renderTimeline() {
   const el = document.getElementById('timeline');
   try {
-    const rows = await fetchJson('/api/cycles', currentFilters());
+    let rows = await fetchJson('/api/cycles', currentFilters());
+    if (document.getElementById('hide-quiet-filter').checked) {
+      rows = rows.filter((row) => classifyRow(row) !== 'quiet');
+    }
     el.innerHTML = '';
     for (const row of rows) {
       const div = document.createElement('div');
@@ -39,7 +42,7 @@ async function renderTimeline() {
   }
 }
 
-['regime-filter', 'coin-filter', 'setup-filter', 'action-filter', 'diverged-filter'].forEach((id) => {
+['regime-filter', 'coin-filter', 'setup-filter', 'action-filter', 'diverged-filter', 'hide-quiet-filter'].forEach((id) => {
   document.getElementById(id).addEventListener('change', renderTimeline);
 });
 renderTimeline();
