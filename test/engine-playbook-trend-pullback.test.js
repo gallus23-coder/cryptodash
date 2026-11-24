@@ -59,3 +59,24 @@ test('does not fire outside trend_up regime', () => {
 
   assert.equal(evaluate('ETH', candles4h, indicators, 0, 'range'), null);
 });
+
+test('a custom rsiMin/rsiMax band is honored instead of the hardcoded 40-55', () => {
+  const candles4h = [{ ts: 0, open: 100, high: 101, low: 94, close: 97 }];
+  const indicators = makeIndicators({ ema20: [95], ema50: [90], rsi14: [62] }); // outside default band, inside a widened one
+  const params = { rsiMin: 40, rsiMax: 65, defaultStopAtr: 1.5, defaultTrailAtr: 2.5 };
+
+  const candidate = evaluate('ETH', candles4h, indicators, 0, 'trend_up', params);
+
+  assert.ok(candidate);
+});
+
+test('a custom defaultStopAtr/defaultTrailAtr replaces the hardcoded 1.5/2.5', () => {
+  const candles4h = [{ ts: 0, open: 100, high: 101, low: 94, close: 97 }];
+  const indicators = makeIndicators({ ema20: [95], ema50: [90], rsi14: [48] });
+  const params = { rsiMin: 40, rsiMax: 55, defaultStopAtr: 1.8, defaultTrailAtr: 3.1 };
+
+  const candidate = evaluate('ETH', candles4h, indicators, 0, 'trend_up', params);
+
+  assert.equal(candidate.default.stopAtr, 1.8);
+  assert.equal(candidate.default.trailAtr, 3.1);
+});

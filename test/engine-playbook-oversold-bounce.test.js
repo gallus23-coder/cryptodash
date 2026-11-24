@@ -77,3 +77,11 @@ test('does not fire before 18 bars (3 days) of history exist', () => {
 
   assert.equal(evaluate('ADA', candles4h, { rsi2, ema20 }, 9, 'downtrend'), null);
 });
+
+test('a custom lookbackBars changes the three-day-fall window', () => {
+  const candles4h = Array.from({ length: 10 }, (_, i) => ({ ts: i * 14400, close: i < 5 ? 100 : 90 }));
+  const indicators = { rsi2: Array(10).fill(3), atr14: Array(10).fill(2.5) };
+  // default lookbackBars=18 would return null (not enough bars); a shortened lookbackBars=5 should fire
+  const candidate = evaluate('BTC', candles4h, indicators, 9, 'downtrend', { rsi2Max: 5, lookbackBars: 5, defaultStopAtr: 1.0, timeStopHours: 12 });
+  assert.ok(candidate);
+});

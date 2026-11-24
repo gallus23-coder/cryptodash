@@ -1,8 +1,10 @@
 'use strict';
 
+const { DEFAULT_SETUP_PARAMS } = require('../setupParams');
+
 const RANGES = { size: [0, 1], stopAtr: [1.0, 3.0], trailAtr: [1.5, 4.0] };
 
-function evaluate(coin, candles4h, indicators, i, regimeLabel) {
+function evaluate(coin, candles4h, indicators, i, regimeLabel, params = DEFAULT_SETUP_PARAMS.trend_pullback) {
   if (regimeLabel !== 'trend_up') return null;
 
   const ema20 = indicators.ema20[i];
@@ -13,7 +15,7 @@ function evaluate(coin, candles4h, indicators, i, regimeLabel) {
   const bar = candles4h[i];
   const touchedEma = bar.low <= ema20 || bar.low <= ema50;
   const heldAboveLower = bar.close > Math.min(ema20, ema50);
-  const rsiInBand = rsi >= 40 && rsi <= 55;
+  const rsiInBand = rsi >= params.rsiMin && rsi <= params.rsiMax;
   if (!touchedEma || !heldAboveLower || !rsiInBand) return null;
 
   return {
@@ -22,7 +24,7 @@ function evaluate(coin, candles4h, indicators, i, regimeLabel) {
     regime: regimeLabel,
     entry: bar.close,
     atr: indicators.atr14[i],
-    default: { action: 'take', size: 1.0, stopAtr: 1.5, trailAtr: 2.5 },
+    default: { action: 'take', size: 1.0, stopAtr: params.defaultStopAtr, trailAtr: params.defaultTrailAtr },
     ranges: RANGES,
     exitType: 'trailing_stop',
   };

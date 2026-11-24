@@ -1,8 +1,10 @@
 'use strict';
 
+const { DEFAULT_SETUP_PARAMS } = require('../setupParams');
+
 const RANGES = { size: [0, 1], stopAtr: [1.0, 2.5] };
 
-function evaluate(coin, candles4h, indicators, i, regimeLabel) {
+function evaluate(coin, candles4h, indicators, i, regimeLabel, params = DEFAULT_SETUP_PARAMS.range_reversion) {
   if (regimeLabel !== 'range') return null;
 
   const lowerBand = indicators.bollinger20.lower[i];
@@ -12,7 +14,7 @@ function evaluate(coin, candles4h, indicators, i, regimeLabel) {
 
   const bar = candles4h[i];
   const belowLowerBand = bar.close < lowerBand;
-  const rsiOversold = rsi < 10;
+  const rsiOversold = rsi < params.rsi2Max;
   const aboveDailyTrend = bar.close > dailyEma200;
   if (!belowLowerBand || !rsiOversold || !aboveDailyTrend) return null;
 
@@ -22,11 +24,11 @@ function evaluate(coin, candles4h, indicators, i, regimeLabel) {
     regime: regimeLabel,
     entry: bar.close,
     atr: indicators.atr14[i],
-    default: { action: 'take', size: 1.0, stopAtr: 1.5 },
+    default: { action: 'take', size: 1.0, stopAtr: params.defaultStopAtr },
     ranges: RANGES,
     exitType: 'target_or_time',
     targetType: 'bollinger_middle',
-    timeStopHours: 24,
+    timeStopHours: params.timeStopHours,
   };
 }
 

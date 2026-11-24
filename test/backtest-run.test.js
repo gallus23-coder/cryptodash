@@ -63,3 +63,11 @@ test("closing the only open position leaves balance equal to starting balance pl
   const trade = state.closedTrades[0];
   assert.equal(state.balance, 1000 + trade.pnl);
 });
+
+test('buildCoinData computes donchianBreakout with the given breakoutLookback, not a hardcoded 20', () => {
+  const { candles4h, candles1h, candlesDaily } = makeFixture();
+  const data = buildCoinData({ candles4h, candles1h, candlesDaily, breakoutLookback: 10 });
+  const { donchian } = require('../src/engine/indicators');
+  const expected = donchian(candles4h, 10);
+  assert.deepEqual(data.indicators.donchianBreakout.upper, expected.upper);
+});

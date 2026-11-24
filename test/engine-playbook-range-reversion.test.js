@@ -69,3 +69,11 @@ test('does not fire when the daily EMA200 is not yet available (warm-up)', () =>
 
   assert.equal(evaluate('SOL', candles4h, indicators, 0, 'range'), null);
 });
+
+test('a custom rsi2Max widens or narrows the oversold trigger', () => {
+  const candles4h = [{ ts: 0, close: 95 }];
+  const indicators = { bollinger20: { lower: [96] }, rsi2: [15], dailyEma200Aligned: [90], atr14: [4] };
+  // default rsi2Max=10 would reject rsi=15; a widened rsi2Max=20 should accept it
+  const candidate = evaluate('BTC', candles4h, indicators, 0, 'range', { rsi2Max: 20, defaultStopAtr: 1.5, timeStopHours: 24 });
+  assert.ok(candidate);
+});

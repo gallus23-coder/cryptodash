@@ -5,7 +5,7 @@ const { evaluate } = require('../src/engine/playbook/trendBreakout');
 
 function makeIndicators({ donchianUpper, adx, atr14 }) {
   return {
-    donchian20: { upper: donchianUpper, lower: [] }, adx14: { adx },
+    donchianBreakout: { upper: donchianUpper, lower: [] }, adx14: { adx },
     atr14: atr14 || donchianUpper.map(() => 2),
   };
 }
@@ -79,4 +79,14 @@ test('does not fire when there is no prior bar\'s Donchian value yet (warm-up)',
   const indicators = makeIndicators({ donchianUpper: [null], adx: [25] });
 
   assert.equal(evaluate('BTC', candles4h, indicators, 0, 'trend_up'), null);
+});
+
+test('a custom lookback changes nothing about evaluate() itself — it only changes which donchian series buildCoinData hands in', () => {
+  // evaluate() just reads indicators.donchianBreakout; Task 3's backtest/cycle test proves the
+  // lookback itself changes results end-to-end. This test only proves the renamed key is read
+  // without crashing — whether a candidate fires on this arbitrary fixture isn't the point.
+  const candles4h = [{ ts: 0, open: 100, high: 101, low: 99, close: 100 }, { ts: 1, open: 100, high: 106, low: 99, close: 105 }];
+  const indicators = { donchianBreakout: { upper: [100, 110] }, adx14: { adx: [25, 30] }, atr14: [2, 3] };
+  const candidate = evaluate('BTC', candles4h, indicators, 1, 'trend_up');
+  assert.ok(candidate === null || candidate.setup === 'trend_breakout');
 });

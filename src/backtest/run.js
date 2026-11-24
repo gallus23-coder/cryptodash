@@ -3,7 +3,7 @@ const { ema, rsi, atr, adx, donchian, bollinger } = require('../engine/indicator
 const { filterOutlierCandles } = require('../data/candles');
 const { alignDailyIndices } = require('../engine/regime');
 
-function buildCoinData({ candles4h, candles1h, candlesDaily }) {
+function buildCoinData({ candles4h, candles1h, candlesDaily, breakoutLookback = 20 }) {
   const closes4h = candles4h.map((c) => c.close);
   const dailyCloses = candlesDaily.map((c) => c.close);
   const dailyEma200 = ema(dailyCloses, 200);
@@ -16,7 +16,7 @@ function buildCoinData({ candles4h, candles1h, candlesDaily }) {
     rsi14: rsi(closes4h, 14),
     rsi2: rsi(closes4h, 2),
     atr14: atr(candles4h, 14),
-    donchian20: donchian(candles4h, 20),
+    donchianBreakout: donchian(candles4h, breakoutLookback),
     bollinger20: bollinger(closes4h, 20, 2),
     adx14: adx(candles4h, 14),
     dailyEma200Aligned,
