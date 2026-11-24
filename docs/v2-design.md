@@ -248,7 +248,7 @@ Three main tabs plus a settings view. No external calls from the browser: all da
   - Live stakes start at 25% of paper size.
   - Optionally, paper keeps running alongside live so the comparison continues.
 - **Back to paper:** one click, immediate. You choose whether to leave open live trades with their Kraken stops in place, or close them at market.
-- **Guardrail caps:** separate paper and live columns, with live tighter by default (stake £25, 2 positions, 40% exposure, 2% daily loss, 5% weekly kill switch). Saving asks for confirmation.
+- **Guardrail caps:** separate paper and live columns, with live tighter by default (0.25% risk per trade, 2 positions, 40% exposure, 2% daily loss, 5% weekly kill switch). Saving asks for confirmation.
 - **Separation:** `mode` column on `orders`, `trades`, `decisions`, `candidates` and `config_versions`. P&L and scorecards never mix modes; every screen has a Paper / Live / Both filter, and live markers on charts get a red outline.
 
 ### 8.5 Phone layout

@@ -73,7 +73,7 @@ async function renderGuardrailCaps() {
   try {
     const caps = await fetchJson('/api/settings/guardrail-caps', {});
     const rows = [
-      ['Base risk per trade', formatUnsignedPct(caps.paper.baseStakePct), `£${caps.live.baseStake} flat stake`],
+      ['Base risk per trade', formatUnsignedPct(caps.paper.baseStakePct), formatUnsignedPct(caps.live.baseStakePct)],
       ['Max open positions', caps.paper.maxOpenPositions, caps.live.maxOpenPositions],
       ['Max per coin exposure', formatUnsignedPct(caps.paper.maxCoinExposurePct), formatUnsignedPct(caps.live.maxCoinExposurePct)],
       ['Max total exposure', formatUnsignedPct(caps.paper.maxTotalExposurePct), formatUnsignedPct(caps.live.maxTotalExposurePct)],

@@ -844,6 +844,8 @@ test('GET /api/settings/guardrail-caps reports the real paper config and a stati
     assert.equal(body.paper.maxOpenPositions, 3); // DEFAULT_RISK_CONFIG, real and enforced
     assert.equal(body.live.maxOpenPositions, 2); // design doc §8.4 reference value
     assert.match(body.liveNote, /not yet enforced/i);
+    assert.equal(body.live.baseStakePct, 0.0025); // risk-based, half of paper's 0.005 — not a flat £ stake
+    assert.equal(body.live.baseStake, undefined);
   } finally {
     server.close();
   }

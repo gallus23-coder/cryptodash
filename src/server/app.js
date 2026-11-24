@@ -422,9 +422,10 @@ function createApp(db, { password } = {}) {
         maxCoinExposurePct: DEFAULT_RISK_CONFIG.maxCoinExposurePct, maxTotalExposurePct: DEFAULT_RISK_CONFIG.maxTotalExposurePct,
         dailyLossLimitPct: DEFAULT_RISK_CONFIG.dailyLossLimitPct, weeklyKillSwitchPct: DEFAULT_RISK_CONFIG.weeklyKillSwitchPct,
       },
-      // Design doc §8.4 reference values — not enforced anywhere in code, since no live scheduler exists yet.
+      // Reference values — not enforced anywhere in code, since no live scheduler exists yet.
+      // Risk-based like paper (CLAUDE.md), just tighter: half of paper's baseRiskPct.
       live: {
-        baseStake: 25, maxOpenPositions: 2, maxCoinExposurePct: 0.20, maxTotalExposurePct: 0.40,
+        baseStakePct: DEFAULT_RISK_CONFIG.baseRiskPct * 0.5, maxOpenPositions: 2, maxCoinExposurePct: 0.20, maxTotalExposurePct: 0.40,
         dailyLossLimitPct: 0.02, weeklyKillSwitchPct: 0.05,
       },
       liveNote: 'Reference values from the design doc — not yet enforced, since live mode has no scheduler yet.',
