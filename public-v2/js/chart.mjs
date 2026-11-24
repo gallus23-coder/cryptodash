@@ -92,14 +92,46 @@ function formatInTrade(entryTs, nowTs) {
   return days > 0 ? `${days}d ${hours % 24}h` : `${hours}h`;
 }
 
+function renderDecisionCardContent(candidate) {
+  return `
+    <div class="watchlist-label">${candidate.isOpenPosition ? 'Entry decision' : 'Latest decision'}</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+      <span style="font-family:var(--mono);font-size:12px;background:#F3F4F6;border-radius:4px;padding:2px 6px;">${escapeHtml(candidate.setup)}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px;">
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">Default</div><div style="font-family:var(--mono);font-size:13px;margin-top:4px;">Take ${candidate.default.size}× · Stop ${candidate.default.stopAtr}×ATR</div></div>
+      <div style="border:1px solid var(--blue-border);background:var(--blue-bg);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--accent);font-weight:600;">Claude</div><div style="font-family:var(--mono);font-size:13px;margin-top:4px;">${candidate.decision.action === 'take' ? `Take ${candidate.decision.size}× · Stop ${candidate.decision.stopAtr}×ATR` : 'Skip'}</div></div>
+    </div>
+    <p style="margin:12px 0 0 0;font-size:13px;line-height:1.5;color:#374151;">${escapeHtml(candidate.decision.plainReason || candidate.decision.reason || '')}</p>
+  `;
+}
+
 async function renderSideCards(positions, candles) {
   const openCard = document.getElementById('open-position-card');
   const decisionCard = document.getElementById('entry-decision-card');
   const position = positions.find((p) => p.coin === selectedCoin);
 
+  openCard.classList.remove('hidden');
+  decisionCard.classList.remove('hidden');
+
   if (!position) {
-    openCard.classList.add('hidden');
-    decisionCard.classList.add('hidden');
+    openCard.innerHTML = `
+      <div class="watchlist-label">Open position</div>
+      <div style="margin-top:8px;color:var(--muted);">No open position in ${escapeHtml(selectedCoin)}.</div>
+    `;
+    try {
+      const markers = await fetchJson(`/api/markers/${selectedCoin}`, {});
+      const latest = markers.candidates.length > 0
+        ? markers.candidates.reduce((a, b) => (b.ts > a.ts ? b : a))
+        : null;
+      if (!latest || !latest.decision) {
+        decisionCard.innerHTML = `<div class="watchlist-label">Latest decision</div><div style="margin-top:8px;color:var(--muted);">No decisions recorded yet for ${escapeHtml(selectedCoin)}.</div>`;
+        return;
+      }
+      decisionCard.innerHTML = renderDecisionCardContent({ ...latest, isOpenPosition: false });
+    } catch (err) {
+      decisionCard.innerHTML = `<div class="watchlist-label">Latest decision</div><div style="margin-top:8px;color:var(--muted);">Could not load: ${escapeHtml(err.message)}</div>`;
+    }
     return;
   }
 
@@ -128,23 +160,12 @@ async function renderSideCards(positions, candles) {
     const markers = await fetchJson(`/api/markers/${selectedCoin}`, {});
     const candidate = markers.candidates.find((c) => c.id === position.candidateId);
     if (!candidate || !candidate.decision) {
-      decisionCard.classList.add('hidden');
+      decisionCard.innerHTML = `<div class="watchlist-label">Entry decision</div><div style="margin-top:8px;color:var(--muted);">No decision recorded for this position.</div>`;
       return;
     }
-    decisionCard.classList.remove('hidden');
-    decisionCard.innerHTML = `
-      <div class="watchlist-label">Entry decision</div>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
-        <span style="font-family:var(--mono);font-size:12px;background:#F3F4F6;border-radius:4px;padding:2px 6px;">${escapeHtml(candidate.setup)}</span>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px;">
-        <div style="border:1px solid var(--border);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">Default</div><div style="font-family:var(--mono);font-size:13px;margin-top:4px;">Take ${candidate.default.size}× · Stop ${candidate.default.stopAtr}×ATR</div></div>
-        <div style="border:1px solid var(--blue-border);background:var(--blue-bg);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--accent);font-weight:600;">Claude</div><div style="font-family:var(--mono);font-size:13px;margin-top:4px;">${candidate.decision.action === 'take' ? `Take ${candidate.decision.size}× · Stop ${candidate.decision.stopAtr}×ATR` : 'Skip'}</div></div>
-      </div>
-      <p style="margin:12px 0 0 0;font-size:13px;line-height:1.5;color:#374151;">${escapeHtml(candidate.decision.plainReason || candidate.decision.reason || '')}</p>
-    `;
+    decisionCard.innerHTML = renderDecisionCardContent({ ...candidate, isOpenPosition: true });
   } catch (err) {
-    decisionCard.classList.add('hidden');
+    decisionCard.innerHTML = `<div class="watchlist-label">Entry decision</div><div style="margin-top:8px;color:var(--muted);">Could not load: ${escapeHtml(err.message)}</div>`;
   }
 }
 
