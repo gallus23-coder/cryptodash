@@ -37,6 +37,7 @@ const { SETUPS, SETUPS_BY_REGIME } = require('../engine/playbook');
 const { DEFAULT_RISK_CONFIG, COINS } = require('../engine/config');
 const { evaluateExit, tryOpenPosition, closePosition } = require('../broker/paper');
 const { computeExpectancy, computeDrawdown } = require('./stats');
+const { resolveSetupParams } = require('../engine/setupParams');
 
 const HOUR = 3600, FOUR_H = 4 * 3600, DAY = 24 * 3600;
 
@@ -57,7 +58,8 @@ function loadFilteredCandles(db, coin, timeframe, fromTs, toTs) {
   return candles;
 }
 
-function runBacktest(db, config = DEFAULT_RISK_CONFIG, fromTs = 0, setupsByRegime = SETUPS_BY_REGIME) {
+function runBacktest(db, config = DEFAULT_RISK_CONFIG, fromTs = 0, setupsByRegime = SETUPS_BY_REGIME, setupParamsOverride = {}) {
+  const setupParams = resolveSetupParams(setupParamsOverride);
   const nowHour = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
 
   const btcDaily = loadFilteredCandles(db, 'BTC', '1d', 0, nowHour);
@@ -76,6 +78,7 @@ function runBacktest(db, config = DEFAULT_RISK_CONFIG, fromTs = 0, setupsByRegim
       candles4h: coinCandles4h[coin],
       candles1h: loadFilteredCandles(db, coin, '1h', fromTs, nowHour + FOUR_H),
       candlesDaily: coin === 'BTC' ? btcDaily : loadFilteredCandles(db, coin, '1d', 0, nowHour),
+      breakoutLookback: setupParams.trend_breakout.lookback,
     });
   }
 
@@ -115,7 +118,7 @@ function runBacktest(db, config = DEFAULT_RISK_CONFIG, fromTs = 0, setupsByRegim
         const i = data.candles4h.findIndex((c) => c.ts === ts);
         if (i === -1) continue;
         for (const setupName of setupsByRegime[regimeLabel] || []) {
-          const candidate = SETUPS[setupName].evaluate(coin, data.candles4h, data.indicators, i, regimeLabel);
+          const candidate = SETUPS[setupName].evaluate(coin, data.candles4h, data.indicators, i, regimeLabel, setupParams[setupName]);
           if (candidate) tryOpenPosition(state, candidate, data, i, config);
         }
       }

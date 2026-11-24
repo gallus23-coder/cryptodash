@@ -71,3 +71,63 @@ test('buildCoinData computes donchianBreakout with the given breakoutLookback, n
   const expected = donchian(candles4h, 10);
   assert.deepEqual(data.indicators.donchianBreakout.upper, expected.upper);
 });
+
+const { runBacktest } = require('../src/backtest/run');
+const { openDb, upsertCandles } = require('../src/data/db');
+
+test('a tighter oversold_bounce rsi2Max produces fewer (or equal, never more) trades than a looser one, on the same fixture', () => {
+  const db = openDb(':memory:');
+  const DAY = 86400, FOUR_H = 4 * 3600, HOUR = 3600;
+  const DAYS = 230; // 220-day regime warm-up (EMA200 + slope) + margin, same convention as engine-regime.test.js
+  const N = DAYS * 6;
+
+  // Percentage-based moves throughout (not fixed absolute amounts) so ATR% stays roughly flat
+  // over the series instead of drifting monotonically as price falls — a fixed-amount wiggle on
+  // a falling base makes the LAST bar's ATR% the all-time max of its own trailing window, which
+  // trips the volatility-percentile risk_off gate and masks the regime entirely.
+  const closes = [];
+  let price = 1000;
+  for (let i = 0; i < N; i += 1) {
+    if (i % 10 === 0 && i > 0) price *= 1.0015; // small bounce every 10 bars
+    else price *= 0.9997; // otherwise a steady decline
+    closes.push(price);
+  }
+  // A perfectly periodic range would hit the same percentile-pinning problem once the window is
+  // an exact multiple of the period — the sine term breaks that periodicity.
+  const bucketOhlc = (i) => {
+    const c = closes[i];
+    const rangePct = 0.03 * (1 + 0.5 * Math.sin(i * 0.37));
+    return { open: c, high: c * (1 + rangePct / 2), low: c * (1 - rangePct / 2), close: c };
+  };
+
+  const rows4h = closes.map((c, i) => ({ coin: 'BTC', timeframe: '4h', ts: i * FOUR_H, ...bucketOhlc(i), volume: 1, trades: 1 }));
+  upsertCandles(db, rows4h);
+  const rows1d = Array.from({ length: DAYS }, (_, d) => {
+    const c = closes[d * 6 + 5];
+    return { coin: 'BTC', timeframe: '1d', ts: d * DAY, open: c, high: c, low: c, close: c, volume: 1, trades: 1 };
+  });
+  upsertCandles(db, rows1d);
+  // evaluateExit (src/broker/paper.js) only ever looks at 1h candles to detect a stop/target/time
+  // stop — without any, a position opens and simply never closes, so closedTrades stays 0 for
+  // every config regardless of rsi2Max. One real hour per 4h bucket (matching its full OHLC) plus
+  // three flat hours at the bucket's close reproduces the bucket exactly for anything that cares.
+  const rows1h = [];
+  for (let i = 0; i < N; i += 1) {
+    const o = bucketOhlc(i);
+    const bucketStart = i * FOUR_H;
+    rows1h.push({ coin: 'BTC', timeframe: '1h', ts: bucketStart, ...o, volume: 1, trades: 1 });
+    for (let h = 1; h < 4; h += 1) {
+      rows1h.push({ coin: 'BTC', timeframe: '1h', ts: bucketStart + h * HOUR, open: o.close, high: o.close, low: o.close, close: o.close, volume: 1, trades: 1 });
+    }
+  }
+  upsertCandles(db, rows1h);
+
+  const { DEFAULT_RISK_CONFIG } = require('../src/engine/config');
+  const setupsByRegime = { trend_up: [], range: [], downtrend: ['oversold_bounce'], risk_off: [] };
+
+  const tight = runBacktest(db, DEFAULT_RISK_CONFIG, 0, setupsByRegime, { oversold_bounce: { rsi2Max: 2 } });
+  const loose = runBacktest(db, DEFAULT_RISK_CONFIG, 0, setupsByRegime, { oversold_bounce: { rsi2Max: 15 } });
+
+  assert.ok(loose.state.closedTrades.length >= tight.state.closedTrades.length);
+  assert.ok(loose.state.closedTrades.length > tight.state.closedTrades.length, 'a looser rsi2Max must open strictly more trades on this fixture');
+});

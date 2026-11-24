@@ -35,6 +35,7 @@ function selectBroker(mode, { paperBroker: paperOverride, liveBroker: liveOverri
 const { buildCandidateId, attachContext } = require('../engine/candidates');
 const { openShadowPosition, resolveShadowPositions } = require('../broker/shadow');
 const { decide } = require('../engine/decide');
+const { resolveSetupParams } = require('../engine/setupParams');
 
 const persistCycleResults = (db, mode, state) => db.transaction(() => {
   for (const trade of state.closedTrades) {
@@ -64,6 +65,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
     const activeVersion = getActiveConfigVersion(db, mode);
     const broker = selectBroker(mode, deps);
     const { config: effectiveConfig, setupsByRegime: effectiveSetupsByRegime } = resolveEffectiveConfig(config, activeVersion.config, SETUPS_BY_REGIME);
+    const setupParams = resolveSetupParams(activeVersion.config.setupParams);
 
     const btcDaily = getCandles(db, 'BTC', '1d', 0, nowHour);
     const btc4h = getCandles(db, 'BTC', '4h', 0, nowHour);
@@ -76,6 +78,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
         candles4h,
         candles1h: getCandles(db, coin, '1h', 0, nowHour + FOUR_H),
         candlesDaily: getCandles(db, coin, '1d', 0, nowHour),
+        breakoutLookback: setupParams.trend_breakout.lookback,
       });
     }
 
@@ -132,7 +135,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
         if (i === -1) continue;
         for (const setupName of effectiveSetupsByRegime[regimeLabel] || []) {
           if (state.disabledSetups[setupName] === regimeLabel) continue; // setup disabled for the rest of this regime
-          const candidate = SETUPS[setupName].evaluate(coin, data.candles4h, data.indicators, i, regimeLabel);
+          const candidate = SETUPS[setupName].evaluate(coin, data.candles4h, data.indicators, i, regimeLabel, setupParams[setupName]);
           if (!candidate) continue;
 
           const withContext = attachContext(candidate, data.indicators, i);
