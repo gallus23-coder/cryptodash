@@ -59,6 +59,10 @@ function openDb(dbPath = process.env.CRYPTODASH_DB_PATH || DEFAULT_DB_PATH) {
       config_json TEXT NOT NULL, backtest_json TEXT,
       created_ts INTEGER NOT NULL, decided_ts INTEGER
     );
+    CREATE TABLE IF NOT EXISTS setup_lifecycle (
+      mode TEXT NOT NULL, setup TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'trial', status_ts INTEGER,
+      PRIMARY KEY (mode, setup)
+    );
   `);
 
   const tradeColumns = db.prepare("PRAGMA table_info(trades)").all().map((c) => c.name);
@@ -402,6 +406,23 @@ function getMostRecentSupersededConfigVersion(db, mode) {
   return rowToConfigVersion(row);
 }
 
+function getSetupLifecycle(db, mode, setup) {
+  const row = db.prepare('SELECT status, status_ts AS statusTs FROM setup_lifecycle WHERE mode = ? AND setup = ?').get(mode, setup);
+  return row || { status: 'trial', statusTs: null };
+}
+
+function setSetupLifecycleStatus(db, mode, setup, status, ts) {
+  db.prepare(`
+    INSERT INTO setup_lifecycle (mode, setup, status, status_ts) VALUES (@mode, @setup, @status, @ts)
+    ON CONFLICT(mode, setup) DO UPDATE SET status = excluded.status, status_ts = excluded.status_ts
+  `).run({ mode, setup, status, ts });
+}
+
+function getAllSetupLifecycles(db, mode) {
+  const { SETUPS } = require('../engine/playbook');
+  return Object.fromEntries(Object.keys(SETUPS).map((name) => [name, getSetupLifecycle(db, mode, name).status]));
+}
+
 function saveSchedulerState(db, mode, state) {
   db.prepare(`
     INSERT INTO scheduler_state (mode, state_json, updated_ts) VALUES (@mode, @stateJson, @updatedTs)
@@ -510,4 +531,5 @@ module.exports = {
   approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions, getMostRecentSupersededConfigVersion,
   resetKillSwitch, pauseTrading, resumeTrading, getClaudeCallsToday, getDecisionCallCounts, getMonthStartTs,
   DEFAULT_CONFIG_VERSION,
+  getSetupLifecycle, setSetupLifecycleStatus, getAllSetupLifecycles,
 };
