@@ -184,3 +184,32 @@ test('runCycle at a 4h boundary evaluates the bar that just closed, inserts a ca
   assert.ok(btcShadow, 'expected a shadow position tracking the same candidate');
   assert.equal(btcShadow.entryPrice, btcPosition.entryPrice, "shadow position must reference the same bar's fill as the real position");
 });
+
+test('runCycle applies rangeOverrides to the candidate ranges Claude sees, for the matching setup', async () => {
+  const db = openDb(':memory:');
+  const fakeKrakenClient = seedTrendUpWithPullback(db);
+  const now = BAR_COUNT * FOUR_H * 1000;
+  const config = {
+    ...DEFAULT_RISK_CONFIG,
+  };
+  // Insert an active config version with a rangeOverride on trend_pullback's stopAtr before the cycle runs.
+  const { insertConfigVersion, approveConfigVersion } = require('../src/data/db');
+  const id = insertConfigVersion(db, {
+    mode: 'paper',
+    configJson: { riskLevel: 'normal', disabledSetups: [], rangeOverrides: { trend_pullback: { stopAtr: [2.0, 2.0] } } },
+    backtestJson: null,
+  });
+  approveConfigVersion(db, 'paper', id);
+
+  let seenRanges = null;
+  const captureDecide = async (input) => {
+    const candidate = input.candidates.find((c) => c.setup === 'trend_pullback' && c.coin === 'BTC');
+    if (candidate) seenRanges = candidate.ranges;
+    return takeAllTrendPullbackCandidates(input);
+  };
+
+  await runCycle(db, fakeKrakenClient, 'paper', config, now, { decide: captureDecide });
+
+  assert.ok(seenRanges, 'expected a trend_pullback candidate for BTC to reach decide()');
+  assert.deepEqual(seenRanges.stopAtr, [2.0, 2.0]);
+});

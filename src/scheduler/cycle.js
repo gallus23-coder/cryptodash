@@ -139,7 +139,9 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
           if (!candidate) continue;
 
           const withContext = attachContext(candidate, data.indicators, i);
-          const fullCandidate = { ...withContext, id: buildCandidateId(nowHour, coin, setupName), mode, regime: regimeLabel, ts: nowHour };
+          const rangeOverride = (activeVersion.config.rangeOverrides || {})[setupName];
+          const ranges = rangeOverride ? { ...withContext.ranges, ...rangeOverride } : withContext.ranges;
+          const fullCandidate = { ...withContext, ranges, id: buildCandidateId(nowHour, coin, setupName), mode, regime: regimeLabel, ts: nowHour };
           insertCandidate(db, fullCandidate);
           candidatesCount += 1;
 
