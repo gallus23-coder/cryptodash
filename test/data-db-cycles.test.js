@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { buildCycleOneLiner, openDb, insertCycleLog, getCycleLogFiltered } = require('../src/data/db');
+const { buildCycleOneLiner, openDb, insertCycleLog, getCycleLogFiltered, getLatestRegimeLabel } = require('../src/data/db');
 
 test('buildCycleOneLiner for a cycle with zero candidates says so plainly', () => {
   const line = buildCycleOneLiner({ regimeLabel: 'risk_off', candidatesCount: 0, openedCount: 0, closedCount: 0, error: null });
@@ -54,4 +54,25 @@ test('getCycleLogFiltered respects limit', () => {
   }
   const rows = getCycleLogFiltered(db, { mode: 'paper', limit: 2 });
   assert.equal(rows.length, 2);
+});
+
+test('getLatestRegimeLabel returns the most recent non-null regime_label for the mode', () => {
+  const db = openDb(':memory:');
+  insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'risk_off', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 100 });
+  insertCycleLog(db, { ts: 2000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 100 });
+
+  assert.equal(getLatestRegimeLabel(db, 'paper'), 'trend_up');
+});
+
+test('getLatestRegimeLabel returns null when no cycles have been logged for the mode', () => {
+  const db = openDb(':memory:');
+  assert.equal(getLatestRegimeLabel(db, 'paper'), null);
+});
+
+test('getLatestRegimeLabel ignores rows with a null regime_label (errored cycles)', () => {
+  const db = openDb(':memory:');
+  insertCycleLog(db, { ts: 1000, mode: 'paper', regimeLabel: 'risk_off', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 100 });
+  insertCycleLog(db, { ts: 2000, mode: 'paper', regimeLabel: null, candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 100, error: 'claude cli failed' });
+
+  assert.equal(getLatestRegimeLabel(db, 'paper'), 'risk_off');
 });

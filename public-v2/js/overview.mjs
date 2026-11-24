@@ -9,19 +9,27 @@ async function renderBalanceCard() {
       fetchJson('/api/strategy', {}),
       fetchJson('/api/settings/guardrail-caps', {}),
     ]);
-    const dailyLossLimitAmount = settings.balanceNow === null ? null : settings.balanceNow * caps.paper.dailyLossLimitPct;
     const nowTs = Math.floor(Date.now() / 1000);
+    if (settings.balanceNow === null) {
+      el.innerHTML = `
+        <div class="watchlist-label">Paper balance</div>
+        <div style="margin-top:6px;font-size:16px;color:var(--muted);">Not started</div>
+        <div style="margin-top:12px;font-size:12px;color:var(--muted);">Next cycle ${formatUtcTime(computeNextCycleTs(nowTs))}</div>
+      `;
+      return;
+    }
+    const dailyLossLimitAmount = settings.balanceNow * caps.paper.dailyLossLimitPct;
     el.innerHTML = `
       <div class="watchlist-label">Paper balance</div>
       <div style="display:flex;align-items:baseline;gap:10px;margin-top:6px;">
-        <span style="font-family:var(--mono);font-size:28px;font-weight:600;">${settings.balanceNow === null ? '—' : `£${settings.balanceNow.toFixed(2)}`}</span>
+        <span style="font-family:var(--mono);font-size:28px;font-weight:600;">£${settings.balanceNow.toFixed(2)}</span>
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px;">
         <div><div style="font-size:12px;color:var(--muted);">Open</div><div style="font-family:var(--mono);font-weight:600;">${strategy.guardrails.openPositions.used} / ${strategy.guardrails.openPositions.max}</div></div>
-        <div><div style="font-size:12px;color:var(--muted);">Daily loss</div><div style="font-family:var(--mono);font-weight:600;">£0 / ${dailyLossLimitAmount === null ? '—' : `£${dailyLossLimitAmount.toFixed(0)}`}</div></div>
+        <div><div style="font-size:12px;color:var(--muted);">Daily loss</div><div style="font-family:var(--mono);font-weight:600;">£0 / £${dailyLossLimitAmount.toFixed(0)}</div></div>
         <div><div style="font-size:12px;color:var(--muted);">Next cycle</div><div style="font-family:var(--mono);font-weight:600;">${formatUtcTime(computeNextCycleTs(nowTs))}</div></div>
       </div>
-      <p style="margin:10px 0 0 0;font-size:11px;color:var(--muted);">Today's £ P&amp;L isn't exposed by any endpoint (only daily loss, clamped to zero on profitable days) — showing £0 as the floor, not a real "today" figure.</p>
+      <p style="margin:10px 0 0 0;font-size:11px;color:var(--muted);">Today's £ P&amp;L isn't tracked separately yet — "Daily loss" shows what's been used against the daily cap (clamped to £0 on profitable days), not a running total.</p>
     `;
   } catch (err) {
     el.textContent = `Could not load balance: ${err.message}`;

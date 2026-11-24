@@ -330,6 +330,15 @@ function getRegimeHistory(db, mode, fromTs, toTs) {
   `).all(mode, fromTs, toTs);
 }
 
+function getLatestRegimeLabel(db, mode) {
+  const row = db.prepare(`
+    SELECT regime_label AS label FROM cycle_log
+    WHERE mode = ? AND regime_label IS NOT NULL
+    ORDER BY ts DESC LIMIT 1
+  `).get(mode);
+  return row ? row.label : null;
+}
+
 function getSetupStats(db, mode, setupName, sinceTs) {
   const { computeExpectancy } = require('../backtest/stats');
   const trades = getTrades(db, mode).filter((t) => t.setup === setupName && t.exitTs >= sinceTs);
@@ -496,7 +505,7 @@ module.exports = {
   insertCandidate, getCandidate, updateCandidateShadow, insertDecision, getDecisions,
   getDecisionsFiltered, getCycleLogByTs, getCandidatesByTs, getTradeByCandidateId, getDecisionByCandidateId,
   getScorecardData, buildCycleOneLiner, getCycleLogFiltered, buildGoLiveChecklist, getBenchmarkInputs,
-  getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestMarketNote, getSetupStats,
+  getTradesByCoin, getCandidatesByCoin, getRegimeHistory, getLatestRegimeLabel, getLatestMarketNote, getSetupStats,
   insertConfigVersion, getActiveConfigVersion, getPendingConfigVersion,
   approveConfigVersion, rejectConfigVersion, supersedePendingConfigVersions, getMostRecentSupersededConfigVersion,
   resetKillSwitch, pauseTrading, resumeTrading, getClaudeCallsToday, getDecisionCallCounts, getMonthStartTs,

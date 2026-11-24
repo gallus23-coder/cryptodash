@@ -17,7 +17,7 @@ export async function renderStatusBar() {
     document.getElementById('status-claude-calls').textContent = `Claude: ${status.claudeCallsToday} calls today`;
 
     document.getElementById('status-balance').textContent = paperSettings.balanceNow === null
-      ? 'Balance —'
+      ? 'Not started'
       : `Balance £${paperSettings.balanceNow.toFixed(2)}`;
 
     const pauseButton = document.getElementById('pause-button');

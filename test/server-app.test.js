@@ -486,6 +486,21 @@ test('GET /api/regime/current returns null label when there is not enough candle
   }
 });
 
+test('GET /api/regime/current falls back to the latest cycle_log regime when candle history is insufficient', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    insertCycleLog(db, { ts: 1700000000, mode: 'paper', regimeLabel: 'trend_up', candidatesCount: 1, openedCount: 0, closedCount: 0, durationMs: 100 });
+    insertCycleLog(db, { ts: 1700003600, mode: 'paper', regimeLabel: 'risk_off', candidatesCount: 0, openedCount: 0, closedCount: 0, durationMs: 100 });
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/regime/current`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.label, 'risk_off');
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/indicators/:coin returns EMA/Bollinger/RSI/ADX aligned to the candle timestamps', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {

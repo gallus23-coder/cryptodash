@@ -122,7 +122,7 @@ function createApp(db, { password } = {}) {
     });
   });
 
-  const { getRegimeHistory } = require('../data/db');
+  const { getRegimeHistory, getLatestRegimeLabel } = require('../data/db');
   const { computeRegimeSeries } = require('../engine/regime');
   const { COINS } = require('../engine/config');
 
@@ -143,7 +143,13 @@ function createApp(db, { password } = {}) {
     }
     const series = computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h });
     const latest = series.length > 0 ? series[series.length - 1] : null;
-    res.json(latest ? { label: latest.label, ts: latest.ts, metrics: latest.metrics } : { label: null, ts: null, metrics: null });
+    if (latest) {
+      res.json({ label: latest.label, ts: latest.ts, metrics: latest.metrics });
+      return;
+    }
+    const mode = req.query.mode || 'paper';
+    const fallbackLabel = getLatestRegimeLabel(db, mode);
+    res.json({ label: fallbackLabel, ts: null, metrics: null });
   });
 
   const { ema, bollinger, rsi, adx } = require('../engine/indicators');
