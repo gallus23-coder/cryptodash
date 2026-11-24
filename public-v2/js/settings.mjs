@@ -1,5 +1,5 @@
 import { fetchJson } from './api.mjs';
-import { formatPct, escapeHtml } from './format.mjs';
+import { formatPct, formatUnsignedPct, escapeHtml } from './format.mjs';
 
 function renderModeExamples() {
   const el = document.getElementById('mode-examples');
@@ -73,12 +73,12 @@ async function renderGuardrailCaps() {
   try {
     const caps = await fetchJson('/api/settings/guardrail-caps', {});
     const rows = [
-      ['Base risk per trade', formatPct(caps.paper.baseStakePct), `£${caps.live.baseStake} flat stake`],
+      ['Base risk per trade', formatUnsignedPct(caps.paper.baseStakePct), `£${caps.live.baseStake} flat stake`],
       ['Max open positions', caps.paper.maxOpenPositions, caps.live.maxOpenPositions],
-      ['Max per coin exposure', formatPct(caps.paper.maxCoinExposurePct), formatPct(caps.live.maxCoinExposurePct)],
-      ['Max total exposure', formatPct(caps.paper.maxTotalExposurePct), formatPct(caps.live.maxTotalExposurePct)],
-      ['Daily loss limit', formatPct(caps.paper.dailyLossLimitPct), formatPct(caps.live.dailyLossLimitPct)],
-      ['Weekly kill switch', formatPct(caps.paper.weeklyKillSwitchPct), formatPct(caps.live.weeklyKillSwitchPct)],
+      ['Max per coin exposure', formatUnsignedPct(caps.paper.maxCoinExposurePct), formatUnsignedPct(caps.live.maxCoinExposurePct)],
+      ['Max total exposure', formatUnsignedPct(caps.paper.maxTotalExposurePct), formatUnsignedPct(caps.live.maxTotalExposurePct)],
+      ['Daily loss limit', formatUnsignedPct(caps.paper.dailyLossLimitPct), formatUnsignedPct(caps.live.dailyLossLimitPct)],
+      ['Weekly kill switch', formatUnsignedPct(caps.paper.weeklyKillSwitchPct), formatUnsignedPct(caps.live.weeklyKillSwitchPct)],
     ];
     el.innerHTML = `
       <h2 style="margin:0 0 12px 0;font-size:15px;font-weight:600;">Guardrail caps</h2>

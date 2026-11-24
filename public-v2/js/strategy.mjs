@@ -1,5 +1,5 @@
 import { fetchJson } from './api.mjs';
-import { formatRegimeDuration, formatSetupStats, formatR, formatPct, escapeHtml, formatPrice } from './format.mjs';
+import { formatRegimeDuration, formatSetupStats, formatR, formatUnsignedPct, escapeHtml, formatPrice } from './format.mjs';
 
 // Which regime each setup is designed for — matches src/engine/playbook's SETUPS_BY_REGIME
 // mapping. Not exposed via any API, so this is hand-kept in sync with that constant; a setup
@@ -107,10 +107,10 @@ function renderGuardrails(strategy, caps, paperSettings) {
   el.innerHTML = `
     <h2 style="margin:0 0 12px 0;font-size:15px;font-weight:600;">Guardrails</h2>
     <div style="display:flex;flex-direction:column;gap:14px;">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:13px;background:#F9FAFB;border-radius:6px;padding:10px 12px;"><span>Risk per trade</span><span style="font-family:var(--mono);font-weight:600;">${formatPct(caps.paper.baseStakePct)}${riskPerTradeAmount === null ? '' : ` · £${riskPerTradeAmount.toFixed(2)}`}</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:13px;background:#F9FAFB;border-radius:6px;padding:10px 12px;"><span>Risk per trade</span><span style="font-family:var(--mono);font-weight:600;">${formatUnsignedPct(caps.paper.baseStakePct)}${riskPerTradeAmount === null ? '' : ` · £${riskPerTradeAmount.toFixed(2)}`}</span></div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:13px;background:#F9FAFB;border-radius:6px;padding:10px 12px;"><span>Open positions</span><span style="font-family:var(--mono);font-weight:600;">${g.openPositions.used} / ${g.openPositions.max}</span></div>
       ${rows.map(([label, { used, max }]) => `
-        <div><div style="display:flex;justify-content:space-between;font-size:13px;"><span>${escapeHtml(label)}</span><span style="font-family:var(--mono);color:#374151;">${formatPct(used)} / ${formatPct(max)}</span></div>
+        <div><div style="display:flex;justify-content:space-between;font-size:13px;"><span>${escapeHtml(label)}</span><span style="font-family:var(--mono);color:#374151;">${formatUnsignedPct(used)} / ${formatUnsignedPct(max)}</span></div>
         <div class="guardrail-bar-track"><div class="guardrail-bar-fill" style="width:${max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0}%;"></div></div></div>
       `).join('')}
       <div style="font-size:13px;line-height:1.5;border-top:1px solid var(--border);padding-top:12px;"><span style="font-weight:600;">Fee check:</span> a coin's typical 4h move must beat a multiple of the round-trip fee (not exposed via any endpoint yet — see final report).</div>
