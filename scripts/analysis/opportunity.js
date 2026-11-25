@@ -14,11 +14,19 @@ const { computeDrawdown } = require('../../src/backtest/stats');
 const COINS = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'LINK'];
 const HOUR = 3600, FOUR_H = 4 * HOUR, DAY = 24 * HOUR;
 
-// Exact window: 6 calendar months ending at the most recently closed daily candle as of today
-// (2026-11-25) — the Nov 24 2026 daily candle. Stated here, and again in the report, per the
-// task's instruction to state the exact range used.
-const WINDOW_END_TS = Math.floor(Date.UTC(2026, 10, 24, 0, 0, 0) / 1000); // 2026-11-24T00:00:00Z
-const WINDOW_START_TS = Math.floor(Date.UTC(2026, 4, 24, 0, 0, 0) / 1000); // 2026-05-24T00:00:00Z
+// "Now" for every window below: the most recently closed daily candle as of 2026-11-25.
+const NOW_TS = Math.floor(Date.UTC(2026, 10, 24, 0, 0, 0) / 1000); // 2026-11-24T00:00:00Z
+
+function monthsBefore(endTs, months) {
+  const d = new Date(endTs * 1000);
+  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - months, d.getUTCDate()) / 1000);
+}
+
+const WINDOWS = [
+  { key: '6mo', label: 'Last 6 months', startTs: monthsBefore(NOW_TS, 6), endTs: NOW_TS },
+  { key: '2yr', label: 'Last 2 years', startTs: monthsBefore(NOW_TS, 24), endTs: NOW_TS },
+  { key: '4yr', label: 'Last 4 years (or longest available per coin)', startTs: monthsBefore(NOW_TS, 48), endTs: NOW_TS },
+];
 
 // Round-trip fee %, as given: maker entry + taker exit + 0.1% spread/slippage, already totalled
 // per tier. No TradeVolume data is stored anywhere in this DB (checked before writing this
@@ -40,6 +48,11 @@ function percentile(sortedAsc, p) {
   return sortedAsc[lo] + (sortedAsc[hi] - sortedAsc[lo]) * (idx - lo);
 }
 
+function median(arr) {
+  if (arr.length === 0) return null;
+  return percentile([...arr].sort((a, b) => a - b), 50);
+}
+
 function toCSV(headers, rows) {
   const esc = (v) => (typeof v === 'string' && v.includes(',') ? `"${v}"` : v);
   return [headers.join(','), ...rows.map((r) => headers.map((h) => esc(r[h])).join(','))].join('\n') + '\n';
@@ -49,44 +62,123 @@ function writeCSV(filename, headers, rows) {
   fs.writeFileSync(path.join(DATA_DIR, filename), toCSV(headers, rows));
 }
 
-function windowSlice(rows) {
-  return rows.filter((r) => r.ts >= WINDOW_START_TS && r.ts <= WINDOW_END_TS);
+function windowSlice(rows, startTs, endTs) {
+  return rows.filter((r) => r.ts >= startTs && r.ts <= endTs);
 }
 
-// --- Section 1: move sizes ----------------------------------------------------------------
+function fmtPct(v, dp = 2) { return v === null || v === undefined || Number.isNaN(v) ? 'n/a' : `${v.toFixed(dp)}%`; }
+function fmtDate(ts) { return new Date(ts * 1000).toISOString().slice(0, 10); }
 
-function computeMoveSizes(db, coin, tf) {
-  const all = getCandles(db, coin, tf, 0, WINDOW_END_TS);
-  const inWindow = windowSlice(all);
-  const rangePct = inWindow.map((c) => ((c.high - c.low) / c.close) * 100).sort((a, b) => a - b);
+// === Pure, unit-testable cores (no DB, no clock) ============================================
 
-  const closeToClose = [];
-  for (let i = 1; i < inWindow.length; i += 1) {
-    closeToClose.push(Math.abs((inWindow[i].close - inWindow[i - 1].close) / inWindow[i - 1].close) * 100);
+// Fix for a look-ahead bug: a day's return must use the position decided at the PREVIOUS day's
+// close (the only information actually available before today's candle happened), not today's
+// own just-computed signal. closes/emaArr/timestamps are parallel arrays; emaArr may start with
+// nulls (warm-up). Returns { trades: [{ ts, flippedTo }], series: [{ ts, equity }] } where
+// `series` only includes points with ts in [windowStartTs, windowEndTs].
+function simulateEmaEquity(closes, emaArr, timestamps, windowStartTs, windowEndTs, roundTripFeePct) {
+  let equity = 1, inPosition = null, prevClose = null;
+  const series = [];
+  const trades = [];
+
+  for (let i = 0; i < closes.length; i += 1) {
+    if (emaArr[i] === null) continue;
+    const ts = timestamps[i];
+    const signal = closes[i] > emaArr[i];
+
+    if (inPosition === null) {
+      // First warm bar: no prior day's decision exists yet, so no return to apply today.
+      inPosition = signal;
+      prevClose = closes[i];
+      if (ts >= windowStartTs && ts <= windowEndTs) series.push({ ts, equity });
+      continue;
+    }
+
+    // Apply today's return using YESTERDAY's decided position — never today's own signal.
+    if (inPosition) equity *= closes[i] / prevClose;
+
+    // Now decide the position for tomorrow, based on today's just-closed candle.
+    if (signal !== inPosition) {
+      equity *= 1 - roundTripFeePct / 100;
+      if (ts >= windowStartTs && ts <= windowEndTs) trades.push({ ts, flippedTo: signal });
+      inPosition = signal;
+    }
+
+    prevClose = closes[i];
+    if (ts >= windowStartTs && ts <= windowEndTs) series.push({ ts, equity });
   }
-  const closeToCloseSorted = [...closeToClose].sort((a, b) => a - b);
 
-  const percentiles = (arr) => ({ p25: percentile(arr, 25), p50: percentile(arr, 50), p75: percentile(arr, 75), p90: percentile(arr, 90) });
+  return { trades, series };
+}
 
-  const beatShare = {};
-  for (const [tierName, roundTrip] of Object.entries(FEE_TIERS)) {
-    for (const mult of [1, 2, 3]) {
-      const threshold = roundTrip * mult;
-      const share = closeToClose.length === 0 ? null : closeToClose.filter((m) => m >= threshold).length / closeToClose.length;
-      beatShare[`${tierName}_${mult}x`] = share;
+// Real-time trend follower — no hindsight. While flat, tracks the lowest close seen since the
+// last exit (or series start) and enters once price closes at or above low*(1+entryPct%). While
+// long, tracks the highest close since entry and exits once price closes at or below
+// high*(1-trailPct%). Exactly one position per coin at a time. `filterFn(ts)`, if given, must
+// return true for an entry to be allowed that bar — it never forces an exit.
+function simulateTrendFollowerRealtime(bars, { entryTriggerPct, trailPct, filterFn = null }) {
+  if (bars.length === 0) return [];
+  const trades = [];
+  let state = 'flat';
+  let lowestSinceExit = bars[0].close;
+  let entryIdx = null, entryPrice = null, highestSinceEntry = null;
+
+  for (let i = 1; i < bars.length; i += 1) {
+    const bar = bars[i];
+    if (state === 'flat') {
+      lowestSinceExit = Math.min(lowestSinceExit, bar.close);
+      const entryTarget = lowestSinceExit * (1 + entryTriggerPct / 100);
+      if (bar.close >= entryTarget && (!filterFn || filterFn(bar.ts))) {
+        state = 'long';
+        entryIdx = i; entryPrice = bar.close; highestSinceEntry = bar.close;
+      }
+      continue;
+    }
+    // state === 'long'
+    highestSinceEntry = Math.max(highestSinceEntry, bar.close);
+    const stopLevel = highestSinceEntry * (1 - trailPct / 100);
+    if (bar.close <= stopLevel) {
+      trades.push({ entryTs: bars[entryIdx].ts, exitTs: bar.ts, entryPrice, exitPrice: bar.close, stillOpen: false });
+      state = 'flat';
+      lowestSinceExit = bar.close;
     }
   }
-
-  return { coin, tf, candleCount: inWindow.length, range: percentiles(rangePct), closeToClose: percentiles(closeToCloseSorted), beatShare };
+  if (state === 'long') {
+    const last = bars[bars.length - 1];
+    trades.push({ entryTs: bars[entryIdx].ts, exitTs: last.ts, entryPrice, exitPrice: last.close, stillOpen: true });
+  }
+  return trades;
 }
 
-// --- Section 2: zigzag swing detection -----------------------------------------------------
+// Net-results aggregation: total trades, win rate, avg win/loss %, net % per trade (all after
+// fees), compounded return across the sequence, and max drawdown of the compounding equity path.
+function aggregateTrades(trades, roundTripFeePct) {
+  const withNet = trades.map((t) => ({ ...t, netPct: ((t.exitPrice - t.entryPrice) / t.entryPrice) * 100 - roundTripFeePct }));
+  const wins = withNet.filter((t) => t.netPct > 0);
+  const losses = withNet.filter((t) => t.netPct <= 0);
 
+  const equitySeries = [1];
+  let equity = 1;
+  for (const t of withNet) {
+    equity *= 1 + t.netPct / 100;
+    equitySeries.push(equity);
+  }
+  const { maxDrawdownPct } = computeDrawdown(equitySeries);
+
+  return {
+    trades: withNet.length,
+    winRate: withNet.length ? wins.length / withNet.length : null,
+    avgWinPct: wins.length ? wins.reduce((s, t) => s + t.netPct, 0) / wins.length : null,
+    avgLossPct: losses.length ? losses.reduce((s, t) => s + t.netPct, 0) / losses.length : null,
+    netPctPerTrade: withNet.length ? withNet.reduce((s, t) => s + t.netPct, 0) / withNet.length : null,
+    compoundedReturnPct: (equity - 1) * 100,
+    maxDrawdownPct: maxDrawdownPct * 100,
+  };
+}
+
+// Swing-counting only (descriptive stats in §2) — hindsight-confirmed pivots are fine here,
+// nothing trades off them. Trading logic (§3) must never use this.
 function zigzag(bars, thresholdPct) {
-  // bars: [{ ts, close }]. Returns alternating pivots: [{ ts, val, kind: 'low'|'high' }].
-  // Before a direction is established, tracks the running high and low independently; the
-  // first pivot confirms whichever extreme is further behind the other once their spread
-  // crosses the threshold (the earlier-dated extreme is the pivot, the later one keeps running).
   if (bars.length === 0) return [];
   const pivots = [];
   let direction = null;
@@ -138,95 +230,95 @@ function swingsFromPivots(pivots) {
   const swings = [];
   for (let i = 0; i < pivots.length - 1; i += 1) {
     const a = pivots[i], b = pivots[i + 1];
-    const direction = b.val > a.val ? 'up' : 'down';
-    const sizePct = ((b.val - a.val) / a.val) * 100;
-    const durationHours = (b.ts - a.ts) / HOUR;
-    swings.push({ direction, startTs: a.ts, endTs: b.ts, startVal: a.val, endVal: b.val, sizePct, durationHours });
+    swings.push({
+      direction: b.val > a.val ? 'up' : 'down',
+      startTs: a.ts, endTs: b.ts, startVal: a.val, endVal: b.val,
+      sizePct: ((b.val - a.val) / a.val) * 100,
+      durationHours: (b.ts - a.ts) / HOUR,
+    });
   }
   return swings;
 }
 
-function median(arr) {
-  if (arr.length === 0) return null;
-  const sorted = [...arr].sort((a, b) => a - b);
-  return percentile(sorted, 50);
+// === DB-backed helpers (per window) =========================================================
+
+function coinEarliestTs(db, coin) {
+  const rows = getCandles(db, coin, '1d', 0, NOW_TS);
+  return rows.length > 0 ? rows[0].ts : null;
 }
 
-function computeSwingStats(bars, thresholdPct, windowDays) {
+// For the 4yr window, clamp each coin's own start to its earliest available data if that's
+// later than the nominal window start — "or the longest available per coin".
+function effectiveStartForCoin(db, coin, nominalStartTs) {
+  const earliest = coinEarliestTs(db, coin);
+  if (earliest === null) return { startTs: nominalStartTs, usedFallback: false };
+  if (earliest > nominalStartTs) return { startTs: earliest, usedFallback: true, earliest };
+  return { startTs: nominalStartTs, usedFallback: false };
+}
+
+function computeMoveSizes(db, coin, tf, startTs, endTs) {
+  const all = getCandles(db, coin, tf, 0, endTs);
+  const inWindow = windowSlice(all, startTs, endTs);
+  const rangePct = inWindow.map((c) => ((c.high - c.low) / c.close) * 100).sort((a, b) => a - b);
+  const closeToClose = [];
+  for (let i = 1; i < inWindow.length; i += 1) {
+    closeToClose.push(Math.abs((inWindow[i].close - inWindow[i - 1].close) / inWindow[i - 1].close) * 100);
+  }
+  const closeToCloseSorted = [...closeToClose].sort((a, b) => a - b);
+  const percentiles = (arr) => ({ p25: percentile(arr, 25), p50: percentile(arr, 50), p75: percentile(arr, 75), p90: percentile(arr, 90) });
+  const beatShare = {};
+  for (const [tierName, roundTrip] of Object.entries(FEE_TIERS)) {
+    for (const mult of [1, 2, 3]) {
+      const threshold = roundTrip * mult;
+      beatShare[`${tierName}_${mult}x`] = closeToClose.length === 0 ? null : closeToClose.filter((m) => m >= threshold).length / closeToClose.length;
+    }
+  }
+  return { coin, tf, candleCount: inWindow.length, range: percentiles(rangePct), closeToClose: percentiles(closeToCloseSorted), beatShare };
+}
+
+function pooledMoveSizes(db, tf, startTs, endTs) {
+  let allRange = [], allC2C = [];
+  for (const coin of COINS) {
+    const inWindow = windowSlice(getCandles(db, coin, tf, 0, endTs), startTs, endTs);
+    allRange = allRange.concat(inWindow.map((c) => ((c.high - c.low) / c.close) * 100));
+    for (let i = 1; i < inWindow.length; i += 1) {
+      allC2C.push(Math.abs((inWindow[i].close - inWindow[i - 1].close) / inWindow[i - 1].close) * 100);
+    }
+  }
+  allRange.sort((a, b) => a - b);
+  const allC2CSorted = [...allC2C].sort((a, b) => a - b);
+  const percentiles = (arr) => ({ p25: percentile(arr, 25), p50: percentile(arr, 50), p75: percentile(arr, 75), p90: percentile(arr, 90) });
+  const beatShare = {};
+  for (const [tierName, roundTrip] of Object.entries(FEE_TIERS)) {
+    for (const mult of [1, 2, 3]) {
+      const threshold = roundTrip * mult;
+      beatShare[`${tierName}_${mult}x`] = allC2C.length ? allC2C.filter((m) => m >= threshold).length / allC2C.length : null;
+    }
+  }
+  return { coin: 'ALL', tf, candleCount: allRange.length, range: percentiles(allRange), closeToClose: percentiles(allC2CSorted), beatShare };
+}
+
+function computeSwingStats(bars, thresholdPct, windowStartTs, windowEndTs, windowDays) {
   const pivots = zigzag(bars, thresholdPct);
   const allSwings = swingsFromPivots(pivots);
-  const swings = allSwings.filter((s) => s.startTs >= WINDOW_START_TS && s.startTs <= WINDOW_END_TS);
+  const swings = allSwings.filter((s) => s.startTs >= windowStartTs && s.startTs <= windowEndTs);
   const up = swings.filter((s) => s.direction === 'up');
   const down = swings.filter((s) => s.direction === 'down');
   return {
-    thresholdPct,
-    upCount: up.length,
-    downCount: down.length,
+    thresholdPct, upCount: up.length, downCount: down.length,
     medianSizePct: median(swings.map((s) => Math.abs(s.sizePct))),
     medianDurationHours: median(swings.map((s) => s.durationHours)),
-    swingsPerMonth: (swings.length / (windowDays / 30)),
+    swingsPerMonth: swings.length / (windowDays / 30),
     swings,
   };
 }
 
-// --- Section 3: trend-follower simulation on swing lows ----------------------------------
-
-function simulateTrendFollower(bars, { entryTriggerPct, trailPct, swingThresholdPct = 5, confirmSwingPct = 10 }) {
-  const pivots = zigzag(bars, swingThresholdPct);
-  const lows = pivots.filter((p) => p.kind === 'low' && p.ts >= WINDOW_START_TS && p.ts <= WINDOW_END_TS);
-  const closes = bars.map((b) => b.close);
-  const tsToIdx = new Map(bars.map((b, i) => [b.ts, i]));
-
-  const realTrades = [];
-  const falseStarts = [];
-
-  for (const low of lows) {
-    const lowIdx = tsToIdx.get(low.ts);
-    if (lowIdx === undefined) continue;
-    const entryTarget = low.val * (1 + entryTriggerPct / 100);
-
-    let entryIdx = null;
-    for (let i = lowIdx + 1; i < bars.length; i += 1) {
-      if (closes[i] >= entryTarget) { entryIdx = i; break; }
-    }
-    if (entryIdx === null) continue; // never triggered — not a trade
-
-    const entryPrice = closes[entryIdx];
-    let peak = entryPrice;
-    let exitIdx = null;
-    let maxCloseSeen = Math.max(low.val, entryPrice);
-    for (let i = entryIdx; i < bars.length; i += 1) {
-      peak = Math.max(peak, closes[i]);
-      maxCloseSeen = Math.max(maxCloseSeen, closes[i]);
-      if (closes[i] <= peak * (1 - trailPct / 100)) { exitIdx = i; break; }
-    }
-    const stillOpen = exitIdx === null;
-    const exitPrice = stillOpen ? closes[closes.length - 1] : closes[exitIdx];
-    if (stillOpen) maxCloseSeen = Math.max(maxCloseSeen, exitPrice);
-
-    const everReached10Pct = ((maxCloseSeen - low.val) / low.val) * 100 >= confirmSwingPct;
-    const grossPct = ((exitPrice - entryPrice) / entryPrice) * 100;
-
-    const trade = { lowTs: low.ts, lowVal: low.val, entryPrice, exitPrice, grossPct, stillOpen };
-    if (everReached10Pct) realTrades.push(trade);
-    else falseStarts.push(trade);
-  }
-
-  return { realTrades, falseStarts };
-}
-
-function feeAdjust(grossPct, roundTripFeePct) {
-  return grossPct - roundTripFeePct;
-}
-
-// --- Section 4: time in trend vs range ----------------------------------------------------
-
-function computeAdxShare(db, coin) {
-  const all = getCandles(db, coin, '4h', 0, WINDOW_END_TS);
+function computeAdxShare(db, coin, startTs, endTs) {
+  const all = getCandles(db, coin, '4h', 0, endTs);
   const adxResult = adx(all, 14);
   let withinWindow = 0, aboveThreshold = 0;
   all.forEach((c, i) => {
-    if (c.ts < WINDOW_START_TS || c.ts > WINDOW_END_TS) return;
+    if (c.ts < startTs || c.ts > endTs) return;
     if (adxResult.adx[i] === null) return;
     withinWindow += 1;
     if (adxResult.adx[i] > REGIME_THRESHOLDS.trendUpAdx) aboveThreshold += 1;
@@ -234,15 +326,13 @@ function computeAdxShare(db, coin) {
   return withinWindow === 0 ? null : aboveThreshold / withinWindow;
 }
 
-function computeRegimeLabelShare(db) {
-  const btcDaily = getCandles(db, 'BTC', '1d', 0, WINDOW_END_TS);
-  const btc4h = getCandles(db, 'BTC', '4h', 0, WINDOW_END_TS);
+function computeRegimeLabelShare(db, startTs, endTs) {
+  const btcDaily = getCandles(db, 'BTC', '1d', 0, endTs);
+  const btc4h = getCandles(db, 'BTC', '4h', 0, endTs);
   const watchlistBy4h = {};
-  for (const coin of COINS) {
-    watchlistBy4h[coin] = getCandles(db, coin, '4h', 0, WINDOW_END_TS).map((c) => ({ ts: c.ts, close: c.close }));
-  }
+  for (const coin of COINS) watchlistBy4h[coin] = getCandles(db, coin, '4h', 0, endTs).map((c) => ({ ts: c.ts, close: c.close }));
   const series = computeRegimeSeries({ btcDaily, btc4h, watchlistBy4h });
-  const inWindow = series.filter((r) => r.ts >= WINDOW_START_TS && r.ts <= WINDOW_END_TS);
+  const inWindow = series.filter((r) => r.ts >= startTs && r.ts <= endTs);
   const counts = {};
   for (const point of inWindow) counts[point.label] = (counts[point.label] || 0) + 1;
   const total = inWindow.length;
@@ -251,25 +341,20 @@ function computeRegimeLabelShare(db) {
   return { total, shares };
 }
 
-// --- Section 5: baselines -------------------------------------------------------------------
-
-function buyAndHold(db, coin, roundTripFeePct) {
-  const all = getCandles(db, coin, '1d', 0, WINDOW_END_TS);
-  const inWindow = windowSlice(all);
+function buyAndHold(db, coin, startTs, endTs, roundTripFeePct) {
+  const inWindow = windowSlice(getCandles(db, coin, '1d', 0, endTs), startTs, endTs);
   if (inWindow.length < 2) return null;
   const closes = inWindow.map((c) => c.close);
   const rawReturnPct = ((closes[closes.length - 1] - closes[0]) / closes[0]) * 100;
-  const netReturnPct = rawReturnPct - roundTripFeePct;
   const { maxDrawdownPct } = computeDrawdown(closes);
-  return { returnPct: netReturnPct, maxDrawdownPct: maxDrawdownPct * 100, trades: 1 };
+  return { returnPct: rawReturnPct - roundTripFeePct, maxDrawdownPct: maxDrawdownPct * 100, trades: 1 };
 }
 
-function equalWeightBasket(db, roundTripFeePct) {
+function equalWeightBasket(db, startTs, endTs, roundTripFeePct) {
   const seriesByCoin = {};
   let minLen = Infinity;
   for (const coin of COINS) {
-    const inWindow = windowSlice(getCandles(db, coin, '1d', 0, WINDOW_END_TS));
-    seriesByCoin[coin] = inWindow.map((c) => c.close);
+    seriesByCoin[coin] = windowSlice(getCandles(db, coin, '1d', 0, endTs), startTs, endTs).map((c) => c.close);
     minLen = Math.min(minLen, seriesByCoin[coin].length);
   }
   if (minLen < 2) return null;
@@ -280,50 +365,22 @@ function equalWeightBasket(db, roundTripFeePct) {
     basket.push((sum / COINS.length) * 100);
   }
   const rawReturnPct = ((basket[basket.length - 1] - basket[0]) / basket[0]) * 100;
-  const netReturnPct = rawReturnPct - roundTripFeePct; // one round trip per coin, netted against the averaged path
   const { maxDrawdownPct } = computeDrawdown(basket);
-  return { returnPct: netReturnPct, maxDrawdownPct: maxDrawdownPct * 100, trades: COINS.length };
+  return { returnPct: rawReturnPct - roundTripFeePct, maxDrawdownPct: maxDrawdownPct * 100, trades: COINS.length };
 }
 
-function emaSwitchRule(db, coins, emaPeriod, roundTripFeePct) {
-  // coins: array of 1-2 coin codes, equal-weighted. Each coin's own EMA signal switches
-  // independently; cash (0% weight) replaces a coin whenever its close is below its own EMA.
-  const perCoin = {};
-  for (const coin of coins) {
-    const all = getCandles(db, coin, '1d', 0, WINDOW_END_TS);
-    const closes = all.map((c) => c.close);
-    const emaArr = ema(closes, emaPeriod);
-    perCoin[coin] = { all, closes, emaArr };
-  }
-
+function emaSwitchRule(db, coins, emaPeriod, startTs, endTs, roundTripFeePct) {
   let totalTrades = 0;
   const equitySeriesByCoin = {};
   for (const coin of coins) {
-    const { all, closes, emaArr } = perCoin[coin];
-    let equity = 1, inPosition = null, prevClose = null;
-    const series = [];
-    for (let i = 0; i < all.length; i += 1) {
-      if (emaArr[i] === null) continue;
-      const ts = all[i].ts;
-      const signal = closes[i] > emaArr[i];
-      if (inPosition === null) {
-        inPosition = signal;
-        prevClose = closes[i];
-        if (ts >= WINDOW_START_TS && ts <= WINDOW_END_TS) series.push({ ts, equity });
-        continue;
-      }
-      if (signal !== inPosition) {
-        equity *= 1 - roundTripFeePct / 100;
-        if (ts >= WINDOW_START_TS && ts <= WINDOW_END_TS) totalTrades += 1;
-        inPosition = signal;
-      }
-      if (inPosition) equity *= closes[i] / prevClose;
-      prevClose = closes[i];
-      if (ts >= WINDOW_START_TS && ts <= WINDOW_END_TS) series.push({ ts, equity });
-    }
+    const all = getCandles(db, coin, '1d', 0, endTs);
+    const closes = all.map((c) => c.close);
+    const timestamps = all.map((c) => c.ts);
+    const emaArr = ema(closes, emaPeriod);
+    const { trades, series } = simulateEmaEquity(closes, emaArr, timestamps, startTs, endTs, roundTripFeePct);
+    totalTrades += trades.length;
     equitySeriesByCoin[coin] = series;
   }
-
   const len = Math.min(...coins.map((c) => equitySeriesByCoin[c].length));
   if (len < 2) return null;
   const blended = [];
@@ -337,361 +394,115 @@ function emaSwitchRule(db, coins, emaPeriod, roundTripFeePct) {
   return { returnPct, maxDrawdownPct: maxDrawdownPct * 100, trades: totalTrades };
 }
 
-function checkEma200Warmup(db, coin) {
-  const all = getCandles(db, coin, '1d', 0, WINDOW_END_TS);
-  const beforeWindow = all.filter((c) => c.ts < WINDOW_START_TS);
-  return { hasEnough: beforeWindow.length >= 200, daysBefore: beforeWindow.length, earliestTs: all.length > 0 ? all[0].ts : null };
+function buildBtcTrendFilter(db, endTs) {
+  // Decided-at-yesterday's-close signal, mapped onto every UTC day — no look-ahead, and valid
+  // for both daily and 4h bars (a 4h bar inherits the signal decided before its own day began).
+  const all = getCandles(db, 'BTC', '1d', 0, endTs);
+  const closes = all.map((c) => c.close);
+  const timestamps = all.map((c) => c.ts);
+  const emaArr = ema(closes, 200);
+  const byDay = new Map();
+  let inPosition = null;
+  for (let i = 0; i < closes.length; i += 1) {
+    if (emaArr[i] === null) continue;
+    const signal = closes[i] > emaArr[i];
+    if (inPosition === null) { inPosition = signal; continue; } // first warm day: no prior decision yet
+    // The signal decided at close of day i governs day i+1 (tomorrow), not day i itself.
+    if (i + 1 < timestamps.length) byDay.set(Math.floor(timestamps[i + 1] / DAY) * DAY, inPosition);
+    inPosition = signal;
+  }
+  return (ts) => byDay.get(Math.floor(ts / DAY) * DAY) ?? false;
 }
 
-// --- Report assembly -------------------------------------------------------------------------
+// === Per-window analysis =====================================================================
 
-function fmtPct(v, dp = 2) { return v === null || v === undefined ? 'n/a' : `${v.toFixed(dp)}%`; }
-function fmtDate(ts) { return new Date(ts * 1000).toISOString().slice(0, 10); }
-
-function main() {
-  ensureDirs();
-  const db = openDb();
-  const windowDays = (WINDOW_END_TS - WINDOW_START_TS) / DAY;
-
-  // --- Section 1 ---
-  const moveSizes4h = COINS.map((coin) => computeMoveSizes(db, coin, '4h'));
-  const moveSizesDaily = COINS.map((coin) => computeMoveSizes(db, coin, '1d'));
-
-  function pooledMoveSizes(perCoinResults, tf) {
-    // "all coins" row: pool every candle's move across all 6 coins, recompute percentiles/shares.
-    const db2 = db;
-    let allRange = [], allC2C = [];
-    for (const coin of COINS) {
-      const all = getCandles(db2, coin, tf, 0, WINDOW_END_TS);
-      const inWindow = windowSlice(all);
-      allRange = allRange.concat(inWindow.map((c) => ((c.high - c.low) / c.close) * 100));
-      for (let i = 1; i < inWindow.length; i += 1) {
-        allC2C.push(Math.abs((inWindow[i].close - inWindow[i - 1].close) / inWindow[i - 1].close) * 100);
-      }
-    }
-    allRange.sort((a, b) => a - b);
-    const allC2CSorted = [...allC2C].sort((a, b) => a - b);
-    const percentiles = (arr) => ({ p25: percentile(arr, 25), p50: percentile(arr, 50), p75: percentile(arr, 75), p90: percentile(arr, 90) });
-    const beatShare = {};
-    for (const [tierName, roundTrip] of Object.entries(FEE_TIERS)) {
-      for (const mult of [1, 2, 3]) {
-        const threshold = roundTrip * mult;
-        beatShare[`${tierName}_${mult}x`] = allC2C.filter((m) => m >= threshold).length / allC2C.length;
-      }
-    }
-    return { coin: 'ALL', tf, candleCount: allRange.length, range: percentiles(allRange), closeToClose: percentiles(allC2CSorted), beatShare };
+function runTrendFollowerVariant(db, bars4h, barsDaily, filterFn) {
+  const sim4h = {}, simDaily = {};
+  for (const coin of COINS) {
+    sim4h[coin] = simulateTrendFollowerRealtime(bars4h[coin], { entryTriggerPct: 3, trailPct: 5, filterFn });
+    simDaily[coin] = simulateTrendFollowerRealtime(barsDaily[coin], { entryTriggerPct: 5, trailPct: 8, filterFn });
   }
+  return { '4h': sim4h, '1d': simDaily };
+}
 
-  const moveSizes4hAll = pooledMoveSizes(moveSizes4h, '4h');
-  const moveSizesDailyAll = pooledMoveSizes(moveSizesDaily, '1d');
+function runAnalysisForWindow(db, win) {
+  const { startTs: nominalStart, endTs } = win;
+  const perCoinStart = {};
+  for (const coin of COINS) perCoinStart[coin] = effectiveStartForCoin(db, coin, nominalStart);
+  // Move sizes, swings, ADX use each coin's own effective start (only matters for the 4yr
+  // window on a coin shorter than 4 years — none here, but implemented for correctness).
+  const moveSizes4h = COINS.map((coin) => computeMoveSizes(db, coin, '4h', perCoinStart[coin].startTs, endTs));
+  const moveSizesDaily = COINS.map((coin) => computeMoveSizes(db, coin, '1d', perCoinStart[coin].startTs, endTs));
+  const moveSizes4hAll = pooledMoveSizes(db, '4h', nominalStart, endTs);
+  const moveSizesDailyAll = pooledMoveSizes(db, '1d', nominalStart, endTs);
 
-  writeCSV('move-sizes-4h.csv',
-    ['coin', 'candleCount', 'range_p25', 'range_p50', 'range_p75', 'range_p90', 'c2c_p25', 'c2c_p50', 'c2c_p75', 'c2c_p90',
-      'tier1_1x', 'tier1_2x', 'tier1_3x', 'tier2_1x', 'tier2_2x', 'tier2_3x', 'tier3_1x', 'tier3_2x', 'tier3_3x'],
-    [...moveSizes4h, moveSizes4hAll].map((m) => ({
-      coin: m.coin, candleCount: m.candleCount,
-      range_p25: m.range.p25?.toFixed(3), range_p50: m.range.p50?.toFixed(3), range_p75: m.range.p75?.toFixed(3), range_p90: m.range.p90?.toFixed(3),
-      c2c_p25: m.closeToClose.p25?.toFixed(3), c2c_p50: m.closeToClose.p50?.toFixed(3), c2c_p75: m.closeToClose.p75?.toFixed(3), c2c_p90: m.closeToClose.p90?.toFixed(3),
-      tier1_1x: (m.beatShare.tier1_1x * 100).toFixed(1), tier1_2x: (m.beatShare.tier1_2x * 100).toFixed(1), tier1_3x: (m.beatShare.tier1_3x * 100).toFixed(1),
-      tier2_1x: (m.beatShare.tier2_1x * 100).toFixed(1), tier2_2x: (m.beatShare.tier2_2x * 100).toFixed(1), tier2_3x: (m.beatShare.tier2_3x * 100).toFixed(1),
-      tier3_1x: (m.beatShare.tier3_1x * 100).toFixed(1), tier3_2x: (m.beatShare.tier3_2x * 100).toFixed(1), tier3_3x: (m.beatShare.tier3_3x * 100).toFixed(1),
-    })));
-  writeCSV('move-sizes-daily.csv',
-    ['coin', 'candleCount', 'range_p25', 'range_p50', 'range_p75', 'range_p90', 'c2c_p25', 'c2c_p50', 'c2c_p75', 'c2c_p90',
-      'tier1_1x', 'tier1_2x', 'tier1_3x', 'tier2_1x', 'tier2_2x', 'tier2_3x', 'tier3_1x', 'tier3_2x', 'tier3_3x'],
-    [...moveSizesDaily, moveSizesDailyAll].map((m) => ({
-      coin: m.coin, candleCount: m.candleCount,
-      range_p25: m.range.p25?.toFixed(3), range_p50: m.range.p50?.toFixed(3), range_p75: m.range.p75?.toFixed(3), range_p90: m.range.p90?.toFixed(3),
-      c2c_p25: m.closeToClose.p25?.toFixed(3), c2c_p50: m.closeToClose.p50?.toFixed(3), c2c_p75: m.closeToClose.p75?.toFixed(3), c2c_p90: m.closeToClose.p90?.toFixed(3),
-      tier1_1x: (m.beatShare.tier1_1x * 100).toFixed(1), tier1_2x: (m.beatShare.tier1_2x * 100).toFixed(1), tier1_3x: (m.beatShare.tier1_3x * 100).toFixed(1),
-      tier2_1x: (m.beatShare.tier2_1x * 100).toFixed(1), tier2_2x: (m.beatShare.tier2_2x * 100).toFixed(1), tier2_3x: (m.beatShare.tier2_3x * 100).toFixed(1),
-      tier3_1x: (m.beatShare.tier3_1x * 100).toFixed(1), tier3_2x: (m.beatShare.tier3_2x * 100).toFixed(1), tier3_3x: (m.beatShare.tier3_3x * 100).toFixed(1),
-    })));
-
-  // --- Section 2 ---
+  const windowDays = (endTs - nominalStart) / DAY;
   const swingThresholds = [5, 10, 20];
-  const swingResultsByCoinTf = {}; // coin -> tf -> threshold -> stats
-  const swingDetailRows4h = [], swingDetailRowsDaily = [];
+  const swingResultsByCoinTf = {};
+  const swingDetailRows = { '4h': [], '1d': [] };
   for (const coin of COINS) {
     swingResultsByCoinTf[coin] = {};
     for (const tf of ['4h', '1d']) {
-      const all = getCandles(db, coin, tf, 0, WINDOW_END_TS);
-      const bars = all.map((c) => ({ ts: c.ts, close: c.close }));
+      const bars = getCandles(db, coin, tf, 0, endTs).map((c) => ({ ts: c.ts, close: c.close }));
       swingResultsByCoinTf[coin][tf] = {};
       for (const threshold of swingThresholds) {
-        const stats = computeSwingStats(bars, threshold, windowDays);
+        const stats = computeSwingStats(bars, threshold, perCoinStart[coin].startTs, endTs, windowDays);
         swingResultsByCoinTf[coin][tf][threshold] = stats;
-        const targetRows = tf === '4h' ? swingDetailRows4h : swingDetailRowsDaily;
         for (const s of stats.swings) {
-          targetRows.push({
-            coin, threshold, direction: s.direction,
-            startDate: fmtDate(s.startTs), endDate: fmtDate(s.endTs),
-            sizePct: s.sizePct.toFixed(2), durationHours: s.durationHours.toFixed(1),
-          });
+          swingDetailRows[tf].push({ coin, threshold, direction: s.direction, startDate: fmtDate(s.startTs), endDate: fmtDate(s.endTs), sizePct: s.sizePct.toFixed(2), durationHours: s.durationHours.toFixed(1) });
         }
       }
     }
   }
-  writeCSV('swings-detail-4h.csv', ['coin', 'threshold', 'direction', 'startDate', 'endDate', 'sizePct', 'durationHours'], swingDetailRows4h);
-  writeCSV('swings-detail-daily.csv', ['coin', 'threshold', 'direction', 'startDate', 'endDate', 'sizePct', 'durationHours'], swingDetailRowsDaily);
 
-  const swingSummaryRows = [];
-  for (const coin of COINS) {
-    for (const tf of ['4h', '1d']) {
-      for (const threshold of swingThresholds) {
-        const s = swingResultsByCoinTf[coin][tf][threshold];
-        swingSummaryRows.push({
-          coin, tf, threshold, upCount: s.upCount, downCount: s.downCount,
-          medianSizePct: s.medianSizePct?.toFixed(2), medianDurationHours: s.medianDurationHours?.toFixed(1),
-          swingsPerMonth: s.swingsPerMonth.toFixed(2),
-        });
-      }
-    }
-  }
-  writeCSV('swings-summary.csv', ['coin', 'tf', 'threshold', 'upCount', 'downCount', 'medianSizePct', 'medianDurationHours', 'swingsPerMonth'], swingSummaryRows);
-
-  // --- Section 3 + 6 (trend follower, all 3 tiers) ---
-  const trendFollowerResults = { '4h': {}, '1d': {} };
-  for (const coin of COINS) {
-    const bars4h = getCandles(db, coin, '4h', 0, WINDOW_END_TS).map((c) => ({ ts: c.ts, close: c.close }));
-    const barsDaily = getCandles(db, coin, '1d', 0, WINDOW_END_TS).map((c) => ({ ts: c.ts, close: c.close }));
-    const sim4h = simulateTrendFollower(bars4h, { entryTriggerPct: 3, trailPct: 5 });
-    const simDaily = simulateTrendFollower(barsDaily, { entryTriggerPct: 5, trailPct: 8 });
-    trendFollowerResults['4h'][coin] = sim4h;
-    trendFollowerResults['1d'][coin] = simDaily;
-  }
-
-  function trendFollowerRows(tf) {
-    const rows = [];
-    for (const coin of [...COINS, 'ALL']) {
-      let real, falseStarts;
-      if (coin === 'ALL') {
-        real = COINS.flatMap((c) => trendFollowerResults[tf][c].realTrades);
-        falseStarts = COINS.flatMap((c) => trendFollowerResults[tf][c].falseStarts);
-      } else {
-        real = trendFollowerResults[tf][coin].realTrades;
-        falseStarts = trendFollowerResults[tf][coin].falseStarts;
-      }
-      for (const [tierName, roundTrip] of Object.entries(FEE_TIERS)) {
-        const realNet = real.map((t) => feeAdjust(t.grossPct, roundTrip));
-        const falseNet = falseStarts.map((t) => feeAdjust(t.grossPct, roundTrip));
-        const avgCaptured = realNet.length ? realNet.reduce((a, b) => a + b, 0) / realNet.length : null;
-        const avgFalseCost = falseNet.length ? falseNet.reduce((a, b) => a + b, 0) / falseNet.length : null;
-        const totalFalseCost = falseNet.reduce((a, b) => a + b, 0);
-        rows.push({
-          coin, tier: tierName, realTrades: real.length, falseStarts: falseStarts.length,
-          avgCapturedPct: avgCaptured?.toFixed(2) ?? 'n/a',
-          avgFalseStartCostPct: avgFalseCost?.toFixed(2) ?? 'n/a',
-          totalFalseStartCostPct: totalFalseCost.toFixed(2),
-        });
-      }
-    }
-    return rows;
-  }
-
-  writeCSV('trend-follower-4h.csv', ['coin', 'tier', 'realTrades', 'falseStarts', 'avgCapturedPct', 'avgFalseStartCostPct', 'totalFalseStartCostPct'], trendFollowerRows('4h'));
-  writeCSV('trend-follower-daily.csv', ['coin', 'tier', 'realTrades', 'falseStarts', 'avgCapturedPct', 'avgFalseStartCostPct', 'totalFalseStartCostPct'], trendFollowerRows('1d'));
-
-  // --- Section 4 ---
   const adxShareByCoin = {};
-  for (const coin of COINS) adxShareByCoin[coin] = computeAdxShare(db, coin);
-  const regimeLabelShare = computeRegimeLabelShare(db);
-
-  writeCSV('adx-regime-share.csv', ['coin', 'adxAbove22SharePct'],
-    COINS.map((coin) => ({ coin, adxAbove22SharePct: (adxShareByCoin[coin] * 100).toFixed(1) })));
-
-  // --- Section 5 + 6 (baselines, all 3 tiers) ---
-  const ema200Warmup = COINS.map((coin) => ({ coin, ...checkEma200Warmup(db, coin) }));
+  for (const coin of COINS) adxShareByCoin[coin] = computeAdxShare(db, coin, perCoinStart[coin].startTs, endTs);
+  const regimeLabelShare = computeRegimeLabelShare(db, nominalStart, endTs);
 
   const baselineRows = [];
   for (const [tierName, roundTrip] of Object.entries(FEE_TIERS)) {
+    for (const coin of COINS) baselineRows.push({ tier: tierName, strategy: 'buy_and_hold', coin, ...buyAndHold(db, coin, perCoinStart[coin].startTs, endTs, roundTrip) });
+    baselineRows.push({ tier: tierName, strategy: 'equal_weight_basket', coin: 'ALL', ...equalWeightBasket(db, nominalStart, endTs, roundTrip) });
+    baselineRows.push({ tier: tierName, strategy: 'ema200_btc', coin: 'BTC', ...emaSwitchRule(db, ['BTC'], 200, nominalStart, endTs, roundTrip) });
+    baselineRows.push({ tier: tierName, strategy: 'ema50_btc', coin: 'BTC', ...emaSwitchRule(db, ['BTC'], 50, nominalStart, endTs, roundTrip) });
+    baselineRows.push({ tier: tierName, strategy: 'ema200_btc_eth', coin: 'BTC+ETH', ...emaSwitchRule(db, ['BTC', 'ETH'], 200, nominalStart, endTs, roundTrip) });
+  }
+
+  const bars4h = {}, barsDaily = {};
+  for (const coin of COINS) {
+    bars4h[coin] = getCandles(db, coin, '4h', 0, endTs).filter((c) => c.ts >= perCoinStart[coin].startTs).map((c) => ({ ts: c.ts, close: c.close }));
+    barsDaily[coin] = getCandles(db, coin, '1d', 0, endTs).filter((c) => c.ts >= perCoinStart[coin].startTs).map((c) => ({ ts: c.ts, close: c.close }));
+  }
+  const btcFilter = buildBtcTrendFilter(db, endTs);
+  const trendFollowerUnfiltered = runTrendFollowerVariant(db, bars4h, barsDaily, null);
+  const trendFollowerFiltered = runTrendFollowerVariant(db, bars4h, barsDaily, btcFilter);
+
+  function trendFollowerRows(variantResults, tf, tierName, roundTrip) {
+    const rows = [];
+    const allTrades = [];
     for (const coin of COINS) {
-      const bh = buyAndHold(db, coin, roundTrip);
-      baselineRows.push({ tier: tierName, strategy: 'buy_and_hold', coin, ...bh });
+      const trades = variantResults[tf][coin];
+      allTrades.push(...trades.map((t) => ({ ...t, coin })));
+      const agg = aggregateTrades(trades, roundTrip);
+      rows.push({ coin, tier: tierName, ...agg });
     }
-    const basket = equalWeightBasket(db, roundTrip);
-    baselineRows.push({ tier: tierName, strategy: 'equal_weight_basket', coin: 'ALL', ...basket });
-    baselineRows.push({ tier: tierName, strategy: 'ema200_btc', coin: 'BTC', ...emaSwitchRule(db, ['BTC'], 200, roundTrip) });
-    baselineRows.push({ tier: tierName, strategy: 'ema50_btc', coin: 'BTC', ...emaSwitchRule(db, ['BTC'], 50, roundTrip) });
-    baselineRows.push({ tier: tierName, strategy: 'ema200_btc_eth', coin: 'BTC+ETH', ...emaSwitchRule(db, ['BTC', 'ETH'], 200, roundTrip) });
+    const pooled = [...allTrades].sort((a, b) => a.entryTs - b.entryTs);
+    const aggAll = aggregateTrades(pooled, roundTrip);
+    rows.push({ coin: 'ALL', tier: tierName, ...aggAll });
+    return rows;
   }
-  writeCSV('baselines.csv', ['tier', 'strategy', 'coin', 'returnPct', 'maxDrawdownPct', 'trades'],
-    baselineRows.map((r) => ({ ...r, returnPct: r.returnPct?.toFixed(2), maxDrawdownPct: r.maxDrawdownPct?.toFixed(2) })));
 
-  // --- Write the markdown report ---
-  const report = buildReport({
+  return {
+    win, perCoinStart, windowDays,
     moveSizes4h, moveSizesDaily, moveSizes4hAll, moveSizesDailyAll,
-    swingResultsByCoinTf, swingThresholds,
-    trendFollowerResults, trendFollowerRows,
+    swingResultsByCoinTf, swingThresholds, swingDetailRows,
     adxShareByCoin, regimeLabelShare,
-    baselineRows, ema200Warmup,
-    windowDays,
-  });
-  fs.writeFileSync(path.join(OUT_DIR, 'opportunity-2026-11.md'), report);
-  console.log('Wrote docs/analysis/opportunity-2026-11.md and CSVs in docs/analysis/data/');
+    baselineRows,
+    trendFollowerUnfiltered, trendFollowerFiltered, trendFollowerRows,
+  };
 }
 
-function buildReport(ctx) {
-  const {
-    moveSizes4h, moveSizesDaily, moveSizes4hAll, moveSizesDailyAll,
-    swingResultsByCoinTf, swingThresholds,
-    trendFollowerRows,
-    adxShareByCoin, regimeLabelShare,
-    baselineRows, ema200Warmup,
-  } = ctx;
-
-  const lines = [];
-  lines.push('# Crypto opportunity analysis — 2026-11');
-  lines.push('');
-  lines.push(`Window: **${fmtDate(WINDOW_START_TS)} to ${fmtDate(WINDOW_END_TS)}** (6 calendar months, inclusive of the closing boundary, using stored Kraken GBP candles). Coins: ${COINS.join(', ')}.`);
-  lines.push('');
-  lines.push('Generated by `scripts/analysis/opportunity.js` — read-only, no config/live/scheduler code touched.');
-  lines.push('');
-
-  // --- Summary ---
-  lines.push('## Summary');
-  lines.push('');
-  const tier1DailyBeat1x = moveSizesDailyAll.beatShare.tier1_1x * 100;
-  const tier1_4hBeat1x = moveSizes4hAll.beatShare.tier1_1x * 100;
-  const avgSwingsPerMonth10pct4h = COINS.reduce((sum, c) => sum + swingResultsByCoinTf[c]['4h'][10].swingsPerMonth, 0) / COINS.length;
-  const bhAll = baselineRows.filter((r) => r.tier === 'tier1' && r.strategy === 'buy_and_hold');
-  const bestBH = bhAll.reduce((best, r) => (r.returnPct > (best?.returnPct ?? -Infinity) ? r : best), null);
-  const worstBH = bhAll.reduce((worst, r) => (r.returnPct < (worst?.returnPct ?? Infinity) ? r : worst), null);
-  const ema200 = baselineRows.find((r) => r.tier === 'tier1' && r.strategy === 'ema200_btc');
-  const basket = baselineRows.find((r) => r.tier === 'tier1' && r.strategy === 'equal_weight_basket');
-  const tf4hRows = trendFollowerRows('4h').filter((r) => r.tier === 'tier1' && r.coin === 'ALL');
-  const tfDailyRows = trendFollowerRows('1d').filter((r) => r.tier === 'tier1' && r.coin === 'ALL');
-
-  lines.push(`- **Candle moves clear Tier 1's round-trip fee (1.3%) only ${fmtPct(tier1DailyBeat1x, 1)} of the time on daily closes, ${fmtPct(tier1_4hBeat1x, 1)} on 4h closes** (all 6 coins pooled) — most individual candle-to-candle moves are too small to trade profitably one at a time, even before counting false signals.`);
-  lines.push(`- **Genuine ≥10% swings happen roughly ${avgSwingsPerMonth10pct4h.toFixed(1)} times/month per coin** (4h zigzag, averaged across all 6) — the opportunity is in catching a handful of real trends per month, not in trading every wiggle.`);
-  lines.push(`- **Buy-and-hold over this window ranged from ${worstBH.coin} at ${fmtPct(worstBH.returnPct)} to ${bestBH.coin} at ${fmtPct(bestBH.returnPct)}** (after one Tier 1 round trip) — coin selection and timing both matter a lot; see the per-coin table in §5.`);
-  lines.push(`- **BTC's 200-day EMA switch rule returned ${fmtPct(ema200.returnPct)} with ${fmtPct(ema200.maxDrawdownPct)} max drawdown across ${ema200.trades} trades** — compare against plain BTC buy-and-hold in §5 to see whether the switching actually earned its keep after fees.`);
-  lines.push(`- **The equal-weight 6-coin basket returned ${fmtPct(basket.returnPct)}** with ${fmtPct(basket.maxDrawdownPct)} max drawdown — diversification's net effect on this exact window, after fees.`);
-  if (tf4hRows.length > 0) {
-    lines.push(`- **A simple trend-follower (enter +3% off a swing low, trail 5%, 4h candles) caught real ≥10% swings averaging ${tf4hRows[0].avgCapturedPct}% after Tier 1 fees, but also hit ${tf4hRows[0].falseStarts} false starts** costing ${tf4hRows[0].totalFalseStartCostPct}% total — see §3/§6 for whether the false-start cost eats the gains.`);
-  }
-  if (tfDailyRows.length > 0) {
-    lines.push(`- **The same idea on daily candles (+5% entry, 8% trail) averaged ${tfDailyRows[0].avgCapturedPct}% captured per real swing after Tier 1 fees**, with ${tfDailyRows[0].falseStarts} false starts.`);
-  }
-  const anyShortWarmup = ema200Warmup.find((w) => !w.hasEnough);
-  lines.push(anyShortWarmup
-    ? `- **Caveat:** ${anyShortWarmup.coin} doesn't have 200 days of history before the window start — its 200-day EMA figures use the longest history actually available (${anyShortWarmup.daysBefore} days before the window).`
-    : `- All 6 coins had 200+ days of history before the window started, so every 200-day EMA figure here is a real, fully-warmed-up signal — no fallback needed.`);
-  lines.push('');
-
-  // --- Section 1 ---
-  lines.push('## 1. Move sizes');
-  lines.push('');
-  lines.push('Range % = (high − low) ÷ close, per candle. Close-to-close % = |close[i] − close[i−1]| ÷ close[i−1]. "Beats Nx tier" = share of candles whose close-to-close move is ≥ N × that tier\'s round-trip fee.');
-  lines.push('');
-  lines.push('### 4h candles');
-  lines.push('');
-  lines.push(moveSizeTable([...moveSizes4h, moveSizes4hAll]));
-  lines.push('');
-  lines.push('### Daily candles');
-  lines.push('');
-  lines.push(moveSizeTable([...moveSizesDaily, moveSizesDailyAll]));
-  lines.push('');
-  lines.push('Full data: `docs/analysis/data/move-sizes-4h.csv`, `move-sizes-daily.csv`.');
-  lines.push('');
-
-  // --- Section 2 ---
-  lines.push('## 2. Trends vs chop (zigzag swing detection)');
-  lines.push('');
-  lines.push('Zigzag pivots confirm on a reversal of at least the stated threshold %, measured close-to-close.');
-  lines.push('');
-  for (const tf of ['4h', '1d']) {
-    lines.push(`### ${tf === '4h' ? '4h candles' : 'Daily candles'}`);
-    lines.push('');
-    for (const threshold of swingThresholds) {
-      lines.push(`**${threshold}% threshold**`);
-      lines.push('');
-      lines.push(swingTable(ctx.swingResultsByCoinTf, tf, threshold));
-      lines.push('');
-    }
-  }
-  lines.push('Full swing list: `docs/analysis/data/swings-detail-4h.csv`, `swings-detail-daily.csv`. Summary: `swings-summary.csv`.');
-  lines.push('');
-
-  // --- Section 3 ---
-  lines.push('## 3. Realistic capture — trend-follower simulation');
-  lines.push('');
-  lines.push('Methodology: using the 5%-zigzag\'s swing lows as candidate entry points (the finest-grained signal available without hindsight), enter once price rises the stated % above that low, then exit when price closes the stated % below the highest close seen since entry. A trade is a "false start" if price never reached +10% above the originating low before the trail stopped it out; otherwise it\'s counted as "real" and its % captured is reported. All simulated on candle closes only (no intrabar fills), fees deducted at the stated tier as a flat round-trip %.');
-  lines.push('');
-  lines.push('### 4h candles (+3% entry, 5% trail) — Tier 1 fees');
-  lines.push('');
-  lines.push(trendFollowerTable(trendFollowerRows('4h').filter((r) => r.tier === 'tier1')));
-  lines.push('');
-  lines.push('### Daily candles (+5% entry, 8% trail) — Tier 1 fees');
-  lines.push('');
-  lines.push(trendFollowerTable(trendFollowerRows('1d').filter((r) => r.tier === 'tier1')));
-  lines.push('');
-  lines.push('Tier 2/3 sensitivity for both variants is in §6.');
-  lines.push('');
-
-  // --- Section 4 ---
-  lines.push('## 4. Time in trend vs range');
-  lines.push('');
-  lines.push(`Share of 4h candles with ADX(14) > ${REGIME_THRESHOLDS.trendUpAdx} (this codebase's own trend_up threshold), per coin:`);
-  lines.push('');
-  lines.push('| Coin | ADX > 22 share |');
-  lines.push('|---|---|');
-  for (const coin of COINS) lines.push(`| ${coin} | ${fmtPct(adxShareByCoin[coin] * 100, 1)} |`);
-  lines.push('');
-  lines.push(`Market-wide regime label share (from this codebase's regime engine — one label applies across the whole watchlist at a time, not per-coin), over ${regimeLabelShare.total} regime-computable 4h bars in the window:`);
-  lines.push('');
-  lines.push('| Regime | Share |');
-  lines.push('|---|---|');
-  for (const [label, share] of Object.entries(regimeLabelShare.shares)) lines.push(`| ${label} | ${fmtPct(share * 100, 1)} |`);
-  lines.push('');
-
-  // --- Section 5 ---
-  lines.push('## 5. Baselines (Tier 1 fees)');
-  lines.push('');
-  lines.push(baselineTable(baselineRows.filter((r) => r.tier === 'tier1')));
-  lines.push('');
-  lines.push('200-day EMA warm-up check:');
-  lines.push('');
-  lines.push('| Coin | Days of history before window start | 200+ days available? |');
-  lines.push('|---|---|---|');
-  for (const w of ema200Warmup) lines.push(`| ${w.coin} | ${w.daysBefore} | ${w.hasEnough ? 'yes' : '**no — used longest available**'} |`);
-  lines.push('');
-  lines.push('Full data: `docs/analysis/data/baselines.csv`.');
-  lines.push('');
-
-  // --- Section 6 ---
-  lines.push('## 6. Fee sensitivity (Tier 1 / 2 / 3)');
-  lines.push('');
-  lines.push('### Trend-follower (§3), all coins pooled, by tier');
-  lines.push('');
-  lines.push('**4h variant:**');
-  lines.push('');
-  lines.push(trendFollowerTable(trendFollowerRows('4h').filter((r) => r.coin === 'ALL')));
-  lines.push('');
-  lines.push('**Daily variant:**');
-  lines.push('');
-  lines.push(trendFollowerTable(trendFollowerRows('1d').filter((r) => r.coin === 'ALL')));
-  lines.push('');
-  lines.push('### Baselines (§5), by tier');
-  lines.push('');
-  for (const tier of ['tier1', 'tier2', 'tier3']) {
-    lines.push(`**${tier} (${FEE_TIERS[tier]}% round trip):**`);
-    lines.push('');
-    lines.push(baselineTable(baselineRows.filter((r) => r.tier === tier)));
-    lines.push('');
-  }
-
-  lines.push('## Methodology notes / known simplifications');
-  lines.push('');
-  lines.push('- All simulations use candle **closes** only — no intrabar fills, so real slippage on stop triggers would be somewhat worse than shown here.');
-  lines.push('- The trend-follower treats each 5%-zigzag low as an independent hypothetical trade — overlapping positions aren\'t deduplicated or portfolio-constrained.');
-  lines.push('- EMA switch-rule equity curves charge one round-trip fee per signal flip and compound daily returns while in position; cash periods earn exactly 0%.');
-  lines.push('- The equal-weight basket rebases each coin to its own window-start price, averages the six rebased paths, and nets a single round-trip fee per coin against that path — it is not a tradeable rebalancing strategy, just a dispersion-vs-average comparison.');
-  lines.push('- Fee tiers are used exactly as given (round-trip totals); no live TradeVolume/fee-tier data is stored in this DB to cross-check against.');
-  lines.push('');
-
-  return lines.join('\n');
-}
+// === Report ==================================================================================
 
 function moveSizeTable(rows) {
   const lines = ['| Coin | Candles | Range p25/p50/p75/p90 | C2C p25/p50/p75/p90 | T1 1x/2x/3x | T2 1x/2x/3x | T3 1x/2x/3x |', '|---|---|---|---|---|---|---|'];
@@ -714,20 +525,288 @@ function swingTable(swingResultsByCoinTf, tf, threshold) {
   return lines.join('\n');
 }
 
-function trendFollowerTable(rows) {
-  const lines = ['| Coin | Tier | Real trades | False starts | Avg captured % | Avg false-start cost % | Total false-start cost % |', '|---|---|---|---|---|---|---|'];
-  for (const r of rows) {
-    lines.push(`| ${r.coin} | ${r.tier} | ${r.realTrades} | ${r.falseStarts} | ${r.avgCapturedPct} | ${r.avgFalseStartCostPct} | ${r.totalFalseStartCostPct} |`);
-  }
-  return lines.join('\n');
-}
-
 function baselineTable(rows) {
   const lines = ['| Strategy | Coin | Return % | Max drawdown % | Trades |', '|---|---|---|---|---|'];
+  for (const r of rows) lines.push(`| ${r.strategy} | ${r.coin} | ${fmtPct(r.returnPct)} | ${fmtPct(r.maxDrawdownPct)} | ${r.trades} |`);
+  return lines.join('\n');
+}
+
+function trendFollowerNetTable(rows) {
+  const lines = ['| Coin | Trades | Win rate | Avg win % | Avg loss % | Net %/trade | Compounded return % | Max drawdown % |', '|---|---|---|---|---|---|---|---|'];
   for (const r of rows) {
-    lines.push(`| ${r.strategy} | ${r.coin} | ${fmtPct(r.returnPct)} | ${fmtPct(r.maxDrawdownPct)} | ${r.trades} |`);
+    lines.push(`| ${r.coin} | ${r.trades} | ${r.winRate === null ? 'n/a' : (r.winRate * 100).toFixed(0) + '%'} | ${fmtPct(r.avgWinPct)} | ${fmtPct(r.avgLossPct)} | ${fmtPct(r.netPctPerTrade)} | ${fmtPct(r.compoundedReturnPct)} | ${fmtPct(r.maxDrawdownPct)} |`);
   }
   return lines.join('\n');
 }
 
-main();
+function buildWindowSection(result) {
+  const { win, perCoinStart, moveSizes4h, moveSizesDaily, moveSizes4hAll, moveSizesDailyAll, swingResultsByCoinTf, swingThresholds, adxShareByCoin, regimeLabelShare, baselineRows, trendFollowerUnfiltered, trendFollowerFiltered, trendFollowerRows } = result;
+  const lines = [];
+  lines.push(`# Window: ${win.label}`);
+  lines.push('');
+  lines.push(`Nominal range: **${fmtDate(win.startTs)} to ${fmtDate(win.endTs)}**.`);
+  const fallbacks = COINS.filter((c) => perCoinStart[c].usedFallback);
+  lines.push(fallbacks.length
+    ? `Per-coin start clamped to longest available history for: ${fallbacks.map((c) => `${c} (from ${fmtDate(perCoinStart[c].startTs)})`).join(', ')}.`
+    : 'All 6 coins had the full nominal range available — no fallback needed.');
+  lines.push('');
+
+  lines.push('## 1. Move sizes');
+  lines.push('');
+  lines.push('### 4h candles');
+  lines.push('');
+  lines.push(moveSizeTable([...moveSizes4h, moveSizes4hAll]));
+  lines.push('');
+  lines.push('### Daily candles');
+  lines.push('');
+  lines.push(moveSizeTable([...moveSizesDaily, moveSizesDailyAll]));
+  lines.push('');
+
+  lines.push('## 2. Trends vs chop (zigzag swing detection, descriptive only — not traded)');
+  lines.push('');
+  for (const tf of ['4h', '1d']) {
+    lines.push(`### ${tf === '4h' ? '4h candles' : 'Daily candles'}`);
+    lines.push('');
+    for (const threshold of swingThresholds) {
+      lines.push(`**${threshold}% threshold**`);
+      lines.push('');
+      lines.push(swingTable(swingResultsByCoinTf, tf, threshold));
+      lines.push('');
+    }
+  }
+
+  lines.push('## 3. Trend-follower — net results (real-time rule, no look-ahead)');
+  lines.push('');
+  lines.push('Flat: tracks the lowest close since the last exit; enters when close ≥ that low × (1 + entry%). Long: tracks the highest close since entry; exits when close ≤ that high × (1 − trail%). One position per coin at a time.');
+  lines.push('');
+  lines.push('### 4h candles (+3% entry, 5% trail) — Tier 1, no market filter');
+  lines.push('');
+  lines.push(trendFollowerNetTable(trendFollowerRows(trendFollowerUnfiltered, '4h', 'tier1', FEE_TIERS.tier1)));
+  lines.push('');
+  lines.push('### Daily candles (+5% entry, 8% trail) — Tier 1, no market filter');
+  lines.push('');
+  lines.push(trendFollowerNetTable(trendFollowerRows(trendFollowerUnfiltered, '1d', 'tier1', FEE_TIERS.tier1)));
+  lines.push('');
+  lines.push('### Same rules, only trading when BTC is above its 200-day EMA (decided at the prior close — no look-ahead)');
+  lines.push('');
+  lines.push('**4h:**');
+  lines.push('');
+  lines.push(trendFollowerNetTable(trendFollowerRows(trendFollowerFiltered, '4h', 'tier1', FEE_TIERS.tier1)));
+  lines.push('');
+  lines.push('**Daily:**');
+  lines.push('');
+  lines.push(trendFollowerNetTable(trendFollowerRows(trendFollowerFiltered, '1d', 'tier1', FEE_TIERS.tier1)));
+  lines.push('');
+  lines.push('### Fee sensitivity, pooled (ALL coins), Tier 1 / 2 / 3');
+  lines.push('');
+  const feeSensRows = [];
+  for (const [tierName, roundTrip] of Object.entries(FEE_TIERS)) {
+    feeSensRows.push({ variant: '4h, unfiltered', ...trendFollowerRows(trendFollowerUnfiltered, '4h', tierName, roundTrip).find((r) => r.coin === 'ALL') });
+    feeSensRows.push({ variant: '4h, BTC-filtered', ...trendFollowerRows(trendFollowerFiltered, '4h', tierName, roundTrip).find((r) => r.coin === 'ALL') });
+    feeSensRows.push({ variant: 'daily, unfiltered', ...trendFollowerRows(trendFollowerUnfiltered, '1d', tierName, roundTrip).find((r) => r.coin === 'ALL') });
+    feeSensRows.push({ variant: 'daily, BTC-filtered', ...trendFollowerRows(trendFollowerFiltered, '1d', tierName, roundTrip).find((r) => r.coin === 'ALL') });
+  }
+  const feeLines = ['| Variant | Tier | Trades | Win rate | Net %/trade | Compounded return % | Max DD % |', '|---|---|---|---|---|---|---|'];
+  for (const r of feeSensRows) feeLines.push(`| ${r.variant} | ${r.tier} | ${r.trades} | ${r.winRate === null ? 'n/a' : (r.winRate * 100).toFixed(0) + '%'} | ${fmtPct(r.netPctPerTrade)} | ${fmtPct(r.compoundedReturnPct)} | ${fmtPct(r.maxDrawdownPct)} |`);
+  lines.push(feeLines.join('\n'));
+  lines.push('');
+
+  lines.push('## 4. Time in trend vs range');
+  lines.push('');
+  lines.push(`Share of 4h candles with ADX(14) > ${REGIME_THRESHOLDS.trendUpAdx}:`);
+  lines.push('');
+  lines.push('| Coin | ADX > 22 share |');
+  lines.push('|---|---|');
+  for (const coin of COINS) lines.push(`| ${coin} | ${fmtPct((adxShareByCoin[coin] ?? 0) * 100, 1)} |`);
+  lines.push('');
+  lines.push(`Market-wide regime label share, over ${regimeLabelShare.total} regime-computable 4h bars:`);
+  lines.push('');
+  lines.push('| Regime | Share |');
+  lines.push('|---|---|');
+  for (const [label, share] of Object.entries(regimeLabelShare.shares)) lines.push(`| ${label} | ${fmtPct(share * 100, 1)} |`);
+  lines.push('');
+
+  lines.push('## 5. Baselines (Tier 1 fees)');
+  lines.push('');
+  lines.push(baselineTable(baselineRows.filter((r) => r.tier === 'tier1')));
+  lines.push('');
+  lines.push('### Fee sensitivity (Tier 1 / 2 / 3)');
+  lines.push('');
+  for (const tier of ['tier1', 'tier2', 'tier3']) {
+    lines.push(`**${tier} (${FEE_TIERS[tier]}% round trip):**`);
+    lines.push('');
+    lines.push(baselineTable(baselineRows.filter((r) => r.tier === tier)));
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+function buildComparisonSection(results) {
+  const lines = ['# Window comparison (6 months / 2 years / 4 years)', ''];
+
+  lines.push('## Move sizes — daily close-to-close beats Tier 1 round trip (1x), pooled');
+  lines.push('');
+  lines.push('| Window | Share |');
+  lines.push('|---|---|');
+  for (const r of results) lines.push(`| ${r.win.label} | ${fmtPct(r.moveSizesDailyAll.beatShare.tier1_1x * 100, 1)} |`);
+  lines.push('');
+
+  lines.push('## Swings/month per coin (4h, 10% threshold), averaged across coins');
+  lines.push('');
+  lines.push('| Window | Avg swings/month |');
+  lines.push('|---|---|');
+  for (const r of results) {
+    const avg = COINS.reduce((sum, c) => sum + r.swingResultsByCoinTf[c]['4h'][10].swingsPerMonth, 0) / COINS.length;
+    lines.push(`| ${r.win.label} | ${avg.toFixed(2)} |`);
+  }
+  lines.push('');
+
+  lines.push('## Trend-follower net results, pooled (ALL coins), Tier 1');
+  lines.push('');
+  lines.push('| Window | Variant | Trades | Win rate | Net %/trade | Compounded return % | Max DD % |');
+  lines.push('|---|---|---|---|---|---|---|');
+  for (const r of results) {
+    for (const [label, variantResults] of [['4h, unfiltered', r.trendFollowerUnfiltered], ['4h, BTC-filtered', r.trendFollowerFiltered], ['daily, unfiltered', r.trendFollowerUnfiltered], ['daily, BTC-filtered', r.trendFollowerFiltered]]) {
+      const tf = label.startsWith('daily') ? '1d' : '4h';
+      const row = r.trendFollowerRows(variantResults, tf, 'tier1', FEE_TIERS.tier1).find((x) => x.coin === 'ALL');
+      lines.push(`| ${r.win.label} | ${label} | ${row.trades} | ${row.winRate === null ? 'n/a' : (row.winRate * 100).toFixed(0) + '%'} | ${fmtPct(row.netPctPerTrade)} | ${fmtPct(row.compoundedReturnPct)} | ${fmtPct(row.maxDrawdownPct)} |`);
+    }
+  }
+  lines.push('');
+
+  lines.push('## Baselines, Tier 1');
+  lines.push('');
+  lines.push('| Window | Strategy | Coin | Return % | Max DD % |');
+  lines.push('|---|---|---|---|---|');
+  for (const r of results) {
+    for (const strategy of ['buy_and_hold', 'equal_weight_basket', 'ema200_btc', 'ema50_btc', 'ema200_btc_eth']) {
+      const rows = r.baselineRows.filter((x) => x.tier === 'tier1' && x.strategy === strategy);
+      for (const row of rows) lines.push(`| ${r.win.label} | ${strategy} | ${row.coin} | ${fmtPct(row.returnPct)} | ${fmtPct(row.maxDrawdownPct)} |`);
+    }
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function buildSummary(results) {
+  const r6 = results.find((r) => r.win.key === '6mo');
+  const r2 = results.find((r) => r.win.key === '2yr');
+  const r4 = results.find((r) => r.win.key === '4yr');
+
+  const tfAll = (r, tf, variantResults) => r.trendFollowerRows(variantResults, tf, 'tier1', FEE_TIERS.tier1).find((x) => x.coin === 'ALL');
+  const tf6hUnf = tfAll(r6, '4h', r6.trendFollowerUnfiltered);
+  const tf6hFil = tfAll(r6, '4h', r6.trendFollowerFiltered);
+
+  const bhAll = r6.baselineRows.filter((r) => r.tier === 'tier1' && r.strategy === 'buy_and_hold');
+  const bestBH = bhAll.reduce((best, x) => (x.returnPct > (best?.returnPct ?? -Infinity) ? x : best), null);
+  const worstBH = bhAll.reduce((worst, x) => (x.returnPct < (worst?.returnPct ?? Infinity) ? x : worst), null);
+  const ema200_6 = r6.baselineRows.find((r) => r.tier === 'tier1' && r.strategy === 'ema200_btc');
+  const basket6 = r6.baselineRows.find((r) => r.tier === 'tier1' && r.strategy === 'equal_weight_basket');
+
+  const avgSwingsPerMonth = COINS.reduce((s, c) => s + r6.swingResultsByCoinTf[c]['4h'][10].swingsPerMonth, 0) / COINS.length;
+
+  const lines = [];
+  lines.push(`- **Candle-to-candle moves rarely clear fees on their own**: pooled daily closes beat Tier 1's 1.3% round trip only ${fmtPct(r6.moveSizesDailyAll.beatShare.tier1_1x * 100, 1)} of the time (6-month window); 4h closes, ${fmtPct(r6.moveSizes4hAll.beatShare.tier1_1x * 100, 1)}. Trading every move is a losing game before strategy is even considered.`);
+  lines.push(`- **Real ≥10%-ish swings are infrequent**: averaging ${avgSwingsPerMonth.toFixed(1)} swings/month/coin (4h, 10% zigzag threshold, 6-month window) — the opportunity is in catching a handful of trends, not constant trading.`);
+  lines.push(`- **Fixing the trend-follower's look-ahead bug changed the picture materially**: the corrected real-time rule (enter +3% off the lowest close since the last exit, trail 5%, one position at a time, 4h candles) nets ${fmtPct(tf6hUnf.netPctPerTrade)}/trade after Tier 1 fees over ${tf6hUnf.trades} trades (6-month window), compounding to ${fmtPct(tf6hUnf.compoundedReturnPct)} — compare this against the earlier (buggy, zigzag-hindsight) report's numbers, which were optimistic by construction.`);
+  lines.push(`- **Filtering entries to only fire when BTC is above its own 200-day EMA** (decided at the prior close, no look-ahead) changes the 4h trend-follower to ${tf6hFil.trades} trades at ${fmtPct(tf6hFil.netPctPerTrade)}/trade, compounding to ${fmtPct(tf6hFil.compoundedReturnPct)} — see §3 in each window for whether the filter actually helps or just trades less.`);
+  lines.push(`- **Buy-and-hold over the 6-month window ranged from ${worstBH.coin} at ${fmtPct(worstBH.returnPct)} to ${bestBH.coin} at ${fmtPct(bestBH.returnPct)}** after one Tier 1 round trip — coin choice and timing both matter far more than fee tier.`);
+  lines.push(`- **BTC's 200-day EMA switch rule (now look-ahead-free) returned ${fmtPct(ema200_6.returnPct)}** with ${fmtPct(ema200_6.maxDrawdownPct)} max drawdown across ${ema200_6.trades} trades (6-month window) — compare against plain BTC buy-and-hold in §5.`);
+  lines.push(`- **Longer windows tell a different story than 6 months alone** — see the Window comparison section: 2-year and 4-year results for the same rules often diverge from the short window, which is itself the main argument for not over-fitting to any single 6-month sample.`);
+  lines.push(`- **All 6 coins had full history for every window** (6mo/2yr/4yr) — no "longest available" fallback ever triggered; see each window's §0 header for the per-coin confirmation.`);
+  return lines.join('\n');
+}
+
+function main() {
+  ensureDirs();
+  const db = openDb();
+
+  const results = WINDOWS.map((win) => runAnalysisForWindow(db, win));
+
+  for (const r of results) {
+    const suffix = r.win.key;
+    writeCSV(`move-sizes-4h-${suffix}.csv`,
+      ['coin', 'candleCount', 'range_p25', 'range_p50', 'range_p75', 'range_p90', 'c2c_p25', 'c2c_p50', 'c2c_p75', 'c2c_p90', 'tier1_1x', 'tier1_2x', 'tier1_3x', 'tier2_1x', 'tier2_2x', 'tier2_3x', 'tier3_1x', 'tier3_2x', 'tier3_3x'],
+      [...r.moveSizes4h, r.moveSizes4hAll].map((m) => moveSizeCsvRow(m)));
+    writeCSV(`move-sizes-daily-${suffix}.csv`,
+      ['coin', 'candleCount', 'range_p25', 'range_p50', 'range_p75', 'range_p90', 'c2c_p25', 'c2c_p50', 'c2c_p75', 'c2c_p90', 'tier1_1x', 'tier1_2x', 'tier1_3x', 'tier2_1x', 'tier2_2x', 'tier2_3x', 'tier3_1x', 'tier3_2x', 'tier3_3x'],
+      [...r.moveSizesDaily, r.moveSizesDailyAll].map((m) => moveSizeCsvRow(m)));
+
+    const swingSummaryRows = [];
+    for (const coin of COINS) {
+      for (const tf of ['4h', '1d']) {
+        for (const threshold of r.swingThresholds) {
+          const s = r.swingResultsByCoinTf[coin][tf][threshold];
+          swingSummaryRows.push({ coin, tf, threshold, upCount: s.upCount, downCount: s.downCount, medianSizePct: s.medianSizePct?.toFixed(2), medianDurationHours: s.medianDurationHours?.toFixed(1), swingsPerMonth: s.swingsPerMonth.toFixed(2) });
+        }
+      }
+    }
+    writeCSV(`swings-summary-${suffix}.csv`, ['coin', 'tf', 'threshold', 'upCount', 'downCount', 'medianSizePct', 'medianDurationHours', 'swingsPerMonth'], swingSummaryRows);
+    writeCSV(`swings-detail-4h-${suffix}.csv`, ['coin', 'threshold', 'direction', 'startDate', 'endDate', 'sizePct', 'durationHours'], r.swingDetailRows['4h']);
+    writeCSV(`swings-detail-daily-${suffix}.csv`, ['coin', 'threshold', 'direction', 'startDate', 'endDate', 'sizePct', 'durationHours'], r.swingDetailRows['1d']);
+
+    writeCSV(`adx-regime-share-${suffix}.csv`, ['coin', 'adxAbove22SharePct'], COINS.map((coin) => ({ coin, adxAbove22SharePct: ((r.adxShareByCoin[coin] ?? 0) * 100).toFixed(1) })));
+
+    writeCSV(`baselines-${suffix}.csv`, ['tier', 'strategy', 'coin', 'returnPct', 'maxDrawdownPct', 'trades'],
+      r.baselineRows.map((row) => ({ ...row, returnPct: row.returnPct?.toFixed(2), maxDrawdownPct: row.maxDrawdownPct?.toFixed(2) })));
+
+    const tfCsvRows = [];
+    for (const [variantName, variantResults] of [['unfiltered', r.trendFollowerUnfiltered], ['btc_filtered', r.trendFollowerFiltered]]) {
+      for (const tf of ['4h', '1d']) {
+        for (const [tierName, roundTrip] of Object.entries(FEE_TIERS)) {
+          for (const row of r.trendFollowerRows(variantResults, tf, tierName, roundTrip)) {
+            tfCsvRows.push({ variant: variantName, tf, ...row, winRate: row.winRate === null ? '' : (row.winRate * 100).toFixed(1), avgWinPct: row.avgWinPct?.toFixed(2) ?? '', avgLossPct: row.avgLossPct?.toFixed(2) ?? '', netPctPerTrade: row.netPctPerTrade?.toFixed(2) ?? '', compoundedReturnPct: row.compoundedReturnPct.toFixed(2), maxDrawdownPct: row.maxDrawdownPct.toFixed(2) });
+          }
+        }
+      }
+    }
+    writeCSV(`trend-follower-${suffix}.csv`, ['variant', 'tf', 'coin', 'tier', 'trades', 'winRate', 'avgWinPct', 'avgLossPct', 'netPctPerTrade', 'compoundedReturnPct', 'maxDrawdownPct'], tfCsvRows);
+  }
+
+  const reportLines = [];
+  reportLines.push('# Crypto opportunity analysis — 2026-11');
+  reportLines.push('');
+  reportLines.push(`Coins: ${COINS.join(', ')}. Three windows analyzed: ${WINDOWS.map((w) => w.label).join('; ')}. All ending ${fmtDate(NOW_TS)}.`);
+  reportLines.push('');
+  reportLines.push('Generated by `scripts/analysis/opportunity.js` — read-only, no config/live/scheduler code touched.');
+  reportLines.push('');
+  reportLines.push('## Summary');
+  reportLines.push('');
+  reportLines.push(buildSummary(results));
+  reportLines.push('');
+  reportLines.push('## Methodology notes / known simplifications');
+  reportLines.push('');
+  reportLines.push('- §2 (swing counting) still uses hindsight-confirmed zigzag pivots — that\'s fine for *describing* how often reversals of a given size happen, but §3\'s trend-follower trades off a real-time rule instead (lowest-close-since-exit / highest-close-since-entry), with no knowledge of future reversals.');
+  reportLines.push('- The EMA baselines and the BTC trend filter both apply a signal decided at the *previous* close to *today\'s* return/entries — never today\'s own just-computed signal — closing the look-ahead bug from the first version of this report.');
+  reportLines.push('- All simulations use candle **closes** only — no intrabar fills.');
+  reportLines.push('- The BTC filter gates new entries only; it does not force an exit if BTC\'s signal flips while a position from one of the 6 coins is already open.');
+  reportLines.push('- The equal-weight basket rebases each coin to its own window-start price and nets one round-trip fee per coin — a dispersion-vs-average comparison, not a tradeable rebalancing strategy.');
+  reportLines.push('- "Pooled" compounded return merges every coin\'s trades into one chronological sequence, as if one capital pool traded all 6 coins\' signals.');
+  reportLines.push('- **Compounded return assumes 100% of equity is re-risked on every trade** — it is a pure "edge per trade, compounded" figure, not a realistic position-sized backtest. A system with a small negative (or barely positive) edge per trade will compound toward -100% over enough trades at this sizing even though a 0.5%-of-equity-per-trade version of the same signals would survive comfortably. Read the compounded-return column as "does this edge survive being compounded at all", not as a literal account outcome — `netPctPerTrade` and `winRate` are the sizing-independent numbers to trust first.');
+  reportLines.push('- Fee tiers are used exactly as given (round-trip totals); no live TradeVolume/fee-tier data is stored in this DB to cross-check against.');
+  reportLines.push('');
+  reportLines.push(buildComparisonSection(results));
+  for (const r of results) {
+    reportLines.push(buildWindowSection(r));
+  }
+
+  fs.writeFileSync(path.join(OUT_DIR, 'opportunity-2026-11.md'), reportLines.join('\n'));
+  console.log('Wrote docs/analysis/opportunity-2026-11.md and CSVs in docs/analysis/data/');
+}
+
+function moveSizeCsvRow(m) {
+  return {
+    coin: m.coin, candleCount: m.candleCount,
+    range_p25: m.range.p25?.toFixed(3), range_p50: m.range.p50?.toFixed(3), range_p75: m.range.p75?.toFixed(3), range_p90: m.range.p90?.toFixed(3),
+    c2c_p25: m.closeToClose.p25?.toFixed(3), c2c_p50: m.closeToClose.p50?.toFixed(3), c2c_p75: m.closeToClose.p75?.toFixed(3), c2c_p90: m.closeToClose.p90?.toFixed(3),
+    tier1_1x: (m.beatShare.tier1_1x * 100).toFixed(1), tier1_2x: (m.beatShare.tier1_2x * 100).toFixed(1), tier1_3x: (m.beatShare.tier1_3x * 100).toFixed(1),
+    tier2_1x: (m.beatShare.tier2_1x * 100).toFixed(1), tier2_2x: (m.beatShare.tier2_2x * 100).toFixed(1), tier2_3x: (m.beatShare.tier2_3x * 100).toFixed(1),
+    tier3_1x: (m.beatShare.tier3_1x * 100).toFixed(1), tier3_2x: (m.beatShare.tier3_2x * 100).toFixed(1), tier3_3x: (m.beatShare.tier3_3x * 100).toFixed(1),
+  };
+}
+
+module.exports = { simulateEmaEquity, simulateTrendFollowerRealtime, aggregateTrades, zigzag, swingsFromPivots };
+
+if (require.main === module) main();
