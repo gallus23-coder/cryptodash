@@ -1,0 +1,16 @@
+window,setup,trades,winRate,avgNetPct,expectancyR,gatePass
+6mo,trend_breakout,1,0.0,-5.29,-1.01,false
+6mo,trend_pullback,8,12.5,-3.90,-0.69,false
+6mo,range_reversion,0,,,,
+6mo,oversold_bounce,1,100.0,2.52,0.70,false
+6mo,ALL,10,20.0,-3.40,-0.58,false
+2yr,trend_breakout,2,0.0,-8.89,-1.19,false
+2yr,trend_pullback,8,25.0,-2.20,-0.47,false
+2yr,range_reversion,11,0.0,-7.17,-1.18,false
+2yr,oversold_bounce,0,,,,
+2yr,ALL,21,9.5,-5.44,-0.91,false
+4yr,trend_breakout,21,33.3,-1.68,-0.20,false
+4yr,trend_pullback,42,31.0,-0.07,-0.06,false
+4yr,range_reversion,34,44.1,0.06,-0.07,false
+4yr,oversold_bounce,8,0.0,-2.65,-0.88,false
+4yr,ALL,105,33.3,-0.55,-0.15,false
