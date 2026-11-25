@@ -24,6 +24,16 @@ test('summarizeWindow with 30+ trades is not flagged too-few', () => {
   assert.equal(result.tooFewToJudge, false);
 });
 
+test('summarizeWindow reports a real nonzero worstDrawdownPct for a window that lost money the whole time', () => {
+  const trades = [
+    { exitTs: 1, pnl: -10, r: -2 },
+    { exitTs: 2, pnl: -10, r: -2 },
+    { exitTs: 3, pnl: -10, r: -2 },
+  ];
+  const result = summarizeWindow(trades, [100, 100]);
+  assert.ok(result.worstDrawdownPct > 0, 'an all-losing window must show a nonzero drawdown, not 0');
+});
+
 const { openDb, upsertCandles, saveSchedulerState, loadSchedulerState } = require('../src/data/db');
 const { freshState } = require('../src/scheduler/cycle');
 const { DEFAULT_RISK_CONFIG, COINS } = require('../src/engine/config');

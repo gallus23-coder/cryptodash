@@ -1173,6 +1173,26 @@ test('POST /api/config/draft/submit creates a pending version, superseding any e
   }
 });
 
+test('POST /api/config/draft/submit re-clamps an out-of-bounds setupParams value instead of trusting the client-supplied draft verbatim', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config/draft/submit`, {
+      method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        draft: { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {}, setupParams: { trend_breakout: { lookback: 999 } } },
+        backtestSummary: { totalTrades: 0 },
+      }),
+    });
+    assert.equal(res.status, 200);
+
+    const pendingRes = await fetch(`http://127.0.0.1:${port}/api/config/pending`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const pendingBody = await pendingRes.json();
+    assert.equal(pendingBody.pending.config.setupParams.trend_breakout.lookback, 50); // SETUP_PARAM_BOUNDS.trend_breakout.lookback[1], not the raw 999
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/config/pending returns a synthetic default active version when nothing has ever been approved', async () => {
   const { server, port } = await startTestServer('sekrit');
   try {

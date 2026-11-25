@@ -13,12 +13,17 @@ function splitTradesByWindow(trades, boundaryTs) {
   };
 }
 
+// Matches runBacktest's own starting balance (src/backtest/run.js) — computeDrawdown only
+// records a drawdown while peak > 0, so seeding the series at 0 means a window that loses money
+// the whole time (cumulative pnl never goes positive) always reports a drawdown of exactly 0.
+const NOTIONAL_STARTING_BALANCE = 1000;
+
 function summarizeWindow(trades, btcCloses) {
   const { count, winRate, expectancy } = computeExpectancy(trades);
 
   const sortedByExit = [...trades].sort((a, b) => (a.exitTs ?? 0) - (b.exitTs ?? 0));
-  const botSeries = [0];
-  let running = 0;
+  const botSeries = [NOTIONAL_STARTING_BALANCE];
+  let running = NOTIONAL_STARTING_BALANCE;
   for (const t of sortedByExit) {
     running += t.pnl ?? t.r;
     botSeries.push(running);

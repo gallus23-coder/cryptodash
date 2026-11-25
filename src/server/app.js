@@ -319,8 +319,11 @@ function createApp(db, { password } = {}) {
     const { draft, backtestSummary } = req.body || {};
     if (!draft) return res.status(400).json({ error: 'missing draft' });
 
+    const { error, draft: revalidatedDraft } = validateDraft(draft);
+    if (error) return res.status(400).json({ error });
+
     supersedePendingConfigVersions(db, mode);
-    const id = insertConfigVersion(db, { mode, configJson: draft, backtestJson: backtestSummary });
+    const id = insertConfigVersion(db, { mode, configJson: revalidatedDraft, backtestJson: backtestSummary });
     res.json({ id });
   });
 
