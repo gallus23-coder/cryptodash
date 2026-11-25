@@ -183,10 +183,11 @@ function createApp(db, { password } = {}) {
     res.json(state ? state.openPositions : []);
   });
 
-  const { getSetupStats, getLatestMarketNote } = require('../data/db');
+  const { getSetupStats, getLatestMarketNote, getSetupLifecycle, setSetupLifecycleStatus } = require('../data/db');
   const { SETUPS } = require('../engine/playbook');
   const { DEFAULT_RISK_CONFIG } = require('../engine/config');
   const { DEFAULT_SETUP_PARAMS, SETUP_PARAM_BOUNDS } = require('../engine/setupParams');
+  const { canActivate, isFailingAutoOffThreshold } = require('../engine/setupLifecycle');
 
   app.get('/api/strategy', (req, res) => {
     const mode = req.query.mode || 'paper';
@@ -195,6 +196,7 @@ function createApp(db, { password } = {}) {
     const setups = Object.entries(SETUPS).map(([name, mod]) => ({
       name, ranges: mod.RANGES,
       params: DEFAULT_SETUP_PARAMS[name], paramBounds: SETUP_PARAM_BOUNDS[name],
+      lifecycleStatus: getSetupLifecycle(db, mode, name).status,
       stats30d: getSetupStats(db, mode, name, nowTs - 30 * 86400),
       stats90d: getSetupStats(db, mode, name, nowTs - 90 * 86400),
     }));
@@ -219,6 +221,26 @@ function createApp(db, { password } = {}) {
       },
       config: { activeVersion: 'default', pending: null },
     });
+  });
+
+  app.post('/api/setups/:name/activate', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const { name } = req.params;
+    if (!Object.keys(SETUPS).includes(name)) return res.status(404).json({ error: `unknown setup: ${name}` });
+
+    const current = getSetupLifecycle(db, mode, name);
+    const trades = getTrades(db, mode).filter((t) => t.setup === name);
+
+    if (current.status === 'active') return res.status(409).json({ error: 'already active' });
+    if (current.status === 'trial' && !canActivate(trades)) {
+      return res.status(409).json({ error: 'needs 30+ trades with positive expectancy before activating' });
+    }
+    if (current.status === 'auto_off' && isFailingAutoOffThreshold(trades)) {
+      return res.status(409).json({ error: 'still failing the auto-off threshold' });
+    }
+
+    setSetupLifecycleStatus(db, mode, name, 'active', Math.floor(Date.now() / 1000));
+    res.json({ status: 'active' });
   });
 
   const { applyRiskLevel } = require('../engine/config');

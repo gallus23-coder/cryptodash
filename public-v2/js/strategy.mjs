@@ -55,17 +55,37 @@ async function renderMarketNote(strategy) {
   `;
 }
 
+const LIFECYCLE_BADGE = {
+  trial: 'background:var(--blue-bg);color:var(--accent);',
+  active: 'background:var(--green-bg);color:var(--green-text);',
+  auto_off: 'background:var(--red-bg);color:var(--red-strong);font-weight:600;',
+};
+
+async function activateSetup(name) {
+  if (!window.confirm(`Activate ${name}? It will start trading for real (paper or live, depending on mode).`)) return;
+  try {
+    await fetchJson(`/api/setups/${name}/activate`, { mode: 'paper' }, { method: 'POST' });
+    renderStrategyTab();
+  } catch (err) {
+    window.alert(`Could not activate ${name}: ${err.message}`);
+  }
+}
+
 function renderSetupsTable(strategy) {
   const el = document.getElementById('setups-table');
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:baseline;"><h2 style="margin:0 0 12px 0;font-size:15px;font-weight:600;">Active setups</h2><span style="font-size:12px;color:var(--muted);">Stats: 30d / 90d, after fees</span></div>
     <table>
-      <thead><tr><th>Setup</th><th>Allowed in</th><th>Ranges</th><th>30d</th><th>90d</th></tr></thead>
+      <thead><tr><th>Setup</th><th>Allowed in</th><th>Status</th><th>Ranges</th><th>30d</th><th>90d</th></tr></thead>
       <tbody>
         ${strategy.setups.map((s) => `
           <tr>
             <td style="font-family:var(--mono);">${escapeHtml(s.name)}</td>
             <td>${escapeHtml(SETUP_REGIMES[s.name] || '—')}</td>
+            <td>
+              <span style="font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:999px;${LIFECYCLE_BADGE[s.lifecycleStatus] || ''}">${escapeHtml(s.lifecycleStatus)}</span>
+              ${s.lifecycleStatus !== 'active' ? `<button type="button" data-activate-setup="${escapeHtml(s.name)}" style="margin-left:6px;font-size:11px;padding:2px 6px;">Activate</button>` : ''}
+            </td>
             <td style="font-family:var(--mono);font-size:12px;">size ${JSON.stringify(s.ranges.size)}, stop ${JSON.stringify(s.ranges.stopAtr)}${s.ranges.trailAtr ? `, trail ${JSON.stringify(s.ranges.trailAtr)}` : ''}</td>
             <td>${escapeHtml(formatSetupStats(s.stats30d))}</td>
             <td>${escapeHtml(formatSetupStats(s.stats90d))}</td>
@@ -73,8 +93,10 @@ function renderSetupsTable(strategy) {
         `).join('')}
       </tbody>
     </table>
-    <p style="margin:10px 0 0 0;font-size:12px;color:var(--muted);">Setup lifecycle (trial → active → auto-off) is not built yet — every setup listed here is always active for its regime.</p>
   `;
+  el.querySelectorAll('button[data-activate-setup]').forEach((button) => {
+    button.addEventListener('click', () => activateSetup(button.dataset.activateSetup));
+  });
 }
 
 function renderOpenPositions(positions) {

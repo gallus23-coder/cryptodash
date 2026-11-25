@@ -949,6 +949,53 @@ test('GET /api/strategy returns per-setup stats, computed with computeExpectancy
   }
 });
 
+test('GET /api/strategy includes a lifecycleStatus per setup, defaulting to trial', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/strategy`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    const pullback = body.setups.find((s) => s.name === 'trend_pullback');
+    assert.equal(pullback.lifecycleStatus, 'trial');
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/setups/:name/activate returns 409 when the trial setup has fewer than 30 trades', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/setups/trend_pullback/activate?mode=paper`, { method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 409);
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/setups/:name/activate succeeds and flips status to active once the trade gate passes', async () => {
+  const { server, port, db } = await startTestServer('sekrit');
+  try {
+    for (let i = 0; i < 30; i += 1) {
+      insertTrade(db, { mode: 'paper', coin: 'BTC', setup: 'trend_pullback', entryTs: i * 3600, exitTs: i * 3600 + 60, entryPrice: 100, exitPrice: 102, units: 1, riskAmount: 5, pnl: 1, r: 0.2, exitReason: 'target' });
+    }
+    const res = await fetch(`http://127.0.0.1:${port}/api/setups/trend_pullback/activate?mode=paper`, { method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(body.status, 'active');
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/setups/:name/activate returns 404 for an unknown setup name', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/setups/not_a_real_setup/activate?mode=paper`, { method: 'POST', headers: { 'X-Dashboard-Password': 'sekrit' } });
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /api/strategy reports real win rate/expectancy for a setup with real trades', async () => {
   const { server, port, db } = await startTestServer('sekrit');
   try {
