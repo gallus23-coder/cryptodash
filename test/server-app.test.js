@@ -1186,6 +1186,18 @@ test('GET /api/config/pending returns a synthetic default active version when no
   }
 });
 
+test('GET /api/config/shadow-comparison reports tooSoon with a fresh database', async () => {
+  const { server, port } = await startTestServer('sekrit');
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config/shadow-comparison?mode=paper`, { headers: { 'X-Dashboard-Password': 'sekrit' } });
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(body.tooSoon, true);
+  } finally {
+    server.close();
+  }
+});
+
 test('POST /api/config/:id/approve promotes a pending version to active', async () => {
   const { server, port } = await startTestServer('sekrit');
   try {

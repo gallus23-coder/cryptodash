@@ -329,6 +329,12 @@ function createApp(db, { password } = {}) {
     res.json({ active: getActiveConfigVersion(db, mode), pending: getPendingConfigVersion(db, mode) });
   });
 
+  app.get('/api/config/shadow-comparison', (req, res) => {
+    const mode = req.query.mode || 'paper';
+    const { buildShadowComparison } = require('../backtest/compare');
+    res.json(buildShadowComparison(db, mode));
+  });
+
   app.post('/api/config/:id/approve', (req, res) => {
     const mode = req.query.mode || 'paper';
     const id = Number(req.params.id);

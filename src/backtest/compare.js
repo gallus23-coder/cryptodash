@@ -1,7 +1,10 @@
 'use strict';
 const { runBacktest } = require('./run');
 const { computeExpectancy, computeBenchmarkComparison } = require('./stats');
-const { getCandles } = require('../data/db');
+const { getCandles, getActiveConfigVersion, getMostRecentSupersededConfigVersion, getTrades } = require('../data/db');
+const { resolveEffectiveConfig, DEFAULT_RISK_CONFIG } = require('../engine/config');
+const { resolveSetupParams } = require('../engine/setupParams');
+const { SETUPS_BY_REGIME } = require('../engine/playbook');
 
 function splitTradesByWindow(trades, boundaryTs) {
   return {
@@ -58,4 +61,25 @@ function buildWalkForwardReport(db, opts) {
   };
 }
 
-module.exports = { splitTradesByWindow, summarizeWindow, buildWalkForwardReport };
+function buildShadowComparison(db, mode) {
+  const active = getActiveConfigVersion(db, mode);
+  if (active.decidedTs === null) return { tooSoon: true };
+  const sinceTs = Math.floor(active.decidedTs / 1000);
+  const ageSeconds = Math.floor(Date.now() / 1000) - sinceTs;
+  if (ageSeconds < 14 * 86400) return { tooSoon: true };
+  const superseded = getMostRecentSupersededConfigVersion(db, mode);
+  if (!superseded) return { tooSoon: true };
+
+  const { config: oldConfig, setupsByRegime: oldSetupsByRegime } = resolveEffectiveConfig(DEFAULT_RISK_CONFIG, superseded.config, SETUPS_BY_REGIME);
+  const oldSetupParams = resolveSetupParams(superseded.config.setupParams);
+  const oldResult = runBacktest(db, oldConfig, sinceTs, oldSetupsByRegime, oldSetupParams);
+  const btcCloses = getCandles(db, 'BTC', '1d', sinceTs, Math.floor(Date.now() / 1000)).map((c) => c.close);
+  const oldConfigSimulated = summarizeWindow(oldResult.state.closedTrades, btcCloses);
+
+  const newTrades = getTrades(db, mode).filter((t) => t.entryTs >= sinceTs);
+  const newConfigActual = summarizeWindow(newTrades, btcCloses);
+
+  return { tooSoon: false, sinceTs, oldConfigSimulated, newConfigActual };
+}
+
+module.exports = { splitTradesByWindow, summarizeWindow, buildWalkForwardReport, buildShadowComparison };

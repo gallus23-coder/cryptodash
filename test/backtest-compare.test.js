@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { splitTradesByWindow, summarizeWindow, buildWalkForwardReport } = require('../src/backtest/compare');
+const { splitTradesByWindow, summarizeWindow, buildWalkForwardReport, buildShadowComparison } = require('../src/backtest/compare');
 
 test('splitTradesByWindow splits by entryTs relative to the boundary, boundary itself goes to later', () => {
   const trades = [{ entryTs: 100 }, { entryTs: 200 }, { entryTs: 300 }];
@@ -62,5 +62,42 @@ test('buildWalkForwardReport returns active and draft, each split into earlier/l
   assert.ok(report.draft.earlier);
   assert.ok(report.draft.later);
   assert.equal(typeof report.active.earlier.tooFewToJudge, 'boolean');
+  assert.deepEqual(loadSchedulerState(db, 'paper'), before);
+});
+
+const { insertConfigVersion, approveConfigVersion } = require('../src/data/db');
+
+test('buildShadowComparison reports tooSoon when there is no superseded version at all', () => {
+  const db = openDb(':memory:');
+  const result = buildShadowComparison(db, 'paper');
+  assert.equal(result.tooSoon, true);
+});
+
+test('buildShadowComparison reports tooSoon when the active version was decided less than 14 days ago', () => {
+  const db = openDb(':memory:');
+  const oldId = insertConfigVersion(db, { mode: 'paper', configJson: { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {}, setupParams: {} }, backtestJson: null });
+  approveConfigVersion(db, 'paper', oldId);
+  const newId = insertConfigVersion(db, { mode: 'paper', configJson: { riskLevel: 'cautious', disabledSetups: [], rangeOverrides: {}, setupParams: {} }, backtestJson: null });
+  approveConfigVersion(db, 'paper', newId); // decidedTs = Date.now(), well under 14 days old
+  const result = buildShadowComparison(db, 'paper');
+  assert.equal(result.tooSoon, true);
+});
+
+test('buildShadowComparison returns a full old-vs-new comparison once 14+ days have passed, without touching the real scheduler_state row', () => {
+  const db = openDb(':memory:');
+  const oldId = insertConfigVersion(db, { mode: 'paper', configJson: { riskLevel: 'normal', disabledSetups: [], rangeOverrides: {}, setupParams: {} }, backtestJson: null });
+  approveConfigVersion(db, 'paper', oldId);
+  const newId = insertConfigVersion(db, { mode: 'paper', configJson: { riskLevel: 'cautious', disabledSetups: [], rangeOverrides: {}, setupParams: {} }, backtestJson: null });
+  approveConfigVersion(db, 'paper', newId);
+  db.prepare('UPDATE config_versions SET decided_ts = ? WHERE id = ?').run(Date.now() - 15 * 86400 * 1000, newId);
+
+  saveSchedulerState(db, 'paper', freshState());
+  const before = loadSchedulerState(db, 'paper');
+
+  const result = buildShadowComparison(db, 'paper');
+
+  assert.equal(result.tooSoon, false);
+  assert.ok(result.oldConfigSimulated);
+  assert.ok(result.newConfigActual);
   assert.deepEqual(loadSchedulerState(db, 'paper'), before);
 });

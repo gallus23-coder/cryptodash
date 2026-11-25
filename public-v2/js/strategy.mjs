@@ -178,6 +178,28 @@ async function renderClaudeUsage() {
   }
 }
 
+async function renderShadowComparison() {
+  const el = document.getElementById('shadow-comparison');
+  if (!el) return;
+  try {
+    const result = await fetchJson('/api/config/shadow-comparison', {});
+    if (result.tooSoon) {
+      el.innerHTML = `<p style="margin:0;font-size:12px;color:var(--muted);">Old vs new config: not enough time yet (needs 14 days since the last approval).</p>`;
+      return;
+    }
+    const formatSummary = (s) => `${s.trades} trades, ${(s.winRate * 100).toFixed(0)}% win, ${s.expectancy.toFixed(2)}R, worst DD ${(s.worstDrawdownPct * 100).toFixed(1)}%`;
+    el.innerHTML = `
+      <div class="watchlist-label">Old vs new config (since the last approval)</div>
+      <table style="margin-top:6px;">
+        <thead><tr><th>old config (simulated)</th><th>new config (actual)</th></tr></thead>
+        <tbody><tr><td>${formatSummary(result.oldConfigSimulated)}</td><td>${formatSummary(result.newConfigActual)}</td></tr></tbody>
+      </table>
+    `;
+  } catch (err) {
+    el.textContent = `Could not load shadow comparison: ${err.message}`;
+  }
+}
+
 export async function renderStrategyTab() {
   await renderRegimeCard();
   try {
@@ -192,6 +214,7 @@ export async function renderStrategyTab() {
     renderOpenPositions(positions);
     renderGuardrails(strategy, caps, paperSettings);
     await renderClaudeUsage();
+    await renderShadowComparison();
   } catch (err) {
     document.getElementById('setups-table').textContent = `Could not load strategy data: ${err.message}`;
   }
