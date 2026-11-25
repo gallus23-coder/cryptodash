@@ -19,7 +19,7 @@ function freshState(startingBalance = 1000) {
   };
 }
 
-const { getCandles, loadSchedulerState, saveSchedulerState, insertTrade, insertCycleLog, insertCandidate, updateCandidateShadow, insertDecision, getTrades, getActiveConfigVersion } = require('../data/db');
+const { getCandles, loadSchedulerState, saveSchedulerState, insertTrade, insertCycleLog, insertCandidate, updateCandidateShadow, insertDecision, getTrades, getActiveConfigVersion, getAllSetupLifecycles, setSetupLifecycleStatus } = require('../data/db');
 const { ingestAllCoins } = require('../data/ingest');
 const { computeRegimeSeries } = require('../engine/regime');
 const { isDailyLossLimitHit, isKillSwitchTriggered, shouldEvaluateCandidates, rollDailyPnl } = require('../engine/risk');
@@ -36,6 +36,7 @@ const { buildCandidateId, attachContext } = require('../engine/candidates');
 const { openShadowPosition, resolveShadowPositions } = require('../broker/shadow');
 const { decide } = require('../engine/decide');
 const { resolveSetupParams } = require('../engine/setupParams');
+const { isFailingAutoOffThreshold, applyLifecycleFilter } = require('../engine/setupLifecycle');
 
 const persistCycleResults = (db, mode, state) => db.transaction(() => {
   for (const trade of state.closedTrades) {
@@ -66,6 +67,8 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
     const broker = selectBroker(mode, deps);
     const { config: effectiveConfig, setupsByRegime: effectiveSetupsByRegime } = resolveEffectiveConfig(config, activeVersion.config, SETUPS_BY_REGIME);
     const setupParams = resolveSetupParams(activeVersion.config.setupParams);
+    const lifecycleStatuses = getAllSetupLifecycles(db, mode);
+    const lifecycleFilteredSetupsByRegime = applyLifecycleFilter(effectiveSetupsByRegime, lifecycleStatuses);
 
     const btcDaily = getCandles(db, 'BTC', '1d', 0, nowHour);
     const btc4h = getCandles(db, 'BTC', '4h', 0, nowHour);
@@ -133,7 +136,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
         const data = coinData[coin];
         const i = data.candles4h.findIndex((c) => c.ts === closedBarTs);
         if (i === -1) continue;
-        for (const setupName of effectiveSetupsByRegime[regimeLabel] || []) {
+        for (const setupName of lifecycleFilteredSetupsByRegime[regimeLabel] || []) {
           if (state.disabledSetups[setupName] === regimeLabel) continue; // setup disabled for the rest of this regime
           const candidate = SETUPS[setupName].evaluate(coin, data.candles4h, data.indicators, i, regimeLabel, setupParams[setupName]);
           if (!candidate) continue;
@@ -151,6 +154,19 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
           }
 
           candidateContextById.set(fullCandidate.id, { data, i });
+
+          if (lifecycleStatuses[setupName] === 'trial') {
+            insertDecision(db, {
+              candidateId: fullCandidate.id, ts: nowHour, mode, action: 'skip',
+              size: null, stopAtr: null, trailAtr: null,
+              reason: 'trial setup — shadow only, no Claude call',
+              plainReason: 'This setup is still being tested, so it only records what it would have done.',
+              defaultAction: fullCandidate.default.action, diverged: false,
+              model: 'trial', latencyMs: 0, rawResponse: '{}',
+            });
+            continue;
+          }
+
           cycleCandidates.push(fullCandidate);
         }
       }
@@ -233,6 +249,14 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
         for (const toggle of result.setupToggles) {
           if (toggle.action === 'disable_setup') state.disabledSetups[toggle.setup] = regimeLabel;
         }
+      }
+    }
+
+    for (const setupName of Object.keys(lifecycleStatuses)) {
+      if (lifecycleStatuses[setupName] !== 'active') continue;
+      const setupTrades = getTrades(db, mode).filter((t) => t.setup === setupName);
+      if (isFailingAutoOffThreshold(setupTrades)) {
+        setSetupLifecycleStatus(db, mode, setupName, 'auto_off', nowHour);
       }
     }
 

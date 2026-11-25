@@ -163,6 +163,10 @@ test('runCycle at a 4h boundary evaluates the bar that just closed, inserts a ca
   const now = BAR_COUNT * FOUR_H * 1000; // ms; lands exactly on a 4h boundary
   const nowHour = BAR_COUNT * FOUR_H;
   const closedBarTs = nowHour - FOUR_H; // the bar that just closed — the bug looked for nowHour instead
+  // This test predates setup lifecycle (Task 9) and isn't testing it — trend_pullback defaults to
+  // 'trial' (shadow-only, no real position) unless explicitly marked active.
+  const { setSetupLifecycleStatus } = require('../src/data/db');
+  setSetupLifecycleStatus(db, 'paper', 'trend_pullback', 'active', 0);
 
   const result = await runCycle(db, fakeKrakenClient, 'paper', DEFAULT_RISK_CONFIG, now, { decide: takeAllTrendPullbackCandidates });
 
@@ -192,8 +196,11 @@ test('runCycle applies rangeOverrides to the candidate ranges Claude sees, for t
   const config = {
     ...DEFAULT_RISK_CONFIG,
   };
+  // This test predates setup lifecycle (Task 9) and isn't testing it — trend_pullback defaults to
+  // 'trial' (never reaches decide()) unless explicitly marked active.
+  const { insertConfigVersion, approveConfigVersion, setSetupLifecycleStatus } = require('../src/data/db');
+  setSetupLifecycleStatus(db, 'paper', 'trend_pullback', 'active', 0);
   // Insert an active config version with a rangeOverride on trend_pullback's stopAtr before the cycle runs.
-  const { insertConfigVersion, approveConfigVersion } = require('../src/data/db');
   const id = insertConfigVersion(db, {
     mode: 'paper',
     configJson: { riskLevel: 'normal', disabledSetups: [], rangeOverrides: { trend_pullback: { stopAtr: [2.0, 2.0] } } },
@@ -212,4 +219,70 @@ test('runCycle applies rangeOverrides to the candidate ranges Claude sees, for t
 
   assert.ok(seenRanges, 'expected a trend_pullback candidate for BTC to reach decide()');
   assert.deepEqual(seenRanges.stopAtr, [2.0, 2.0]);
+});
+
+test('runCycle never sends a trial-setup candidate to decide(), but still records it and opens a shadow position — while a DIFFERENT active setup in the same regime still reaches decide() normally', async () => {
+  const db = openDb(':memory:');
+  const fakeKrakenClient = seedTrendUpWithPullback(db);
+  const now = BAR_COUNT * FOUR_H * 1000;
+  // trend_pullback starts life as 'trial' by default (no row in setup_lifecycle) — don't set anything.
+  // trend_breakout shares the same trend_up regime as trend_pullback — explicitly mark it active,
+  // so this test proves the lifecycle filter is per-setup, not a blanket "regime has a trial setup" effect.
+  const { setSetupLifecycleStatus } = require('../src/data/db');
+  setSetupLifecycleStatus(db, 'paper', 'trend_breakout', 'active', 0);
+
+  let sawTrialCandidate = false;
+  let sawActiveCandidate = false;
+  const decideSpy = async (input) => {
+    if (input.candidates.some((c) => c.setup === 'trend_pullback')) sawTrialCandidate = true;
+    if (input.candidates.some((c) => c.setup === 'trend_breakout')) sawActiveCandidate = true;
+    return { decisions: [], positionActions: [], setupToggles: [], marketNote: '', plainNote: null, fallback: false };
+  };
+
+  await runCycle(db, fakeKrakenClient, 'paper', DEFAULT_RISK_CONFIG, now, { decide: decideSpy });
+
+  assert.equal(sawTrialCandidate, false, 'a trial setup must never reach decide()');
+  const { getCandidatesByTs } = require('../src/data/db');
+  const nowHour = BAR_COUNT * FOUR_H;
+  const candidates = getCandidatesByTs(db, 'paper', nowHour);
+  assert.ok(candidates.some((c) => c.coin === 'BTC' && c.setup === 'trend_pullback'), 'trial candidate must still be recorded');
+  const state = loadSchedulerState(db, 'paper');
+  assert.ok(state.shadowPositions.some((p) => p.coin === 'BTC' && p.setup === 'trend_pullback'), 'shadow position must still open for the trial setup');
+  assert.equal(state.openPositions.length, 0, 'a trial setup must never open a real paper position');
+  // trend_breakout's own trigger conditions aren't guaranteed to fire on this fixture (it's built
+  // for trend_pullback's pullback shape) — only assert the leak direction that matters here: if it
+  // DID produce a candidate, that candidate must have reached decide() like any active setup's does.
+  if (candidates.some((c) => c.setup === 'trend_breakout')) {
+    assert.equal(sawActiveCandidate, true, 'an active setup\'s candidate must still reach decide() even when a sibling setup in the same regime is trial');
+  }
+});
+
+test('runCycle excludes an auto_off setup from evaluation entirely — no candidate, no shadow', async () => {
+  const db = openDb(':memory:');
+  const fakeKrakenClient = seedTrendUpWithPullback(db);
+  const now = BAR_COUNT * FOUR_H * 1000;
+  const { setSetupLifecycleStatus } = require('../src/data/db');
+  setSetupLifecycleStatus(db, 'paper', 'trend_pullback', 'auto_off', 0);
+
+  await runCycle(db, fakeKrakenClient, 'paper', DEFAULT_RISK_CONFIG, now, { decide: takeAllTrendPullbackCandidates });
+
+  const { getCandidatesByTs } = require('../src/data/db');
+  const nowHour = BAR_COUNT * FOUR_H;
+  const candidates = getCandidatesByTs(db, 'paper', nowHour);
+  assert.equal(candidates.filter((c) => c.setup === 'trend_pullback').length, 0);
+});
+
+test('runCycle flips an active setup to auto_off once its last 30 trades average below -0.2R', async () => {
+  const db = openDb(':memory:');
+  const fakeKrakenClient = seedTrendUpWithPullback(db);
+  const now = BAR_COUNT * FOUR_H * 1000;
+  const { setSetupLifecycleStatus, insertTrade, getSetupLifecycle } = require('../src/data/db');
+  setSetupLifecycleStatus(db, 'paper', 'trend_pullback', 'active', 0);
+  for (let i = 0; i < 30; i += 1) {
+    insertTrade(db, { mode: 'paper', coin: 'BTC', setup: 'trend_pullback', entryTs: i * 3600, exitTs: i * 3600 + 60, entryPrice: 100, exitPrice: 95, units: 1, riskAmount: 5, pnl: -1.5, r: -0.3, exitReason: 'stop' });
+  }
+
+  await runCycle(db, fakeKrakenClient, 'paper', DEFAULT_RISK_CONFIG, now, { decide: takeAllTrendPullbackCandidates });
+
+  assert.equal(getSetupLifecycle(db, 'paper', 'trend_pullback').status, 'auto_off');
 });
