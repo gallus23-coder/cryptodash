@@ -103,7 +103,7 @@ async function runCycle(db, krakenClient, mode, config = DEFAULT_RISK_CONFIG, no
 
     for (const position of [...state.openPositions]) {
       const data = coinData[position.coin];
-      const candles1hSlice = data.candles1h.filter((c) => c.ts > position.entryTs && c.ts <= nowHour);
+      const candles1hSlice = paperBroker.candlesSinceEntry(data.candles1h, position.entryTs, nowHour);
       const exit = await broker.evaluateExit(
         position,
         { candles1h: candles1hSlice, ema20By4hTs: data.ema20By4hTs, nowTs: nowHour, pair: COIN_ALTNAMES[position.coin] },

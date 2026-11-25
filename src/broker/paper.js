@@ -3,6 +3,16 @@ const { sizePosition, checkFeeViability, checkGuardrails } = require('../engine/
 
 const DEFAULT_FEES = { makerPct: 0.0025, takerPct: 0.0040 };
 const DEFAULT_SLIPPAGE_PCT = 0.0005;
+const FOUR_H = 4 * 3600;
+
+// Candles are keyed by bucket START (src/data/candles.js) and a candidate's entry fills at
+// that bar's CLOSE — i.e. entryTs + FOUR_H, not entryTs itself. Every hourly candle inside the
+// entry bar (ts in [entryTs, entryTs + FOUR_H)) happened strictly before the fill, so none of
+// them can be used to evaluate an exit — using them would let a stop/target from before the
+// position existed close it out.
+function candlesSinceEntry(candles1h, entryTs, uptoTs) {
+  return candles1h.filter((c) => c.ts >= entryTs + FOUR_H && c.ts <= uptoTs);
+}
 
 function fillEntry({ candidate, sizing, fees = DEFAULT_FEES, slippagePct = DEFAULT_SLIPPAGE_PCT }) {
   const fillPrice = candidate.entry * (1 + slippagePct);
@@ -20,15 +30,20 @@ function evaluateExit(position, { candles1h, ema20By4hTs }) {
   let highestHigh = position.entryPrice;
 
   for (const candle of candles1h) {
-    if (position.exitType === 'trailing_stop') {
-      highestHigh = Math.max(highestHigh, candle.high);
-    }
+    // Check the stop using the trailing peak carried in from EARLIER candles only — never this
+    // candle's own high. An hourly candle's OHLC doesn't say whether its high or its low came
+    // first, so using this candle's high to raise the stop and then checking that same candle's
+    // low against the raised level assumes a same-bar ordering that may not have happened.
     const currentStopPrice = position.exitType === 'trailing_stop'
       ? Math.max(position.initialStopPrice, highestHigh - position.trailAtr * position.atrAtEntry)
       : position.initialStopPrice;
 
     if (candle.low <= currentStopPrice) {
       return { exitTs: candle.ts, exitPrice: currentStopPrice, reason: 'stop' };
+    }
+
+    if (position.exitType === 'trailing_stop') {
+      highestHigh = Math.max(highestHigh, candle.high);
     }
 
     if (position.exitType === 'target_or_time') {
@@ -78,7 +93,7 @@ function tryOpenPosition(state, candidate, data, i, config) {
   );
   if (!gate.allowed) return;
 
-  const fill = fillEntry({ candidate, sizing });
+  const fill = fillEntry({ candidate, sizing, fees: config.fees, slippagePct: config.slippagePct });
   const position = {
     coin: candidate.coin, setup: candidate.setup, entryTs: barTs, candidateId: candidate.id,
     entryPrice: fill.fillPrice, units: sizing.units, riskAmount: sizing.riskAmount,
@@ -96,7 +111,7 @@ function tryOpenPosition(state, candidate, data, i, config) {
 
 function closePosition(state, position, exit, config) {
   const stakeValue = position.units * position.entryPrice;
-  const fill = fillExit({ exitPrice: exit.exitPrice, stakeValue });
+  const fill = fillExit({ exitPrice: exit.exitPrice, stakeValue, fees: config.fees, slippagePct: config.slippagePct });
   const pnl = (fill.fillPrice - position.entryPrice) * position.units - position.entryFee - fill.feeAmount;
   const r = pnl / position.riskAmount;
 
@@ -107,4 +122,4 @@ function closePosition(state, position, exit, config) {
   state.closedTrades.push({ ...position, exitTs: exit.exitTs, exitPrice: fill.fillPrice, pnl, r, exitReason: exit.reason });
 }
 
-module.exports = { fillEntry, fillExit, evaluateExit, tryOpenPosition, closePosition, DEFAULT_FEES, DEFAULT_SLIPPAGE_PCT };
+module.exports = { fillEntry, fillExit, evaluateExit, tryOpenPosition, closePosition, candlesSinceEntry, DEFAULT_FEES, DEFAULT_SLIPPAGE_PCT };

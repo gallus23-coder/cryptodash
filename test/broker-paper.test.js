@@ -45,14 +45,15 @@ function trailingPosition(overrides = {}) {
 test('trailing_stop ratchets the stop up as price makes new highs, never loosens', () => {
   const position = trailingPosition();
   const candles1h = [
-    { ts: 3600, high: 110, low: 108, close: 109 },  // highestHigh=110, trail=95, stop=max(90,95)=95
-    { ts: 7200, high: 130, low: 125, close: 128 },  // highestHigh=130, trail=115, stop=max(90,115)=115
-    { ts: 10800, high: 131, low: 114, close: 116 }, // highestHigh=131, trail=116, stop=116 -> low 114 <= 116, exit
+    { ts: 3600, high: 110, low: 108, close: 109 },  // stop checked at entry's highestHigh=100 (85,floor 90); low 108 holds; highestHigh -> 110
+    { ts: 7200, high: 130, low: 125, close: 128 },  // stop checked at highestHigh=110 (95); low 125 holds; highestHigh -> 130
+    { ts: 10800, high: 131, low: 114, close: 116 }, // stop checked at highestHigh=130 (trail=115) -> low 114 <= 115, exit at 115
+                                                     // (this candle's own high of 131 is never used — it would only raise the stop for a LATER candle)
   ];
 
   const result = evaluateExit(position, { candles1h, ema20By4hTs: new Map() });
 
-  assert.deepEqual(result, { exitTs: 10800, exitPrice: 116, reason: 'stop' });
+  assert.deepEqual(result, { exitTs: 10800, exitPrice: 115, reason: 'stop' });
 });
 
 test('trailing_stop exits at the fixed initial stop if price never rallies', () => {
@@ -65,6 +66,20 @@ test('trailing_stop exits at the fixed initial stop if price never rallies', () 
   const result = evaluateExit(position, { candles1h, ema20By4hTs: new Map() });
 
   assert.deepEqual(result, { exitTs: 7200, exitPrice: 90, reason: 'stop' });
+});
+
+test('trailing_stop does not use a candle\'s OWN high to raise the stop level checked against that SAME candle\'s low (no same-bar look-ahead)', () => {
+  const position = trailingPosition(); // entryPrice=100, initialStopPrice=90, trail distance=15
+  // Using this candle's own high (130) to raise the stop to 130-15=115 would make low=95 breach
+  // it — but that higher stop level was only reachable within this bar if the high happened
+  // before the low, which can't be assumed from an hourly candle's OHLC alone. The stop in
+  // effect ENTERING this candle is still based on the prior highestHigh (entryPrice=100, so
+  // trail=85, floor=90) — low=95 is above that, so this must stay open.
+  const candles1h = [{ ts: 3600, high: 130, low: 95, close: 120 }];
+
+  const result = evaluateExit(position, { candles1h, ema20By4hTs: new Map() });
+
+  assert.equal(result, null, "must not exit using a stop level only reachable via this same candle's own high");
 });
 
 test('trailing_stop returns null (stays open) if neither the trail nor the initial stop is touched', () => {
@@ -156,4 +171,72 @@ const { tryOpenPosition: tryOpenPositionFromPaper } = require('../src/broker/pap
 
 test('tryOpenPosition and closePosition live in broker/paper.js directly (not just re-exported from backtest/run.js)', () => {
   assert.equal(typeof tryOpenPositionFromPaper, 'function');
+});
+
+const { candlesSinceEntry } = require('../src/broker/paper');
+const FOUR_H = 4 * 3600;
+
+test('candlesSinceEntry excludes every hourly candle inside the entry bar itself — the position did not exist until that bar closed', () => {
+  // Candles are keyed by bucket START (src/data/candles.js convention). A position entered
+  // using entryTs=0's CLOSE (which happens at ts=FOUR_H, not at ts=0) must never see the
+  // hourly candles at ts=0, 3600, 7200, 10800 — those are the entry bar's own hours, all of
+  // which occurred strictly before the fill.
+  const entryTs = 0;
+  const candles1h = [
+    { ts: 0, high: 200, low: 50, close: 100 },     // entry bar, hour 0 — must be excluded
+    { ts: 3600, high: 200, low: 50, close: 105 },  // entry bar, hour 1 — must be excluded
+    { ts: 7200, high: 200, low: 50, close: 110 },  // entry bar, hour 2 — must be excluded
+    { ts: 10800, high: 200, low: 50, close: 115 }, // entry bar, hour 3 (closes the bar) — must be excluded
+    { ts: 14400, high: 120, low: 110, close: 118 }, // first hour of the NEXT bar — first eligible candle
+  ];
+
+  const result = candlesSinceEntry(candles1h, entryTs, 100000);
+
+  assert.deepEqual(result.map((c) => c.ts), [14400]);
+});
+
+test('candlesSinceEntry respects the upper bound (uptoTs)', () => {
+  const entryTs = 0;
+  const candles1h = [
+    { ts: 14400, high: 120, low: 110, close: 118 },
+    { ts: 18000, high: 125, low: 115, close: 120 },
+  ];
+
+  const result = candlesSinceEntry(candles1h, entryTs, 14400);
+
+  assert.deepEqual(result.map((c) => c.ts), [14400]);
+});
+
+const { tryOpenPosition: tryOpenPositionForFees, closePosition: closePositionForFees } = require('../src/broker/paper');
+
+function baseState() { return { balance: 1000, dailyPnl: 0, openPositions: [], cooldowns: {}, closedTrades: [] }; }
+function baseConfig() {
+  return { baseRiskPct: 0.005, maxOpenPositions: 3, maxTotalRiskPct: 0.015, maxCoinExposurePct: 0.20, maxTotalExposurePct: 0.60, cooldownHours: 6, roundTripFeePct: 0.01 };
+}
+function baseCandidate() {
+  return { coin: 'BTC', setup: 'trend_breakout', entry: 100, atr: 10, default: { action: 'take', size: 1, stopAtr: 1 }, exitType: 'trailing_stop' };
+}
+const minimalData = { candles4h: [{ ts: 0, close: 100 }], indicators: { bollinger20: { middle: [null] } } };
+
+test('tryOpenPosition/closePosition use the existing DEFAULT_FEES/DEFAULT_SLIPPAGE_PCT when config has no fee override — unchanged from before', () => {
+  const state = baseState();
+  tryOpenPositionForFees(state, baseCandidate(), minimalData, 0, baseConfig());
+  const position = state.openPositions[0];
+
+  assert.equal(position.entryPrice, 100 * (1 + DEFAULT_SLIPPAGE_PCT));
+  assert.equal(position.entryFee, (position.units * 100) * DEFAULT_FEES.makerPct);
+});
+
+test('tryOpenPosition/closePosition honor a custom fees/slippagePct on config, for simulating a different fee tier', () => {
+  const state = baseState();
+  const config = { ...baseConfig(), fees: { makerPct: 0.004, takerPct: 0.008 }, slippagePct: 0.001 };
+  tryOpenPositionForFees(state, baseCandidate(), minimalData, 0, config);
+  const position = state.openPositions[0];
+
+  assert.equal(position.entryPrice, 100 * 1.001);
+  assert.equal(position.entryFee, (position.units * 100) * 0.004);
+
+  closePositionForFees(state, position, { exitTs: 3600, exitPrice: 100, reason: 'stop' }, config);
+  const trade = state.closedTrades[0];
+  assert.equal(trade.exitPrice, 100 * (1 - 0.001));
 });

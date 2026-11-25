@@ -35,7 +35,7 @@ const { computeRegimeSeries } = require('../engine/regime');
 const { isDailyLossLimitHit, isKillSwitchTriggered } = require('../engine/risk');
 const { SETUPS, SETUPS_BY_REGIME } = require('../engine/playbook');
 const { DEFAULT_RISK_CONFIG, COINS } = require('../engine/config');
-const { evaluateExit, tryOpenPosition, closePosition } = require('../broker/paper');
+const { evaluateExit, tryOpenPosition, closePosition, candlesSinceEntry } = require('../broker/paper');
 const { computeExpectancy, computeDrawdown } = require('./stats');
 const { resolveSetupParams } = require('../engine/setupParams');
 
@@ -102,7 +102,7 @@ function runBacktest(db, config = DEFAULT_RISK_CONFIG, fromTs = 0, setupsByRegim
 
     for (const position of [...state.openPositions]) {
       const data = coinData[position.coin];
-      const candles1hSlice = data.candles1h.filter((c) => c.ts > position.entryTs && c.ts <= ts + FOUR_H - HOUR);
+      const candles1hSlice = candlesSinceEntry(data.candles1h, position.entryTs, ts + FOUR_H - HOUR);
       const exit = evaluateExit(position, { candles1h: candles1hSlice, ema20By4hTs: data.ema20By4hTs });
       if (exit) closePosition(state, position, exit, config);
     }
